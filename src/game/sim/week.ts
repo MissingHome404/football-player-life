@@ -324,15 +324,20 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     w = r.world;
     for (const h of r.honours) {
       const league = w.leagues.find((l) => l.id === h.leagueId)!;
-      const mine = player.contract && w.clubs.find((c) => c.id === player.contract!.clubId)?.leagueId === league.id;
-      if (!mine && league.countryId !== player.nationalityId) continue;
+      const leagueOf = (id: string) => w.clubs.find((c) => c.id === id)?.leagueId;
+      const mine = !!player.contract && leagueOf(player.contract.clubId) === league.id;
+      // hanya liga tempatmu bermain musim ini (atau liga negaramu kalau masih amatir)
+      const homeAmateur = !player.contract && league.countryId === player.nationalityId;
+      const rows = career.stats.filter(
+        (x) => x.season === h.season && (x.clubId ? leagueOf(x.clubId) === league.id : homeAmateur),
+      );
+      if (!mine && !homeAmateur && !rows.some((x) => x.apps > 0)) continue;
       const name = (id: string) => w.clubs.find((c) => c.id === id)!.name;
       let body = `${name(h.championId)} juara ${league.name} musim ${h.season}, ${name(h.runnerUpId)} di posisi kedua.`;
       if (mine) {
         const pos = standings(finished[league.id]).findIndex((r) => r.clubId === player.contract!.clubId) + 1;
         body += ` ${name(player.contract!.clubId)} finis di posisi ke-${pos}.`;
       }
-      const rows = career.stats.filter((x) => x.season === h.season);
       const apps = rows.reduce((a, x) => a + x.apps, 0);
       if (apps) {
         const goals = rows.reduce((a, x) => a + x.goals, 0);

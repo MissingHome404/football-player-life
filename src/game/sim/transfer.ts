@@ -61,6 +61,9 @@ export function hireAgent(career: Career, p: Player, tier: AgentTier, seed: stri
   return { ...career, agent: { tier, name, fee: AGENT_INFO[tier].fee, since: career.currentDate } };
 }
 
+/** Setelah tanda tangan kontrak, klub lain menunggu sekitar 5 bulan sebelum menawar */
+export const SETTLE_DAYS = 150;
+
 /** Bursa transfer: musim panas 15 Jun - 31 Agu, Januari sebulan penuh */
 export function transferWindow(date: string): { open: boolean; label: string; until: string } {
   const y = yearOf(date);
@@ -261,10 +264,12 @@ export function contractWeek(world: World, career: Career, p: Player, rng: Rng) 
     const outgrown = club ? clamp((p.ca - (clubStrengths(world).get(club.id)?.senior ?? p.ca) - 5) / 40, 0, 0.25) : 0;
     let chance = 0.15 + outgrown + (agent?.chance ?? 0) + (career.listed ? 0.2 : 0) + (!p.contract ? 0.25 : 0);
     if (career.injury) chance *= 0.3;
+    // bursa Januari: klub jarang belanja di tengah musim
+    if (date.slice(5, 7) === '01') chance *= 0.4;
 
-    // klub tidak melepas pemain yang baru tanda tangan kontrak (setahun),
+    // klub tidak melepas pemain yang baru tanda tangan kontrak (sekitar 5 bulan),
     // kecuali pemainnya sendiri minta dijual
-    const settled = !!career.signed && career.signed > addDays(date, -365) && !career.listed;
+    const settled = !!career.signed && career.signed > addDays(date, -SETTLE_DAYS) && !career.listed;
 
     // pinjaman yang diminta
     if (career.wantsLoan && p.contract && club && rng.chance(0.5)) {

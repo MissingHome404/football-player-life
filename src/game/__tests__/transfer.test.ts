@@ -71,7 +71,7 @@ describe('transfer dan kontrak', () => {
     expect(r.career.rel.clubId).toBe(o.clubId);
     expect(r.career.rel.manager!.staffId).toBe(newClub.managerId);
     expect(r.career.rel.fans[p.contract!.clubId]).toBeLessThan(0);
-    // setelah pindah: tidak ada tawaran klub lain selama setahun
+    // setelah pindah: tidak ada tawaran klub lain di sisa bursa ini
     const me2 = structuredClone(me);
     const c2 = structuredClone(r.career);
     waitForOffer(r.world, c2, me2, 8);

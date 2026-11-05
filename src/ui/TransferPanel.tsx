@@ -10,7 +10,7 @@ import { addDays } from '../game/date';
 import { fullName } from '../game/gen/names';
 import { groupOf } from '../game/sim/match';
 import { squadOf } from '../game/sim/season';
-import { AGENT_INFO, agentAvailable, marketValue, transferWindow } from '../game/sim/transfer';
+import { AGENT_INFO, SETTLE_DAYS, agentAvailable, marketValue, transferWindow } from '../game/sim/transfer';
 import type { AgentTier, Offer, PlayingStyle } from '../game/types';
 
 const TYPE_LABEL: Record<Offer['type'], string> = {
@@ -53,7 +53,7 @@ export function TransferPanel() {
   const parent = career.loan ? idx.clubById.get(career.loan.parentClubId) : undefined;
   const agent = career.agent;
   const agentRank = agent ? TIERS.indexOf(agent.tier) : -1;
-  const settledUntil = career.signed && addDays(career.signed, 365) > date ? addDays(career.signed, 365) : null;
+  const settledUntil = career.signed && addDays(career.signed, SETTLE_DAYS) > date ? addDays(career.signed, SETTLE_DAYS) : null;
 
   return (
     <section className="panel transfer">
@@ -176,7 +176,7 @@ export function TransferPanel() {
                 ? 'Kamu masuk daftar jual: tawaran lebih sering datang saat bursa buka.'
                 : settledUntil
                   ? `Kamu baru tanda tangan kontrak, jadi klub lain belum akan menawar sampai ${shortDate(settledUntil)} ${settledUntil.slice(0, 4)}, kecuali kamu minta dijual.`
-                  : 'Tawaran datang sendiri saat bursa transfer buka, tergantung reputasi, performa, dan agentmu.'}
+                  : 'Tawaran datang sendiri saat bursa transfer buka (musim panas, dan lebih jarang di bulan Januari), tergantung reputasi, performa, dan agentmu.'}
           </p>
         </div>
       )}
