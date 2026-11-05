@@ -48,6 +48,7 @@ export const PLAYABLE_COUNTRIES = LEAGUES.map((l) => l.countryId);
 export interface CharacterChoices {
   countryId?: string; // kosong = acak
   position?: Position; // kosong = acak
+  role?: string; // kosong = acak sesuai posisi
 }
 
 export interface CharacterRoll {
@@ -110,6 +111,7 @@ export function rollCharacter(world: World, choices: CharacterChoices, seed: str
     id: USER_ID,
     countryId,
     position,
+    role: choices.role,
     age,
     targetCA,
     refDate: world.startDate,

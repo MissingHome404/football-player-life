@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGame } from './store';
-import { Badge, Flag, Stars, AttrBlock, caStars, money, num } from './components';
+import { Badge, Flag, Stars, AttrBlock, RolePanel, roleHighlight, caStars, money, num } from './components';
+import { ROLES } from '../game/data/roles';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   TECHNICAL,
@@ -100,7 +101,7 @@ export function WorldBrowser() {
         <main className="main">
           {view.kind === 'league' && <LeagueView leagueId={view.leagueId} />}
           {view.kind === 'club' && <ClubView clubId={view.clubId} />}
-          {view.kind === 'player' && <PlayerView playerId={view.playerId} />}
+          {view.kind === 'player' && <PlayerView key={view.playerId} playerId={view.playerId} />}
           {view.kind === 'me' && career && <MyCareerView />}
         </main>
       </div>
@@ -348,6 +349,7 @@ function ClubView({ clubId }: { clubId: string }) {
                 <th>Neg</th>
                 <th>Umur</th>
                 <th className="hide-sm">Peran</th>
+                <th className="hide-sm">Status</th>
                 <th>Kemampuan</th>
                 <th>Potensi</th>
                 <th className="hide-sm">Gaji/minggu</th>
@@ -365,6 +367,9 @@ function ClubView({ clubId }: { clubId: string }) {
                     <Flag id={p.nationalityId} />
                   </td>
                   <td>{ageOn(p.birthDate, world.startDate)}</td>
+                  <td className="hide-sm" title={ROLES[p.preferredRole].name}>
+                    {ROLES[p.preferredRole].short}
+                  </td>
                   <td className="hide-sm muted">{p.contract?.role}</td>
                   <td>
                     <Stars value={caStars(p.ca)} />
@@ -402,6 +407,8 @@ function PlayerView({ playerId }: { playerId: string }) {
   const go = useGame((s) => s.go);
   const devMode = useGame((s) => s.devMode);
   const p = idx.playerById.get(playerId)!;
+  const [roleSel, setRoleSel] = useState(p.preferredRole);
+  const hl = roleHighlight(roleSel);
   const club: Club | undefined = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
   const age = ageOn(p.birthDate, world.startDate);
   const label = personalityLabel(p);
@@ -423,7 +430,8 @@ function PlayerView({ playerId }: { playerId: string }) {
           <div>
             <h1>{fullName(p)}</h1>
             <div className="small">
-              {POSITION_LABEL[p.mainPosition]} · {age} tahun · <Flag id={p.nationalityId} withName />
+              {POSITION_LABEL[p.mainPosition]} ({ROLES[p.preferredRole].name}) · {age} tahun ·{' '}
+              <Flag id={p.nationalityId} withName />
               {club && (
                 <>
                   {' · '}
@@ -489,16 +497,24 @@ function PlayerView({ playerId }: { playerId: string }) {
         </InfoCard>
       </div>
 
+      <RolePanel player={p} selected={roleSel} onSelect={setRoleSel} />
+
       <section className="panel attrs">
-        <AttrBlock title={isGK ? 'Goalkeeping' : 'Technical'} keys={isGK ? GOALKEEPING : TECHNICAL} values={isGK ? p.goalkeeping : p.technical} />
-        <AttrBlock title="Mental" keys={MENTAL} values={p.mental} />
+        <AttrBlock
+          title={isGK ? 'Goalkeeping' : 'Technical'}
+          keys={isGK ? GOALKEEPING : TECHNICAL}
+          values={isGK ? p.goalkeeping : p.technical}
+          hl={hl}
+        />
+        <AttrBlock title="Mental" keys={MENTAL} values={p.mental} hl={hl} />
         <div>
-          <AttrBlock title="Physical" keys={PHYSICAL} values={p.physical} />
+          <AttrBlock title="Physical" keys={PHYSICAL} values={p.physical} hl={hl} />
           {isGK && (
             <AttrBlock
               title="Technical (kiper)"
               keys={['First Touch', 'Passing']}
               values={p.technical}
+              hl={hl}
             />
           )}
         </div>
@@ -566,7 +582,7 @@ function MyCareerView() {
         Kalender mingguan, latihan, dan keuangan dibangun di tahap berikutnya. Sekarang kamu bisa melihat profilmu dan
         menjelajah dunia lewat menu kiri.
       </div>
-      <PlayerView playerId={career.playerId} />
+      <PlayerView key={career.playerId} playerId={career.playerId} />
     </div>
   );
 }

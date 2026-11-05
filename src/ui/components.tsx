@@ -1,4 +1,6 @@
-import type { Club } from '../game/types';
+import type { Club, Player } from '../game/types';
+import type { Position } from '../game/data/attributes';
+import { ROLES, POSITION_ROLES, roleRating } from '../game/data/roles';
 import { flagOf, COUNTRY_BY_ID } from '../game/data/countries';
 
 /** Logo klub otomatis: bentuk + 2 warna + inisial */
@@ -111,12 +113,30 @@ export const num = (v: number) => eur.format(v);
 // Untuk atribut ini angka rendah justru bagus
 const LOWER_IS_BETTER = new Set(['Controversy', 'Dirtiness', 'Injury Proneness']);
 
-export function AttrBlock({ title, keys, values }: { title: string; keys: readonly string[]; values: Record<string, number> }) {
+export interface Highlight {
+  key: Set<string>;
+  pref: Set<string>;
+}
+
+export function AttrBlock({
+  title,
+  keys,
+  values,
+  hl,
+}: {
+  title: string;
+  keys: readonly string[];
+  values: Record<string, number>;
+  hl?: Highlight;
+}) {
   return (
     <div className="attr-block">
       <h3>{title}</h3>
       {keys.map((k) => (
-        <div key={k} className="attr-row">
+        <div
+          key={k}
+          className={`attr-row ${hl?.key.has(k) ? 'hl-key' : hl?.pref.has(k) ? 'hl-pref' : ''}`}
+        >
           <span>{k}</span>
           <AttrValue v={values[k]} invert={LOWER_IS_BETTER.has(k)} />
         </div>
@@ -125,3 +145,68 @@ export function AttrBlock({ title, keys, values }: { title: string; keys: readon
   );
 }
 
+
+/** Semua atribut terlihat dalam satu map */
+export const allAttrs = (p: Player): Record<string, number> => ({
+  ...p.technical,
+  ...p.mental,
+  ...p.physical,
+  ...p.goalkeeping,
+});
+
+export const roleHighlight = (roleId: string): Highlight => {
+  const role = ROLES[roleId];
+  return { key: new Set(role.key), pref: new Set(role.pref) };
+};
+
+/** Daftar peran yang cocok dengan posisi pemain, dengan bintang kecocokan */
+export function RolePanel({
+  player,
+  selected,
+  onSelect,
+}: {
+  player: Player;
+  selected: string;
+  onSelect: (roleId: string) => void;
+}) {
+  const attrs = allAttrs(player);
+  const positions = (Object.entries(player.positions) as [Position, number][])
+    .filter(([pos, v]) => pos === player.mainPosition || v >= 15)
+    .sort((a, b) => b[1] - a[1])
+    .map(([pos]) => pos);
+  const ids: string[] = [];
+  for (const pos of positions) for (const id of POSITION_ROLES[pos]) if (!ids.includes(id)) ids.push(id);
+  const role = ROLES[selected];
+  return (
+    <section className="panel roles">
+      <div className="roles-head">
+        <h2>Peran</h2>
+        <span className="muted small">
+          Pilih peran untuk menyorot atributnya. <span className="lg lg-key">kunci</span>{' '}
+          <span className="lg lg-pref">pendukung</span>
+        </span>
+      </div>
+      <div className="role-chips">
+        {ids.map((id) => {
+          const r = ROLES[id];
+          const rating = roleRating(attrs, r);
+          return (
+            <button
+              key={id}
+              className={`role-chip ${id === selected ? 'sel' : ''}`}
+              onClick={() => onSelect(id)}
+              title={r.desc}
+            >
+              <span className="role-name">
+                {r.name}
+                {id === player.preferredRole && <span className="fav" title="Peran favorit"> ♥</span>}
+              </span>
+              <Stars value={rating / 4} />
+            </button>
+          );
+        })}
+      </div>
+      {role && <p className="role-desc muted">{role.desc}</p>}
+    </section>
+  );
+}

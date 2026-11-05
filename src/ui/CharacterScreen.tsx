@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useGame } from './store';
-import { AttrBlock, Badge, Flag, Stars, caStars, money } from './components';
+import { AttrBlock, Badge, Flag, RolePanel, Stars, caStars, money, roleHighlight } from './components';
+import { POSITION_ROLES, ROLES } from '../game/data/roles';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   GOALKEEPING,
@@ -41,16 +42,18 @@ export function CharacterScreen() {
   const [rolls, setRolls] = useState(1);
   const [countryId, setCountryId] = useState<string>('IDN');
   const [position, setPosition] = useState<Position | ''>('');
+  const [role, setRole] = useState('');
+  const [viewRole, setViewRole] = useState<string | null>(null);
   const [nameOverride, setNameOverride] = useState<{ first: string; last: string } | null>(null);
 
   const rolled = useMemo(
     () =>
       rollCharacter(
         world,
-        { countryId: countryId || undefined, position: position || undefined },
+        { countryId: countryId || undefined, position: position || undefined, role: role || undefined },
         seed,
       ),
-    [world, countryId, position, seed],
+    [world, countryId, position, role, seed],
   );
   const roll = nameOverride ? renameCharacter(rolled, nameOverride.first, nameOverride.last) : rolled;
   const p = roll.player;
@@ -58,6 +61,8 @@ export function CharacterScreen() {
   const label = personalityLabel(p);
   const pinfo = PERSONALITY_INFO[label];
   const isGK = p.mainPosition === 'GK';
+  const shownRole = viewRole && POSITION_ROLES[p.mainPosition].includes(viewRole) ? viewRole : p.preferredRole;
+  const hl = roleHighlight(shownRole);
   const sortedCountries = [...PLAYABLE_COUNTRIES].sort((a, b) =>
     COUNTRY_BY_ID[a].name.localeCompare(COUNTRY_BY_ID[b].name, 'id'),
   );
@@ -65,6 +70,7 @@ export function CharacterScreen() {
   const reroll = () => {
     setSeed(randomSeed());
     setRolls((r) => r + 1);
+    setViewRole(null);
   };
 
   return (
@@ -110,13 +116,41 @@ export function CharacterScreen() {
           </label>
           <label className="field">
             <span>Posisi</span>
-            <select id="char-position" value={position} onChange={(e) => setPosition(e.target.value as Position | '')}>
+            <select
+              id="char-position"
+              value={position}
+              onChange={(e) => {
+                setPosition(e.target.value as Position | '');
+                setRole('');
+                setViewRole(null);
+              }}
+            >
               <option value="">Acak</option>
               {POSITIONS.map((pos) => (
                 <option key={pos} value={pos}>
                   {pos} · {POSITION_LABEL[pos]}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Peran</span>
+            <select
+              id="char-role"
+              value={role}
+              disabled={!position}
+              onChange={(e) => {
+                setRole(e.target.value);
+                setViewRole(null);
+              }}
+            >
+              <option value="">{position ? 'Acak' : 'Pilih posisi dulu'}</option>
+              {position &&
+                POSITION_ROLES[position].map((id) => (
+                  <option key={id} value={id}>
+                    {ROLES[id].name}
+                  </option>
+                ))}
             </select>
           </label>
           <label className="field">
@@ -175,7 +209,8 @@ export function CharacterScreen() {
               <div>
                 <h1>{fullName(p) || '—'}</h1>
                 <div className="small">
-                  {roll.age} tahun · <Flag id={p.nationalityId} withName /> · {POSITION_LABEL[p.mainPosition]}
+                  {roll.age} tahun · <Flag id={p.nationalityId} withName /> · {POSITION_LABEL[p.mainPosition]} (
+                  {ROLES[p.preferredRole].name})
                 </div>
                 <div className="small">Main di: {roll.teamLabel}</div>
               </div>
@@ -253,14 +288,17 @@ export function CharacterScreen() {
             </div>
           </div>
 
+          <RolePanel player={p} selected={shownRole} onSelect={setViewRole} />
+
           <section className="panel attrs">
             <AttrBlock
               title={isGK ? 'Goalkeeping' : 'Technical'}
               keys={isGK ? GOALKEEPING : TECHNICAL}
               values={isGK ? p.goalkeeping : p.technical}
+              hl={hl}
             />
-            <AttrBlock title="Mental" keys={MENTAL} values={p.mental} />
-            <AttrBlock title="Physical" keys={PHYSICAL} values={p.physical} />
+            <AttrBlock title="Mental" keys={MENTAL} values={p.mental} hl={hl} />
+            <AttrBlock title="Physical" keys={PHYSICAL} values={p.physical} hl={hl} />
           </section>
 
           {devMode && (

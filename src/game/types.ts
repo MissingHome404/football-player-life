@@ -100,6 +100,7 @@ export interface Player extends Person {
   reputation: { home: number; world: number }; // 1-100
   contract: Contract | null;
   isYouth: boolean; // skuad U19/akademi
+  preferredRole: string; // id peran favorit (lihat data/roles.ts)
   isUser?: boolean;
 }
 

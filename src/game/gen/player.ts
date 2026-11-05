@@ -12,6 +12,7 @@ import {
 import type { Player } from '../types';
 import { clamp, type Rng } from '../rng';
 import { generateName } from './names';
+import { POSITION_ROLES, ROLES } from '../data/roles';
 
 const GK_SET = new Set<string>(GOALKEEPING);
 
@@ -79,6 +80,7 @@ export interface PlayerGenOptions {
   pa?: number; // kalau tidak diisi, dihitung dari umur
   refDate: string; // tanggal acuan umur (YYYY-MM-DD)
   isYouth?: boolean;
+  role?: string; // id peran; kosong = diacak sesuai posisi
 }
 
 function birthDateFor(rng: Rng, age: number, refDate: string): string {
@@ -117,6 +119,10 @@ export function rollPA(rng: Rng, ca: number, age: number): number {
 export function generatePlayer(rng: Rng, o: PlayerGenOptions): Player {
   const { firstName, lastName } = generateName(rng, o.countryId);
   const pos = o.position;
+  const roleId = o.role && POSITION_ROLES[pos].includes(o.role) ? o.role : rng.pick(POSITION_ROLES[pos]);
+  const role = ROLES[roleId];
+  const roleKey = new Set<string>(role.key);
+  const rolePref = new Set<string>(role.pref);
   const isGK = pos === 'GK';
   const target = clamp(o.targetCA, 1, 200);
   const baseMean = target / 11.5 + 1;
@@ -155,6 +161,9 @@ export function generatePlayer(rng: Rng, o: PlayerGenOptions): Player {
         if (a !== 'Passing' && a !== 'First Touch') v = Math.min(v, rng.int(1, 8));
       }
     }
+    // Atribut peran sedikit lebih tinggi, supaya Poacher terlihat seperti Poacher
+    if (roleKey.has(a)) v += 1.3;
+    else if (rolePref.has(a)) v += 0.5;
     raw[a] = v;
   }
   // tinggi badan memengaruhi jumping reach / aerial reach
@@ -230,6 +239,7 @@ export function generatePlayer(rng: Rng, o: PlayerGenOptions): Player {
     birthDate: birthDateFor(rng, o.age, o.refDate),
     positions,
     mainPosition: pos,
+    preferredRole: roleId,
     heightCm: height,
     weightKg: weight,
     leftFoot: leftFooted ? strong : weak,

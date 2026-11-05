@@ -159,6 +159,26 @@ input { font: inherit; }
 .side-item.me { font-weight: 700; margin-bottom: 4px; }
 .next-step { margin: -4px 0 14px; }
 
+/* peran & highlight atribut */
+.roles-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.roles-head h2 { margin: 0; }
+.role-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.role-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; text-align: left; }
+.role-chip:hover { border-color: var(--accent-2); }
+.role-chip.sel { border-color: var(--accent); background: rgba(63, 191, 127, .14); }
+.role-name { font-weight: 600; font-size: 13px; }
+.role-chip .stars { font-size: 12px; }
+.fav { color: #e8607a; }
+.role-desc { margin: 10px 0 0; max-width: 70ch; }
+.attr-row.hl-key { background: rgba(63, 191, 127, .28) !important; }
+.attr-row.hl-key { box-shadow: inset 3px 0 0 var(--accent); }
+.attr-row.hl-key > span:first-child { font-weight: 700; color: #fff; }
+.attr-row.hl-pref { background: rgba(63, 191, 127, .13) !important; box-shadow: inset 3px 0 0 rgba(63, 191, 127, .5); }
+.lg { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; color: var(--text); }
+.lg-key { background: rgba(63, 191, 127, .3); font-weight: 700; }
+.lg-pref { background: rgba(63, 191, 127, .12); }
+.field select:disabled { opacity: .5; }
+
 @media (max-width: 800px) {
   .char-grid { grid-template-columns: 1fr; }
   .char-choices { position: static; }

@@ -19,6 +19,18 @@ describe('pembuatan karakter', () => {
     }
   });
 
+  it('peran yang dipilih dipakai dan atribut kuncinya lebih tinggi', () => {
+    let keySum = 0;
+    let otherSum = 0;
+    for (let i = 0; i < 40; i++) {
+      const r = rollCharacter(w, { position: 'ST', role: 'p' }, `P${i}`);
+      expect(r.player.preferredRole).toBe('p');
+      keySum += r.player.technical.Finishing + r.player.mental['Off the Ball'];
+      otherSum += r.player.technical.Crossing + r.player.technical.Passing;
+    }
+    expect(keySum).toBeGreaterThan(otherSum);
+  });
+
   it('angka awal masuk akal', () => {
     const origins = new Set<string>();
     for (let i = 0; i < 300; i++) {
