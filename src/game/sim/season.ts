@@ -7,7 +7,7 @@ import type { Position } from '../data/attributes';
 import { GOALKEEPING, MENTAL, PHYSICAL, TECHNICAL } from '../data/attributes';
 import { Rng, clamp } from '../rng';
 import { addDays, firstSaturday, yearOf } from '../date';
-import { ageOn, computeCA, generatePlayer } from '../gen/player';
+import { ageOn, clonePlayer, computeCA, generatePlayer } from '../gen/player';
 import { SQUAD, YOUTH, clubStarterCA, foreignPoolFor, wageFor } from '../gen/world';
 
 export const seasonLabel = (year: number, startMonth: number) =>
@@ -74,22 +74,72 @@ export function topEleven(cas: number[]): number {
   return top.length ? top.reduce((s, v) => s + v, 0) / top.length : 40;
 }
 
-/** Kekuatan tim senior dan U19 setiap klub */
-export function clubStrengths(world: World) {
-  const senior = new Map<string, number[]>();
-  const youth = new Map<string, number[]>();
-  for (const p of world.players) {
-    const id = p.contract?.clubId;
-    if (!id) continue;
-    const m = p.isYouth ? youth : senior;
-    if (!m.has(id)) m.set(id, []);
-    m.get(id)!.push(p.ca);
+/** Pemain per klub. Disimpan per array pemain, jadi dihitung ulang hanya kalau dunia berubah. */
+const squadCache = new WeakMap<Player[], Map<string, Player[]>>();
+export function squadsOf(world: World): Map<string, Player[]> {
+  let m = squadCache.get(world.players);
+  if (!m) {
+    m = new Map();
+    for (const p of world.players) {
+      const id = p.contract?.clubId;
+      if (!id) continue;
+      if (!m.has(id)) m.set(id, []);
+      m.get(id)!.push(p);
+    }
+    squadCache.set(world.players, m);
   }
-  const out = new Map<string, { senior: number; youth: number }>();
-  for (const c of world.clubs) {
-    out.set(c.id, { senior: topEleven(senior.get(c.id) ?? []), youth: topEleven(youth.get(c.id) ?? []) });
+  return m;
+}
+export const squadOf = (world: World, clubId: string) => squadsOf(world).get(clubId) ?? [];
+
+/** Kekuatan tim senior dan U19 setiap klub (disimpan per array pemain) */
+const strengthCache = new WeakMap<Player[], Map<string, { senior: number; youth: number }>>();
+function strengthOf(squad: Player[]) {
+  const senior: number[] = [];
+  const youth: number[] = [];
+  for (const p of squad) (p.isYouth ? youth : senior).push(p.ca);
+  return { senior: topEleven(senior), youth: topEleven(youth) };
+}
+export function clubStrengths(world: World) {
+  let out = strengthCache.get(world.players);
+  if (!out) {
+    const squads = squadsOf(world);
+    out = new Map();
+    for (const c of world.clubs) out.set(c.id, strengthOf(squads.get(c.id) ?? []));
+    strengthCache.set(world.players, out);
   }
   return out;
+}
+
+/**
+ * Ganti satu pemain di dunia dengan salinan yang sudah diubah. Cache skuad dan kekuatan
+ * klub ikut diperbarui hanya untuk klub yang terkena, supaya minggu berikutnya tetap cepat.
+ */
+export function replacePlayer(world: World, player: Player): World {
+  const players = world.players.slice();
+  const i = players.findIndex((p) => p.id === player.id);
+  const old = players[i];
+  players[i] = player;
+  const squads = squadCache.get(world.players);
+  if (squads) {
+    const next = new Map(squads);
+    const from = old.contract?.clubId;
+    const to = player.contract?.clubId;
+    const touched = [...new Set([from, to].filter((x): x is string => !!x))];
+    if (from === to && from) {
+      next.set(from, (next.get(from) ?? []).map((p) => (p.id === player.id ? player : p)));
+    } else {
+      for (const id of touched) next.set(id, players.filter((p) => p.contract?.clubId === id));
+    }
+    squadCache.set(players, next);
+    const str = strengthCache.get(world.players);
+    if (str) {
+      const ns = new Map(str);
+      for (const id of touched) ns.set(id, strengthOf(next.get(id) ?? []));
+      strengthCache.set(players, ns);
+    }
+  }
+  return { ...world, players };
 }
 
 export interface PlayedFixture {
@@ -319,7 +369,7 @@ export function rolloverLeagues(world: World, leagueIds: string[], date: string,
     // pensiun
     const retireAge = p.mainPosition === 'GK' ? age - 2 : age;
     if (age >= 40 || (retireAge >= 30 && prng.chance(0.04 + (retireAge - 30) * 0.1))) continue;
-    const q: Player = structuredClone(p);
+    const q: Player = clonePlayer(p);
     developYear(q, age, prng);
     if (q.contract && q.contract.expires <= date) q.contract.expires = `${year + prng.int(1, 3)}-06-30`;
     kept.push(q);

@@ -17,6 +17,7 @@ import { pendingChoices, stressTarget } from '../game/sim/week';
 import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
 import { nextFixture, shortDate } from './LeagueSeason';
 import { roundDate } from '../game/sim/season';
+import { TransferPanel } from './TransferPanel';
 
 const fmtDate = (d: string, long = false) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', {
@@ -106,6 +107,7 @@ export function CareerHome({ children }: { children: ReactNode }) {
         <PlanPanel />
         <div className="home-side">
           <Inbox />
+          <TransferPanel />
           <MatchPanel />
           <ReportPanel />
         </div>
@@ -168,6 +170,7 @@ function PlanPanel() {
       ['Gaji klub', budget.wage],
       ['Kerja sampingan', budget.activity < 0 ? -budget.activity : 0],
       ['Pajak gaji (30%)', -budget.tax],
+      ['Komisi agent', -budget.agent],
       ['Biaya hidup', -budget.living],
       ['Pelatih pribadi', -budget.coaches],
       [ACTIVITY_INFO[plan.activity].label, budget.activity > 0 ? -budget.activity : 0],

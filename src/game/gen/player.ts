@@ -91,12 +91,9 @@ function birthDateFor(rng: Rng, age: number, refDate: string): string {
 }
 
 export function ageOn(birthDate: string, date: string): number {
-  const b = new Date(birthDate + 'T00:00:00Z');
-  const d = new Date(date + 'T00:00:00Z');
-  let age = d.getUTCFullYear() - b.getUTCFullYear();
-  const m = d.getUTCMonth() - b.getUTCMonth();
-  if (m < 0 || (m === 0 && d.getUTCDate() < b.getUTCDate())) age--;
-  return age;
+  // tanggal ISO (YYYY-MM-DD): bandingkan string bulan-hari, tanpa membuat objek Date
+  const age = +date.slice(0, 4) - +birthDate.slice(0, 4);
+  return date.slice(5, 10) < birthDate.slice(5, 10) ? age - 1 : age;
 }
 
 /** PA dari CA dan umur: makin muda, makin besar ruang berkembang. */
@@ -252,5 +249,21 @@ export function generatePlayer(rng: Rng, o: PlayerGenOptions): Player {
     reputation: { home: 1, world: 1 },
     contract: null,
     isYouth: !!o.isYouth,
+  };
+}
+
+/** Salinan pemain yang jauh lebih cepat dari structuredClone (dipakai saat ganti musim) */
+export function clonePlayer(p: Player): Player {
+  return {
+    ...p,
+    positions: { ...p.positions },
+    technical: { ...p.technical },
+    mental: { ...p.mental },
+    physical: { ...p.physical },
+    goalkeeping: { ...p.goalkeeping },
+    personality: { ...p.personality },
+    hidden: { ...p.hidden },
+    reputation: { ...p.reputation },
+    contract: p.contract ? { ...p.contract } : null,
   };
 }

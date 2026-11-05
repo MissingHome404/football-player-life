@@ -208,6 +208,52 @@ export interface Career {
   cooldowns: Record<string, number>; // eventId -> minggu terakhir muncul
   matches: MatchRecord[]; // pertandingan terakhir (terbaru di depan)
   stats: SeasonStat[]; // statistik semua musim
+  agent: Agent | null;
+  offers: Offer[]; // tawaran klub yang masih berlaku
+  loan: Loan | null; // sedang dipinjamkan
+  history: ClubSpell[]; // riwayat klub
+  listed: boolean; // minta dijual
+  wantsLoan: boolean; // minta dipinjamkan
+  joined: string; // tanggal bergabung dengan klub sekarang
+  renewalNoted?: string; // tanggal habis kontrak yang sudah diberi tahu "tidak diperpanjang"
+}
+
+export type AgentTier = 'lokal' | 'regional' | 'super';
+export interface Agent {
+  tier: AgentTier;
+  name: string;
+  fee: number; // potongan dari gaji dan bonus, 0-1
+  since: string;
+}
+
+export type OfferType = 'transfer' | 'bebas' | 'pinjaman' | 'perpanjangan';
+export interface Offer {
+  id: string;
+  clubId: string;
+  type: OfferType;
+  date: string;
+  expires: string; // tawaran berlaku sampai tanggal ini
+  wage: number; // per minggu
+  years: number; // durasi kontrak (0 = pinjaman sampai akhir musim)
+  until?: string; // pinjaman: tanggal kembali
+  role: SquadRole; // janji menit bermain
+  signOn: number; // bonus tanda tangan
+  fee: number; // biaya transfer yang dibayar klub (info)
+  negotiated?: boolean;
+}
+
+export interface Loan {
+  parentClubId: string;
+  parentContract: Contract;
+  until: string;
+}
+
+export interface ClubSpell {
+  clubId?: string;
+  team: string;
+  from: string;
+  to?: string;
+  kind: 'Amatir' | 'Akademi' | 'Senior' | 'Pinjaman';
 }
 
 export type TrainingFocus = 'seimbang' | 'teknik' | 'mental' | 'fisik' | 'peran' | 'istirahat';

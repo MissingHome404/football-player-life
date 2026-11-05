@@ -4,7 +4,7 @@
 import type { Position } from '../data/attributes';
 import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, SeasonStat, World } from '../types';
 import { Rng, clamp } from '../rng';
-import { simScore, topEleven, type WeekMatches } from './season';
+import { simScore, squadOf, topEleven, type WeekMatches } from './season';
 
 type Group = 'GK' | 'DEF' | 'MID' | 'ATT';
 const GROUP: Record<Position, Group> = {
@@ -92,6 +92,11 @@ function selection(rng: Rng, p: Player, teammates: Player[], career: Career): Ma
   let mine = p.ca + rng.normal(0, 5);
   if (career.fitness < 55) mine -= (55 - career.fitness) / 2;
   if (form !== null) mine += form >= 7.2 ? 4 : form <= 6.1 ? -4 : 0;
+  // janji peran di kontrak dan janji manajer setelah diprotes
+  if (p.contract?.role === 'Inti') mine += 5;
+  else if (p.contract?.role === 'Rotasi') mine += 2;
+  const promised = career.cooldowns.promise_bonus;
+  if (promised !== undefined && career.week - promised <= 8) mine += 6;
   const rank = teammates.filter((q) => GROUP[q.mainPosition] === g && q.ca + rng.normal(0, 5) > mine).length;
   if (rank < STARTERS[g]) return 'Inti';
   if (rank < STARTERS[g] + BENCH[g]) return 'Cadangan';
@@ -120,7 +125,7 @@ export function userMatch(
   rng: Rng,
 ): MatchRecord | null {
   const club: Club | undefined = p.contract ? world.clubs.find((c) => c.id === p.contract!.clubId) : undefined;
-  const squad = club ? world.players.filter((q) => q.contract?.clubId === club.id && !q.isUser) : [];
+  const squad = club ? squadOf(world, club.id).filter((q) => !q.isUser) : [];
   let comp: Competition;
   let season: string;
   let team: string;
@@ -159,7 +164,7 @@ export function userMatch(
     home = rng.chance(0.5);
     const youth = squad.filter((q) => q.isYouth);
     teamCA = topEleven(youth.map((q) => q.ca));
-    const oppCA = topEleven(world.players.filter((q) => q.contract?.clubId === opp.id && q.isYouth).map((q) => q.ca));
+    const oppCA = topEleven(squadOf(world, opp.id).filter((q) => q.isYouth).map((q) => q.ca));
     const s = home ? simScore(rng, teamCA, oppCA) : simScore(rng, oppCA, teamCA);
     score = home ? s : [s[1], s[0]];
     status = selection(rng, p, youth, career);

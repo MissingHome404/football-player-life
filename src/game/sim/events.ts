@@ -10,6 +10,8 @@ import { fullName } from '../gen/names';
 import { personalityLabel } from '../gen/personality';
 import { econOf } from './economy';
 import { recentForm } from './match';
+import { squadOf } from './season';
+import { startSpell } from './transfer';
 
 export interface EventCtx {
   world: World;
@@ -117,6 +119,8 @@ export const EVENTS: EventDef[] = [
       }
       const year = Number(c.career.currentDate.slice(0, 4));
       c.career.teamLabel = club.name;
+      c.career.joined = c.career.currentDate;
+      startSpell(c.career, { clubId: club.id, team: club.name, from: c.career.currentDate, kind: c.age >= 19 ? 'Senior' : 'Akademi' });
       addStress(c, -10);
       addRep(c, 3);
       if (c.age >= 19) {
@@ -174,6 +178,8 @@ export const EVENTS: EventDef[] = [
         role: 'Pemain muda',
       };
       addRep(c, 5);
+      c.career.joined = c.career.currentDate;
+      startSpell(c.career, { clubId: club.id, team: club.name, from: c.career.currentDate, kind: 'Senior' });
       addStress(c, -6);
       return `Resmi! Kamu sekarang pemain senior ${club.name} dengan gaji ${eur(c.player.contract.wagePerWeek)} per minggu.`;
     },
@@ -454,7 +460,6 @@ export const EVENT_BY_ID: Record<string, EventDef> = Object.fromEntries(EVENTS.m
 
 export function makeCtx(world: World, career: Career, player: Player, rng: Rng): EventCtx {
   const club = player.contract ? world.clubs.find((k) => k.id === player.contract!.clubId) : undefined;
-  const cache = new Map<string, Player[]>();
   return {
     world,
     career,
@@ -463,9 +468,6 @@ export function makeCtx(world: World, career: Career, player: Player, rng: Rng):
     rng,
     age: ageOn(player.birthDate, career.currentDate),
     econ: econOf(player.nationalityId),
-    squadOf: (clubId) => {
-      if (!cache.has(clubId)) cache.set(clubId, world.players.filter((p) => p.contract?.clubId === clubId));
-      return cache.get(clubId)!;
-    },
+    squadOf: (clubId) => squadOf(world, clubId),
   };
 }

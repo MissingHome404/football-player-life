@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { World, Player, Club, Career, WeekPlan } from '../game/types';
+import type { World, Player, Club, Career, WeekPlan, AgentTier } from '../game/types';
 import type { CharacterRoll } from '../game/gen/character';
 import type { GenerateOptions } from '../game/gen/world';
 import type { SaveSummary } from '../game/save/codec';
@@ -14,6 +14,7 @@ import {
 import { fullName } from '../game/gen/names';
 import { ageOn } from '../game/gen/player';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../game/sim/week';
+import { acceptOffer, hireAgent, negotiate, rejectOffer, type Ask } from '../game/sim/transfer';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -56,6 +57,13 @@ interface State {
   setPlan: (patch: Partial<WeekPlan>) => void;
   nextWeek: (weeks?: number) => void;
   choose: (msgId: string, choice: number) => void;
+  acceptOffer: (offerId: string) => void;
+  rejectOffer: (offerId: string) => void;
+  /** Hasilnya teks jawaban klub */
+  negotiate: (offerId: string, ask: Ask) => string;
+  hireAgent: (tier: AgentTier) => void;
+  fireAgent: () => void;
+  setWish: (patch: Partial<Pick<Career, 'listed' | 'wantsLoan'>>) => void;
 }
 
 // Kalau autosave masih berjalan, simpan sekali lagi setelah selesai
@@ -226,6 +234,45 @@ export const useGame = create<State>((set, get) => ({
     if (!world || !career) return;
     const r = resolveChoice(world, career, msgId, choice);
     set({ world: r.world, career: r.career, idx: buildIndexes(r.world) });
+    void get().saveNow();
+  },
+  acceptOffer: (offerId) => {
+    const { world, career } = get();
+    if (!world || !career) return;
+    const r = acceptOffer(world, career, offerId);
+    set({ world: r.world, career: r.career, idx: buildIndexes(r.world) });
+    void get().saveNow();
+  },
+  rejectOffer: (offerId) => {
+    const c = get().career;
+    if (!c) return;
+    set({ career: rejectOffer(c, offerId) });
+    void get().saveNow();
+  },
+  negotiate: (offerId, ask) => {
+    const { world, career } = get();
+    if (!world || !career) return '';
+    const r = negotiate(world, career, offerId, ask);
+    set({ career: r.career });
+    void get().saveNow();
+    return r.result;
+  },
+  hireAgent: (tier) => {
+    const { career, idx } = get();
+    if (!career || !idx) return;
+    set({ career: hireAgent(career, idx.playerById.get(career.playerId)!, tier, career.characterSeed) });
+    void get().saveNow();
+  },
+  fireAgent: () => {
+    const c = get().career;
+    if (!c) return;
+    set({ career: { ...c, agent: null } });
+    void get().saveNow();
+  },
+  setWish: (patch) => {
+    const c = get().career;
+    if (!c) return;
+    set({ career: { ...c, ...patch } });
     void get().saveNow();
   },
   loadSave: async (id) => {

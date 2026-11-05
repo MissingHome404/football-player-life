@@ -286,6 +286,39 @@ input { font: inherit; }
 .nm .badge { margin: 0; display: inline-block; }
 .stats td, .stats th { padding: 4px 6px; }
 
+/* kontrak & transfer */
+.tr-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.tr-head h2 { margin: 0; }
+.tr-now { display: flex; align-items: center; gap: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.tr-now .badge { flex: none; }
+.tr-now > div:nth-last-child(2) { flex: 1; min-width: 0; }
+.tr-value { text-align: right; flex: none; }
+.tr-agent, .tr-wish, .tr-offers { margin-bottom: 12px; }
+.tr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tr-actions, .offer-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tr-actions { flex-wrap: nowrap; }
+.ghost.small { padding: 5px 10px; }
+.tr-tiers { display: grid; gap: 8px; margin-top: 8px; }
+.tr-tier { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.tr-tier > b, .tr-tier > span { grid-column: 1; }
+.tr-tier > button { grid-column: 2; grid-row: 1 / span 3; }
+.tr-tier.locked > b { color: var(--muted); }
+.tr-tier .warn { margin: 0; }
+.tr-wish .chips { margin-bottom: 6px; }
+.tr-wish p { margin: 0; }
+.tr-note { background: rgba(63, 191, 127, .12); border: 1px solid var(--accent-2); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; }
+.offer { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.offer-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.offer-head .badge { flex: none; }
+.offer-title { flex: 1; min-width: 0; }
+.offer-title .link { padding: 0; font-weight: 600; font-size: 16px; text-align: left; }
+.offer-grid { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; margin: 0 0 12px; font-size: 14px; }
+.offer-grid dt { color: var(--muted); }
+.offer-grid dd { margin: 0; min-width: 0; }
+.offer-actions { margin-bottom: 6px; }
+.tr-history { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.tr-history li { display: grid; grid-template-columns: 112px 1fr auto; gap: 8px; align-items: center; font-size: 14px; }
+
 @media (max-width: 800px) {
   .char-grid { grid-template-columns: 1fr; }
   .char-choices { position: static; }
@@ -307,4 +340,6 @@ input { font: inherit; }
   .home-side { order: -1; }
   .season-grid { grid-template-columns: 1fr; }
   .coach-list { grid-template-columns: 1fr; }
+  .offer-grid { grid-template-columns: 1fr 1.4fr; }
+  .tr-history li { grid-template-columns: 96px 1fr auto; }
 }

@@ -6,6 +6,7 @@ import { SaveControls } from './SavePanel';
 import { CareerHome } from './CareerHome';
 import { ClubFixtures, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
+import { marketValue } from '../game/sim/transfer';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   TECHNICAL,
@@ -37,7 +38,7 @@ export function WorldBrowser() {
   const toggleDev = useGame((s) => s.toggleDev);
   const genMs = useGame((s) => s.genMs);
   const career = useGame((s) => s.career);
-  const pending = career ? pendingChoices(career).length : 0;
+  const pending = career ? pendingChoices(career).length + career.offers.length : 0;
   const [menuOpen, setMenuOpen] = useState(false);
 
   const currentLeague =
@@ -499,6 +500,10 @@ function PlayerView({ playerId }: { playerId: string }) {
           ) : (
             'Tanpa klub'
           )}
+        </InfoCard>
+        <InfoCard label="Nilai pasar">
+          ± {money(marketValue(p, today))}
+          <div className="muted small">perkiraan harga transfer</div>
         </InfoCard>
         <InfoCard label="Posisi lain">
           {otherPositions.length

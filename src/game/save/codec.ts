@@ -4,13 +4,13 @@
 import { TECHNICAL, MENTAL, PHYSICAL, GOALKEEPING, PERSONALITY, HIDDEN } from '../data/attributes';
 import { COUNTRIES } from '../data/countries';
 import type { Career, Player, World } from '../types';
-import { migrateCareer } from '../sim/week';
+import { careerDefaults, migrateCareer } from '../sim/week';
 import { createSeasons } from '../sim/season';
 import { Rng } from '../rng';
 
 export const SAVE_MAGIC = 'FPL-SAVE';
 // 1: tahap 4 (karier dasar). 2: tahap 5 (minggu, latihan, inbox). 3: tahap 6 (musim, pertandingan).
-export const SAVE_FORMAT = 3;
+export const SAVE_FORMAT = 4;
 
 const GROUPS = {
   technical: TECHNICAL,
@@ -101,6 +101,10 @@ export function readSaveFile(data: unknown): { file: SaveFile; world: World; car
     career = { ...career, matches: career.matches ?? [], stats: career.stats ?? [] };
     world.seasons = createSeasons(world, career.currentDate, new Rng(`${world.seed}:seasons`));
     world.honours = [];
+  }
+  if (f.format < 4) {
+    const c = me.contract;
+    career = { ...careerDefaults(career.teamLabel, c?.clubId, me.isYouth, career.currentDate), ...career };
   }
   return { file: f, world, career };
 }

@@ -58,6 +58,7 @@ export function weeklyBudget(career: Career, player: Player) {
   const fullAllowance = ALLOWANCE[career.family.wealth] * econ;
   const allowance = round(wage >= fullAllowance * 3 ? 0 : fullAllowance);
   const tax = round(wage * TAX_RATE);
+  const agent = round(wage * (career.agent?.fee ?? 0));
   const living = round(age >= 18 ? LIVING_COST * econ : 0);
   let coaches = 0;
   for (const k of Object.keys(COACH_INFO) as CoachKind[]) {
@@ -67,12 +68,13 @@ export function weeklyBudget(career: Career, player: Player) {
   // kerja sampingan hanya menghasilkan uang kalau belum digaji klub
   const activity = career.plan.activity === 'kerja' && wage > 0 ? 0 : act.cost * econ;
   const income = allowance + wage + (activity < 0 ? -activity : 0);
-  const expense = round(coaches) + (activity > 0 ? activity : 0) + tax + living;
+  const expense = round(coaches) + (activity > 0 ? activity : 0) + tax + living + agent;
   return {
     allowance,
     wage,
     tax,
     living,
+    agent,
     coaches: round(coaches),
     activity: round(activity),
     income: round(income),

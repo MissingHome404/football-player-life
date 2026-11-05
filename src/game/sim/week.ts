@@ -7,12 +7,12 @@ import type { CharacterRoll } from '../gen/character';
 import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { ageOn } from '../gen/player';
-import { wageFor } from '../gen/world';
 import { ACTIVITY_INFO, COACH_INFO, INTENSITY_INFO, econOf, weeklyBudget } from './economy';
 import { trainWeek } from './training';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
-import { playWeek, rolloverLeagues, standings } from './season';
+import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
+import { TRANSFER_EVENTS, contractWeek } from './transfer';
 
 export const DEFAULT_PLAN: WeekPlan = {
   focus: 'seimbang',
@@ -61,6 +61,20 @@ export function newCareer(roll: CharacterRoll, rerolls: number, saveId: string, 
     cooldowns: {},
     matches: [],
     stats: [],
+    ...careerDefaults(base.teamLabel, roll.clubId ?? undefined, !!roll.clubId, startDate),
+  };
+}
+
+/** Field karier untuk transfer/kontrak (tahap 7) */
+export function careerDefaults(team: string, clubId: string | undefined, academy: boolean, date: string) {
+  return {
+    agent: null,
+    offers: [],
+    loan: null,
+    history: [{ clubId, team, from: date, kind: clubId ? (academy ? 'Akademi' : 'Senior') : 'Amatir' } as const],
+    listed: false,
+    wantsLoan: false,
+    joined: date,
   };
 }
 
@@ -77,6 +91,7 @@ export function migrateCareer(c: Partial<Career> & Pick<Career, 'teamLabel' | 'c
     cooldowns: {},
     matches: [],
     stats: [],
+    ...careerDefaults(c.teamLabel, undefined, false, c.currentDate),
     ...c,
   } as Career;
 }
@@ -95,12 +110,7 @@ const INJURIES: [name: string, min: number, max: number, weight: number][] = [
 ];
 
 /** Ganti pemain kita di dunia dengan salinan yang sudah diubah */
-function withPlayer(world: World, player: Player): World {
-  const players = world.players.slice();
-  const i = players.findIndex((p) => p.id === player.id);
-  players[i] = player;
-  return { ...world, players };
-}
+const withPlayer = replacePlayer;
 
 /**
  * Titik yang dituju stres kalau rencana dan keadaan tidak berubah.
@@ -289,38 +299,6 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     });
   }
 
-  // Kontrak habis: untuk sekarang diperpanjang otomatis (bursa transfer menyusul).
-  // Pemain akademi yang sudah 19 tahun naik ke skuad senior sebagai pelapis.
-  if (player.contract && club && player.contract.expires <= career.currentDate) {
-    const year = Number(career.currentDate.slice(0, 4));
-    if (player.isYouth && ageNow >= 19) {
-      const league = world.leagues.find((l) => l.id === club.leagueId)!;
-      player.isYouth = false;
-      player.contract = {
-        clubId: club.id,
-        wagePerWeek: Math.round(wageFor(player.ca, league, club.reputation) * 0.6),
-        expires: `${year + 2}-06-30`,
-        role: 'Pelapis',
-      };
-      career.inbox.unshift({
-        id: `w${career.week}-promoted`,
-        date: career.currentDate,
-        from: club.name,
-        title: 'Naik ke skuad senior',
-        body: `Kamu sudah terlalu tua untuk tim U19. ${club.name} memberimu kontrak senior sebagai pemain pelapis sampai ${player.contract.expires}, gaji €${player.contract.wagePerWeek.toLocaleString('id-ID')} per minggu.`,
-      });
-    } else {
-      player.contract.expires = `${year + (player.isYouth ? 1 : 2)}-06-30`;
-      career.inbox.unshift({
-        id: `w${career.week}-renew`,
-        date: career.currentDate,
-        from: club.name,
-        title: 'Kontrak diperpanjang',
-        body: `${club.name} memperpanjang kontrakmu sampai ${player.contract.expires}.`,
-      });
-    }
-  }
-
   // Musim liga yang selesai minggu ini: juara, pemain AI berkembang/pensiun, jadwal baru
   w = withPlayer(w, player);
   if (week.finished.length) {
@@ -354,6 +332,10 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       });
     }
   }
+
+  // Kontrak, tawaran klub, pinjaman
+  contractWeek(w, career, player, rng.fork('contract'));
+  w = withPlayer(w, player);
 
   // 8. Event inbox
   const ctx = makeCtx(w, career, player, rng);
@@ -402,7 +384,7 @@ export function resolveChoice(world: World, prev: Career, msgId: string, choice:
   const career: Career = structuredClone(prev);
   const msg = career.inbox.find((m) => m.id === msgId);
   if (!msg || !msg.choices || msg.chosen !== undefined) return { world, career: prev };
-  const def = msg.eventId ? EVENT_BY_ID[msg.eventId] : undefined;
+  const def = msg.eventId ? (EVENT_BY_ID[msg.eventId] ?? TRANSFER_EVENTS[msg.eventId]) : undefined;
   const player: Player = structuredClone(world.players.find((p) => p.id === career.playerId)!);
   const rng = new Rng(`${career.characterSeed}:w${career.week}:${msgId}:${choice}`);
   const ctx = makeCtx(world, career, player, rng);
