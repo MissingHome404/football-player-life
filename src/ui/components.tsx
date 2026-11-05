@@ -107,3 +107,21 @@ export const money = (v: number) => {
   return `€${eur.format(v)}`;
 };
 export const num = (v: number) => eur.format(v);
+
+// Untuk atribut ini angka rendah justru bagus
+const LOWER_IS_BETTER = new Set(['Controversy', 'Dirtiness', 'Injury Proneness']);
+
+export function AttrBlock({ title, keys, values }: { title: string; keys: readonly string[]; values: Record<string, number> }) {
+  return (
+    <div className="attr-block">
+      <h3>{title}</h3>
+      {keys.map((k) => (
+        <div key={k} className="attr-row">
+          <span>{k}</span>
+          <AttrValue v={values[k]} invert={LOWER_IS_BETTER.has(k)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+

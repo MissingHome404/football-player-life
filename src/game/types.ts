@@ -11,6 +11,7 @@ import type {
   HiddenAttr,
   Position,
 } from './data/attributes';
+import type { Origin, FamilyWealth } from './gen/character';
 
 export type Confederation = 'UEFA' | 'AFC' | 'CONMEBOL' | 'CAF' | 'CONCACAF';
 
@@ -123,4 +124,18 @@ export interface World {
   clubs: Club[];
   players: Player[];
   staff: Staff[];
+}
+
+/** Karier pemain kita (data yang nanti disimpan di save) */
+export interface Career {
+  characterSeed: string;
+  rerolls: number;
+  playerId: string;
+  origin: Origin;
+  family: { wealth: FamilyWealth; support: number };
+  money: number; // EUR
+  stress: number; // 0-100
+  teamLabel: string; // tim tempat main sekarang (bisa tim amatir)
+  scoutPA: [number, number];
+  currentDate: string;
 }

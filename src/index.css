@@ -131,7 +131,37 @@ input { font: inherit; }
 .dev-note { align-self: end; }
 .flag { white-space: nowrap; }
 
+/* pembuatan karakter */
+.char { max-width: 1240px; }
+.char-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.char-head p { max-width: 62ch; margin: 6px 0 0; }
+.char-head-actions { display: flex; gap: 10px; align-items: center; }
+.char-grid { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+.char-choices { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 16px; }
+.char-choices h2 { margin-bottom: 2px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.field select, .field input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+.char-choices .link { align-self: flex-start; padding: 0; }
+.roll-box { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.roll-btn { flex: 1; background: var(--panel-2); border: 1px solid var(--accent-2); border-radius: 8px; padding: 10px; font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+.roll-btn:hover { background: #2a3040; }
+.primary.wide { width: 100%; }
+.char-result { min-width: 0; animation: rolled .35s ease-out; }
+@keyframes rolled { from { opacity: .3; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .char-result { animation: none; } }
+.no-club { width: 64px; height: 64px; display: grid; place-items: center; font-size: 36px; background: rgba(255,255,255,.08); border-radius: 50%; }
+.stress { height: 8px; background: #2a2f3f; border-radius: 4px; overflow: hidden; margin: 6px 0 2px; }
+.stress-fill { height: 100%; background: var(--accent); }
+.stress-fill.mid { background: #e0b03f; }
+.stress-fill.hi { background: #d9534f; }
+.life { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+.life .link { padding: 0; font-weight: 600; font-size: 15px; }
+.side-item.me { font-weight: 700; margin-bottom: 4px; }
+.next-step { margin: -4px 0 14px; }
+
 @media (max-width: 800px) {
+  .char-grid { grid-template-columns: 1fr; }
+  .char-choices { position: static; }
   .menu-btn { display: inline-block; }
   .top-meta, .brand { display: none; }
   .topbar { justify-content: space-between; }

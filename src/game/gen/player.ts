@@ -138,15 +138,17 @@ export function generatePlayer(rng: Rng, o: PlayerGenOptions): Player {
     if (!isGK && GK_SET.has(a)) {
       v = rng.int(1, 4); // pemain lapangan tidak bisa jadi kiper
     } else {
-      const offset = w >= 4 ? 2.2 : w >= 3 ? 1.2 : w >= 2 ? 0.4 : w >= 1 ? -0.6 : -2;
-      v = baseMean + offset + rng.normal(0, 1.6);
+      // Pemain level rendah punya sebaran atribut lebih rata (tidak banyak angka 1-3)
+      const spread = clamp(baseMean / 10, 0.45, 1);
+      const offset = (w >= 4 ? 2.2 : w >= 3 ? 1.2 : w >= 2 ? 0.4 : w >= 1 ? -0.6 : -2) * spread;
+      v = baseMean + offset + rng.normal(0, 0.9 + 0.7 * spread);
       // umur memengaruhi fisik dan mental
       if ((PHYSICAL as readonly string[]).includes(a)) {
-        if (o.age <= 18) v -= 1.2;
+        if (o.age <= 18) v -= 0.8;
         if (o.age >= 31) v -= (o.age - 30) * 0.5;
       }
       if ((MENTAL as readonly string[]).includes(a)) {
-        if (o.age <= 19) v -= 1.2;
+        if (o.age <= 19) v -= 0.8;
         if (o.age >= 29) v += 0.8;
       }
       if (isGK && !GK_SET.has(a) && (TECHNICAL as readonly string[]).includes(a)) {

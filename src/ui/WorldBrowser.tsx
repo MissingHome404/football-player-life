@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useGame } from './store';
-import { Badge, Flag, Stars, AttrValue, caStars, money, num } from './components';
+import { Badge, Flag, Stars, AttrBlock, caStars, money, num } from './components';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   TECHNICAL,
@@ -16,6 +16,7 @@ import {
 import { ageOn } from '../game/gen/player';
 import { fullName, shortName } from '../game/gen/names';
 import { personalityLabel, PERSONALITY_INFO } from '../game/gen/personality';
+import { ORIGIN_INFO, FAMILY_INFO } from '../game/gen/character';
 import type { Club, League, Player } from '../game/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -31,6 +32,7 @@ export function WorldBrowser() {
   const devMode = useGame((s) => s.devMode);
   const toggleDev = useGame((s) => s.toggleDev);
   const genMs = useGame((s) => s.genMs);
+  const career = useGame((s) => s.career);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const currentLeague =
@@ -79,6 +81,17 @@ export function WorldBrowser() {
       </header>
       <div className="layout">
         <nav className={`sidebar ${menuOpen ? 'open' : ''}`}>
+          {career && (
+            <button
+              className={`side-item me ${view.kind === 'me' ? 'sel' : ''}`}
+              onClick={() => {
+                go({ kind: 'me' });
+                setMenuOpen(false);
+              }}
+            >
+              ⭐ Karier saya
+            </button>
+          )}
           <div className="side-title">Eropa</div>
           {europe.map(leagueLink)}
           <div className="side-title">Asia</div>
@@ -88,6 +101,7 @@ export function WorldBrowser() {
           {view.kind === 'league' && <LeagueView leagueId={view.leagueId} />}
           {view.kind === 'club' && <ClubView clubId={view.clubId} />}
           {view.kind === 'player' && <PlayerView playerId={view.playerId} />}
+          {view.kind === 'me' && career && <MyCareerView />}
         </main>
       </div>
     </div>
@@ -381,25 +395,9 @@ function InfoCard({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-// Untuk atribut ini angka rendah justru bagus
-const LOWER_IS_BETTER = new Set(['Controversy', 'Dirtiness', 'Injury Proneness']);
-
-function AttrBlock({ title, keys, values }: { title: string; keys: readonly string[]; values: Record<string, number> }) {
-  return (
-    <div className="attr-block">
-      <h3>{title}</h3>
-      {keys.map((k) => (
-        <div key={k} className="attr-row">
-          <span>{k}</span>
-          <AttrValue v={values[k]} invert={LOWER_IS_BETTER.has(k)} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function PlayerView({ playerId }: { playerId: string }) {
   const world = useGame((s) => s.world)!;
+  const career = useGame((s) => s.career);
   const idx = useGame((s) => s.idx)!;
   const go = useGame((s) => s.go);
   const devMode = useGame((s) => s.devMode);
@@ -445,7 +443,14 @@ function PlayerView({ playerId }: { playerId: string }) {
           {devMode && <div className="muted small">CA {p.ca}</div>}
         </InfoCard>
         <InfoCard label="Perkiraan potensi">
-          <Stars value={caStars(p.pa)} />
+          {p.isUser && career ? (
+            <>
+              <Stars value={caStars(career.scoutPA[0])} /> <span className="muted">s/d</span>{' '}
+              <Stars value={caStars(career.scoutPA[1])} />
+            </>
+          ) : (
+            <Stars value={caStars(p.pa)} />
+          )}
           {devMode && <div className="muted small">PA {p.pa}</div>}
         </InfoCard>
         <InfoCard label="Personality">
@@ -509,6 +514,59 @@ function PlayerView({ playerId }: { playerId: string }) {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+function MyCareerView() {
+  const career = useGame((s) => s.career)!;
+  const idx = useGame((s) => s.idx)!;
+  const go = useGame((s) => s.go);
+  const p = idx.playerById.get(career.playerId)!;
+  const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
+  return (
+    <div>
+      <section className="panel life">
+        <div className="life-item">
+          <div className="muted small">Tanggal</div>
+          <b>{new Date(career.currentDate + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</b>
+        </div>
+        <div className="life-item">
+          <div className="muted small">Uang</div>
+          <b>{money(career.money)}</b>
+        </div>
+        <div className="life-item">
+          <div className="muted small">Stres</div>
+          <div className="stress">
+            <div
+              className={`stress-fill ${career.stress >= 70 ? 'hi' : career.stress >= 40 ? 'mid' : ''}`}
+              style={{ width: `${career.stress}%` }}
+            />
+          </div>
+          <span className="muted small">{career.stress} / 100</span>
+        </div>
+        <div className="life-item">
+          <div className="muted small">Tim sekarang</div>
+          {club ? (
+            <button className="link" onClick={() => go({ kind: 'club', clubId: club.id })}>
+              {club.name}
+            </button>
+          ) : (
+            <b>{career.teamLabel}</b>
+          )}
+        </div>
+        <div className="life-item">
+          <div className="muted small">Asal · Keluarga</div>
+          <b>
+            {ORIGIN_INFO[career.origin].label} · {FAMILY_INFO[career.family.wealth].label}
+          </b>
+        </div>
+      </section>
+      <div className="next-step muted small">
+        Kalender mingguan, latihan, dan keuangan dibangun di tahap berikutnya. Sekarang kamu bisa melihat profilmu dan
+        menjelajah dunia lewat menu kiri.
+      </div>
+      <PlayerView playerId={career.playerId} />
     </div>
   );
 }

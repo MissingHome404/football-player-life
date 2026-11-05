@@ -1,11 +1,13 @@
 import { create } from 'zustand';
-import type { World, Player, Club } from '../game/types';
+import type { World, Player, Club, Career } from '../game/types';
+import type { CharacterRoll } from '../game/gen/character';
 import type { GenerateOptions } from '../game/gen/world';
 
 export type View =
   | { kind: 'league'; leagueId: string }
   | { kind: 'club'; clubId: string }
-  | { kind: 'player'; playerId: string };
+  | { kind: 'player'; playerId: string }
+  | { kind: 'me' };
 
 interface Indexes {
   clubById: Map<string, Club>;
@@ -21,6 +23,8 @@ interface State {
   view: View | null;
   history: View[];
   devMode: boolean;
+  career: Career | null;
+  startCareer: (roll: CharacterRoll, rerolls: number) => void;
   generate: (opts: GenerateOptions) => void;
   go: (v: View) => void;
   back: () => void;
@@ -49,6 +53,30 @@ export const useGame = create<State>((set, get) => ({
   view: null,
   history: [],
   devMode: false,
+  career: null,
+  startCareer: (roll, rerolls) => {
+    const w = get().world!;
+    const world: World = { ...w, players: [...w.players.filter((p) => !p.isUser), roll.player] };
+    set({
+      world,
+      idx: buildIndexes(world),
+      career: {
+        characterSeed: roll.seed,
+        rerolls,
+        playerId: roll.player.id,
+        origin: roll.origin,
+        family: roll.family,
+        money: roll.money,
+        stress: roll.stress,
+        teamLabel: roll.teamLabel,
+        scoutPA: roll.scoutPA,
+        currentDate: world.startDate,
+      },
+      view: { kind: 'me' },
+      history: [],
+    });
+    window.scrollTo(0, 0);
+  },
   generate: (opts) => {
     set({ generating: true });
     const done = (w: World, ms: number) => {
@@ -60,6 +88,7 @@ export const useGame = create<State>((set, get) => ({
         generating: false,
         view: { kind: 'league', leagueId: first.id },
         history: [],
+        career: null,
       });
       window.scrollTo(0, 0);
     };
@@ -95,6 +124,6 @@ export const useGame = create<State>((set, get) => ({
     if (!h.length) return;
     set({ view: h[h.length - 1], history: h.slice(0, -1) });
   },
-  reset: () => set({ world: null, idx: null, view: null, history: [] }),
+  reset: () => set({ world: null, idx: null, view: null, history: [], career: null }),
   toggleDev: () => set({ devMode: !get().devMode }),
 }));
