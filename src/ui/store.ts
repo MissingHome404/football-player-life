@@ -51,22 +51,39 @@ export const useGame = create<State>((set, get) => ({
   devMode: false,
   generate: (opts) => {
     set({ generating: true });
-    const worker = new Worker(new URL('../game/worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e: MessageEvent<{ world: World; ms: number }>) => {
-      const w = e.data.world;
+    const done = (w: World, ms: number) => {
       const first = w.leagues.find((l) => l.active) ?? w.leagues[0];
       set({
         world: w,
         idx: buildIndexes(w),
-        genMs: e.data.ms,
+        genMs: ms,
         generating: false,
         view: { kind: 'league', leagueId: first.id },
         history: [],
       });
       window.scrollTo(0, 0);
-      worker.terminate();
     };
-    worker.postMessage(opts);
+    // Cadangan kalau Web Worker tidak tersedia: generate di thread utama
+    const fallback = async () => {
+      const { generateWorld } = await import('../game/gen/world');
+      const t = performance.now();
+      const w = generateWorld(opts);
+      done(w, Math.round(performance.now() - t));
+    };
+    try {
+      const worker = new Worker(new URL('../game/worker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (e: MessageEvent<{ world: World; ms: number }>) => {
+        done(e.data.world, e.data.ms);
+        worker.terminate();
+      };
+      worker.onerror = () => {
+        worker.terminate();
+        void fallback();
+      };
+      worker.postMessage(opts);
+    } catch {
+      void fallback();
+    }
   },
   go: (v) => {
     const cur = get().view;
