@@ -194,6 +194,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   const plan = career.plan;
   const resting = plan.focus === 'istirahat';
 
+  if (plan.activity === 'kencan' && !career.rel.partner) plan.activity = 'rumah';
+
   // 1. Uang. Kalau tidak cukup, pelatih pribadi dan kegiatan berbayar dibatalkan.
   let budget = weeklyBudget(career, player);
   if (career.money + budget.net < 0) {

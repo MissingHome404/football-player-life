@@ -222,7 +222,9 @@ function PlanPanel() {
         <h3>Di luar latihan</h3>
         <Chips<Activity>
           label="Kegiatan di luar latihan"
-          options={(Object.keys(ACTIVITY_INFO) as Activity[]).map((k) => [k, ACTIVITY_INFO[k].label])}
+          options={(Object.keys(ACTIVITY_INFO) as Activity[])
+            .filter((k) => k !== 'kencan' || career.rel.partner)
+            .map((k) => [k, ACTIVITY_INFO[k].label])}
           value={plan.activity}
           onChange={(activity) => setPlan({ activity })}
           disabled={(v) => v === 'kerja' && hasWage}

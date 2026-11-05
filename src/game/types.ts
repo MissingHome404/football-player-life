@@ -285,7 +285,7 @@ export interface ClubSpell {
 
 export type TrainingFocus = 'seimbang' | 'teknik' | 'mental' | 'fisik' | 'peran' | 'istirahat';
 export type Intensity = 'ringan' | 'normal' | 'berat';
-export type Activity = 'rumah' | 'keluarga' | 'nongkrong' | 'pesta' | 'video' | 'kerja';
+export type Activity = 'rumah' | 'keluarga' | 'nongkrong' | 'kencan' | 'pesta' | 'video' | 'kerja';
 export type CoachKind = 'teknik' | 'fisik' | 'mental' | 'psikolog';
 
 export interface WeekPlan {

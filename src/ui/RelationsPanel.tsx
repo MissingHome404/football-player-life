@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useGame } from './store';
 import { fullName } from '../game/gen/names';
-import { relLabel } from '../game/sim/relations';
+import { partnerWeekly, relLabel } from '../game/sim/relations';
 import type { MateTag } from '../game/types';
 
 const TAG: Record<MateTag, string> = { sahabat: 'Sahabat', mentor: 'Mentor', rival: 'Rival posisi' };
@@ -52,6 +52,7 @@ export function RelationsPanel() {
   const here = rel.mates.filter((m) => m.clubId === rel.clubId);
   const away = rel.mates.filter((m) => m.clubId !== rel.clubId);
   const oldFans = Object.entries(rel.fans).filter(([id]) => id !== rel.clubId);
+  const weekly = partnerWeekly(career);
 
   return (
     <section className="panel relations">
@@ -64,7 +65,14 @@ export function RelationsPanel() {
         <Row title="Media" v={rel.media} />
         <Row title="Keluarga" sub={`Dukungan ${career.family.support}/20`} v={family} />
         {rel.partner ? (
-          <Row title={rel.partner.name} sub={STAGE[rel.partner.stage]} v={rel.partner.value} />
+          <>
+            <Row title={rel.partner.name} sub={STAGE[rel.partner.stage]} v={rel.partner.value} />
+            <li className={`small rel-hint ${weekly > 0 ? 'gain' : 'loss'}`}>
+              Dengan rencana minggu ini: {weekly > 0 ? '+' : ''}
+              {weekly.toFixed(1)} per minggu.
+              {career.plan.activity !== 'kencan' && ' Pilih kegiatan Kencan supaya relasi naik cepat.'}
+            </li>
+          </>
         ) : (
           <li className="rel-row muted small">Belum punya pasangan.</li>
         )}
@@ -105,8 +113,8 @@ export function RelationsPanel() {
         </>
       )}
       <p className="muted small rel-tip">
-        Manajer menilai performa dan sikapmu, dan relasi yang baik membuatmu lebih sering dimainkan. Pasangan butuh waktu: pilih
-        kegiatan keluarga atau nongkrong.
+        Manajer menilai performa dan sikapmu, dan relasi yang baik membuatmu lebih sering dimainkan. Pasangan butuh waktu: tanpa
+        kencan, relasinya pelan-pelan turun.
       </p>
     </section>
   );

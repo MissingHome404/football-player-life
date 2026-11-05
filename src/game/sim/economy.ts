@@ -30,6 +30,13 @@ export const ACTIVITY_INFO: Record<
   rumah: { label: 'Santai di rumah', desc: 'Gratis, badan pulih sedikit.', cost: 0, stress: -2, fitness: 3 },
   keluarga: { label: 'Waktu bersama keluarga', desc: 'Stres turun, dukungan keluarga bisa naik.', cost: 5, stress: -8, fitness: 0 },
   nongkrong: { label: 'Nongkrong dengan teman', desc: 'Stres turun lumayan.', cost: 15, stress: -10, fitness: 0 },
+  kencan: {
+    label: 'Kencan',
+    desc: 'Makan malam atau jalan-jalan berdua dengan pasangan. Cara paling cepat menaikkan relasi pasangan.',
+    cost: 30,
+    stress: -10,
+    fitness: 0,
+  },
   pesta: { label: 'Pesta', desc: 'Stres turun drastis, tapi mahal, bikin capek, dan bisa jadi kebiasaan buruk.', cost: 80, stress: -20, fitness: -10 },
   video: { label: 'Analisis video sendiri', desc: 'Atribut mental berkembang lebih cepat, sedikit menambah stres.', cost: 0, stress: 5, fitness: 0 },
   kerja: { label: 'Kerja sampingan', desc: 'Dapat uang, tapi capek dan latihan kurang maksimal. Hanya kalau belum digaji klub.', cost: -45, stress: 10, fitness: -5 },

@@ -253,8 +253,7 @@ export function relationsWeek(world: World, career: Career, p: Player, match: Ma
   // Pasangan: butuh waktu dan perhatian
   const partner = rel.partner;
   if (partner) {
-    const act = { keluarga: 2.5, nongkrong: 1, rumah: 1, pesta: -2, video: 0, kerja: -1 }[plan.activity];
-    partner.value = bound(partner.value + act - 1.5 - (career.stress > 75 ? 1 : 0) + (partner.stage === 'menikah' ? 0.5 : 0));
+    partner.value = bound(partner.value + partnerWeekly(career));
     if (partner.value <= -40) {
       career.stress = clamp(career.stress + 12, 0, 100);
       career.inbox.unshift({
@@ -285,6 +284,23 @@ export function relationsWeek(world: World, career: Career, p: Player, match: Ma
   rel.media = bound(rel.media * 0.98);
   if (club && rel.fans[club.id] !== undefined) rel.fans[club.id] = bound(rel.fans[club.id] * 0.995);
   return world;
+}
+
+const PARTNER_ACT: Record<Career['plan']['activity'], number> = {
+  kencan: 8,
+  keluarga: 3,
+  rumah: 1,
+  nongkrong: 0,
+  video: 0,
+  kerja: -1,
+  pesta: -2,
+};
+
+/** Perubahan relasi pasangan per minggu dengan rencana sekarang */
+export function partnerWeekly(career: Career): number {
+  const p = career.rel.partner;
+  if (!p) return 0;
+  return PARTNER_ACT[career.plan.activity] - 1.5 - (career.stress > 75 ? 1 : 0) + (p.stage === 'menikah' ? 0.5 : 0);
 }
 
 /** Bagian stres dari relasi (dipakai stressTarget) */
@@ -620,7 +636,7 @@ export const RELATION_EVENTS: EventDef[] = [
       const d = c.career.currentDate;
       c.career.rel.partner = { name: String(msg.data!.name), since: d, value: 35, stage: 'pacaran', stageSince: d };
       c.career.stress = clamp(c.career.stress - 4, 0, 100);
-      return `Kamu dan ${msg.data!.name} resmi pacaran. Luangkan waktu untuknya (kegiatan keluarga atau nongkrong).`;
+      return `Kamu dan ${msg.data!.name} resmi pacaran. Pilih kegiatan Kencan di rencana mingguan supaya hubungan kalian makin dekat.`;
     },
   },
   {
@@ -636,7 +652,7 @@ export const RELATION_EVENTS: EventDef[] = [
         eventId: 'partner_attention',
         choices: [
           { label: 'Ajak liburan singkat', hint: `Biaya sekitar €${Math.round(250 * c.econ).toLocaleString('id-ID')}` },
-          { label: 'Ngobrol baik-baik', hint: 'Sedikit membantu' },
+          { label: 'Ngobrol baik-baik', hint: 'Sedikit membantu (lanjutkan dengan Kencan tiap minggu)' },
           { label: 'Putus', hint: 'Hubungan berakhir' },
         ],
       };
