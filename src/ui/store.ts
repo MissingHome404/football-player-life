@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { World, Player, Club, Career } from '../game/types';
+import type { World, Player, Club, Career, WeekPlan } from '../game/types';
 import type { CharacterRoll } from '../game/gen/character';
 import type { GenerateOptions } from '../game/gen/world';
 import type { SaveSummary } from '../game/save/codec';
@@ -13,6 +13,7 @@ import {
 } from '../game/save/storage';
 import { fullName } from '../game/gen/names';
 import { ageOn } from '../game/gen/player';
+import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../game/sim/week';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -52,7 +53,14 @@ interface State {
   exportSave: (id?: string) => Promise<void>;
   importSave: (file: File) => Promise<void>;
   clearMessage: () => void;
+  setPlan: (patch: Partial<WeekPlan>) => void;
+  nextWeek: (weeks?: number) => void;
+  choose: (msgId: string, choice: number) => void;
 }
+
+// Kalau autosave masih berjalan, simpan sekali lagi setelah selesai
+let saving = false;
+let saveAgain = false;
 
 function summaryOf(career: Career, idx: Indexes): SaveSummary {
   const p = idx.playerById.get(career.playerId)!;
@@ -100,19 +108,7 @@ export const useGame = create<State>((set, get) => ({
     set({
       world,
       idx: buildIndexes(world),
-      career: {
-        saveId: newSaveId(),
-        characterSeed: roll.seed,
-        rerolls,
-        playerId: roll.player.id,
-        origin: roll.origin,
-        family: roll.family,
-        money: roll.money,
-        stress: roll.stress,
-        teamLabel: roll.teamLabel,
-        scoutPA: roll.scoutPA,
-        currentDate: world.startDate,
-      },
+      career: newCareer(roll, rerolls, newSaveId(), world.startDate),
       view: { kind: 'me' },
       history: [],
     });
@@ -175,20 +171,62 @@ export const useGame = create<State>((set, get) => ({
   busy: null,
   clearMessage: () => set({ message: null }),
   saveNow: async () => {
-    const { world, career, idx } = get();
-    if (!world || !career || !idx) return;
-    set({ saveStatus: 'saving' });
+    if (saving) {
+      saveAgain = true;
+      return;
+    }
+    saving = true;
     try {
-      const summary = summaryOf(career, idx);
-      const { bytes, savedAt } = await encodeSave(world, career, summary);
-      await writeSave({ id: career.saveId, savedAt, summary, data: bytes });
-      set({ saveStatus: 'saved', lastSavedAt: savedAt });
+      do {
+        saveAgain = false;
+        const { world, career, idx } = get();
+        if (!world || !career || !idx) return;
+        set({ saveStatus: 'saving' });
+        const summary = summaryOf(career, idx);
+        const { bytes, savedAt } = await encodeSave(world, career, summary);
+        await writeSave({ id: career.saveId, savedAt, summary, data: bytes });
+        set({ saveStatus: 'saved', lastSavedAt: savedAt });
+      } while (saveAgain);
     } catch (e) {
       set({
         saveStatus: 'error',
         message: `Gagal menyimpan di browser: ${e instanceof Error ? e.message : e}. Gunakan Ekspor file supaya kariermu tetap aman.`,
       });
+    } finally {
+      saving = false;
     }
+  },
+  setPlan: (patch) => {
+    const c = get().career;
+    if (!c) return;
+    set({ career: { ...c, plan: { ...c.plan, ...patch, coaches: { ...c.plan.coaches, ...patch.coaches } } } });
+  },
+  nextWeek: (weeks = 1) => {
+    let { world, career } = get();
+    if (!world || !career) return;
+    try {
+      for (let i = 0; i < weeks; i++) {
+        if (pendingChoices(career).length) break;
+        const injured = !!career.injury;
+        const r = advanceWeek(world, career);
+        world = r.world;
+        career = r.career;
+        // berhenti lebih awal kalau ada kejadian penting
+        if (pendingChoices(career).length || (!injured && career.injury)) break;
+      }
+    } catch (e) {
+      set({ message: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    set({ world, career, idx: buildIndexes(world) });
+    void get().saveNow();
+  },
+  choose: (msgId, choice) => {
+    const { world, career } = get();
+    if (!world || !career) return;
+    const r = resolveChoice(world, career, msgId, choice);
+    set({ world: r.world, career: r.career, idx: buildIndexes(r.world) });
+    void get().saveNow();
   },
   loadSave: async (id) => {
     set({ busy: 'Memuat karier…', message: null });
@@ -246,3 +284,6 @@ export const useGame = create<State>((set, get) => ({
     }
   },
 }));
+
+/** Tanggal game sekarang (tanggal karier, atau tanggal awal dunia) */
+export const useToday = () => useGame((s) => s.career?.currentDate ?? s.world?.startDate ?? '2026-07-01');

@@ -140,4 +140,58 @@ export interface Career {
   teamLabel: string; // tim tempat main sekarang (bisa tim amatir)
   scoutPA: [number, number];
   currentDate: string;
+  week: number; // jumlah minggu yang sudah dijalani
+  fitness: number; // kebugaran 0-100
+  injury: Injury | null;
+  plan: WeekPlan;
+  progress: Record<string, number>; // akumulasi latihan per atribut (naik 1 saat >= 1)
+  inbox: Message[];
+  lastReport: WeekReport | null;
+  cooldowns: Record<string, number>; // eventId -> minggu terakhir muncul
+}
+
+export type TrainingFocus = 'seimbang' | 'teknik' | 'mental' | 'fisik' | 'peran' | 'istirahat';
+export type Intensity = 'ringan' | 'normal' | 'berat';
+export type Activity = 'rumah' | 'keluarga' | 'nongkrong' | 'pesta' | 'video' | 'kerja';
+export type CoachKind = 'teknik' | 'fisik' | 'mental' | 'psikolog';
+
+export interface WeekPlan {
+  focus: TrainingFocus;
+  intensity: Intensity;
+  activity: Activity;
+  coaches: Record<CoachKind, boolean>;
+}
+
+export interface Injury {
+  name: string;
+  weeksLeft: number;
+}
+
+export interface MessageChoice {
+  label: string;
+  hint?: string; // perkiraan efek
+}
+
+export interface Message {
+  id: string;
+  date: string;
+  from: string;
+  title: string;
+  body: string;
+  eventId?: string;
+  data?: Record<string, string | number>; // konteks event (mis. id klub)
+  choices?: MessageChoice[];
+  chosen?: number; // pilihan yang diambil
+  result?: string; // teks hasil setelah memilih
+}
+
+export interface WeekReport {
+  date: string;
+  attrChanges: Record<string, number>;
+  caBefore: number;
+  caAfter: number;
+  moneyDelta: number;
+  stressDelta: number;
+  fitness: number;
+  notes: string[];
 }

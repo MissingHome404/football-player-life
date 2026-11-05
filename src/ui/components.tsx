@@ -123,11 +123,13 @@ export function AttrBlock({
   keys,
   values,
   hl,
+  changes,
 }: {
   title: string;
   keys: readonly string[];
   values: Record<string, number>;
   hl?: Highlight;
+  changes?: Record<string, number>; // atribut yang naik minggu lalu
 }) {
   return (
     <div className="attr-block">
@@ -138,7 +140,14 @@ export function AttrBlock({
           className={`attr-row ${hl?.key.has(k) ? 'hl-key' : hl?.pref.has(k) ? 'hl-pref' : ''}`}
         >
           <span>{k}</span>
-          <AttrValue v={values[k]} invert={LOWER_IS_BETTER.has(k)} />
+          <span className="attr-cell">
+            {changes?.[k] ? (
+              <span className="attr-up" title={`Naik ${changes[k]} minggu lalu`}>
+                ▲
+              </span>
+            ) : null}
+            <AttrValue v={values[k]} invert={LOWER_IS_BETTER.has(k)} />
+          </span>
         </div>
       ))}
     </div>

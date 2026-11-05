@@ -37,7 +37,7 @@ export const FAMILY_INFO: Record<FamilyWealth, { label: string; desc: string }> 
 };
 
 // Kekuatan ekonomi negara, untuk uang awal keluarga
-const ECONOMY: Record<string, number> = {
+export const ECONOMY: Record<string, number> = {
   ENG: 1, GER: 1, NED: 1, BEL: 1, DEN: 1, NOR: 1.2, FRA: 0.95, ITA: 0.85, ESP: 0.8, AUS: 1,
   QAT: 1.3, UAE: 1.2, KSA: 0.9, JPN: 0.85, KOR: 0.8, CYP: 0.7, POR: 0.55, CZE: 0.55, GRE: 0.45,
   POL: 0.5, TUR: 0.35, MAS: 0.3, THA: 0.2, IRN: 0.15, UZB: 0.1, IDN: 0.12,

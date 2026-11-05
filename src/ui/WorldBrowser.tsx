@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
-import { useGame } from './store';
+import { useGame, useToday } from './store';
 import { Badge, Flag, Stars, AttrBlock, RolePanel, roleHighlight, caStars, money, num } from './components';
 import { ROLES } from '../game/data/roles';
 import { SaveControls } from './SavePanel';
+import { CareerHome } from './CareerHome';
+import { pendingChoices } from '../game/sim/week';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   TECHNICAL,
@@ -18,7 +20,6 @@ import {
 import { ageOn } from '../game/gen/player';
 import { fullName, shortName } from '../game/gen/names';
 import { personalityLabel, PERSONALITY_INFO } from '../game/gen/personality';
-import { ORIGIN_INFO, FAMILY_INFO } from '../game/gen/character';
 import type { Club, League, Player } from '../game/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -35,6 +36,7 @@ export function WorldBrowser() {
   const toggleDev = useGame((s) => s.toggleDev);
   const genMs = useGame((s) => s.genMs);
   const career = useGame((s) => s.career);
+  const pending = career ? pendingChoices(career).length : 0;
   const [menuOpen, setMenuOpen] = useState(false);
 
   const currentLeague =
@@ -94,6 +96,7 @@ export function WorldBrowser() {
               }}
             >
               ⭐ Karier saya
+              {pending > 0 && <span className="count">{pending}</span>}
             </button>
           )}
           <div className="side-title">Eropa</div>
@@ -123,6 +126,7 @@ function squadStrength(squad: Player[]): number {
 
 function LeagueView({ leagueId }: { leagueId: string }) {
   const world = useGame((s) => s.world)!;
+  const today = useToday();
   const idx = useGame((s) => s.idx)!;
   const go = useGame((s) => s.go);
   const devMode = useGame((s) => s.devMode);
@@ -143,10 +147,10 @@ function LeagueView({ leagueId }: { leagueId: string }) {
     () =>
       clubs
         .flatMap((c) => idx.squadByClub.get(c.id) ?? [])
-        .filter((p) => ageOn(p.birthDate, world.startDate) <= 20)
+        .filter((p) => ageOn(p.birthDate, today) <= 20)
         .sort((a, b) => b.pa - a.pa)
         .slice(0, 10),
-    [clubs, idx, world.startDate],
+    [clubs, idx, today],
   );
 
   return (
@@ -247,7 +251,7 @@ function PlayerList({
   potential?: boolean;
 }) {
   const idx = useGame((s) => s.idx)!;
-  const world = useGame((s) => s.world)!;
+  const today = useToday();
   const go = useGame((s) => s.go);
   const devMode = useGame((s) => s.devMode);
   return (
@@ -259,7 +263,7 @@ function PlayerList({
             <span className="pos">{p.mainPosition}</span>
             <Flag id={p.nationalityId} />
             <span className="pname">{shortName(p)}</span>
-            <span className="muted small">{ageOn(p.birthDate, world.startDate)} th</span>
+            <span className="muted small">{ageOn(p.birthDate, today)} th</span>
             {showClub && club && (
               <span className="pclub">
                 <Badge club={club} size={18} />
@@ -278,6 +282,7 @@ function PlayerList({
 
 function ClubView({ clubId }: { clubId: string }) {
   const world = useGame((s) => s.world)!;
+  const today = useToday();
   const idx = useGame((s) => s.idx)!;
   const go = useGame((s) => s.go);
   const devMode = useGame((s) => s.devMode);
@@ -369,7 +374,7 @@ function ClubView({ clubId }: { clubId: string }) {
                   <td>
                     <Flag id={p.nationalityId} />
                   </td>
-                  <td>{ageOn(p.birthDate, world.startDate)}</td>
+                  <td>{ageOn(p.birthDate, today)}</td>
                   <td className="hide-sm" title={ROLES[p.preferredRole].name}>
                     {ROLES[p.preferredRole].short}
                   </td>
@@ -404,7 +409,7 @@ function InfoCard({ label, children }: { label: string; children: React.ReactNod
 }
 
 function PlayerView({ playerId }: { playerId: string }) {
-  const world = useGame((s) => s.world)!;
+  const today = useToday();
   const career = useGame((s) => s.career);
   const idx = useGame((s) => s.idx)!;
   const go = useGame((s) => s.go);
@@ -412,8 +417,9 @@ function PlayerView({ playerId }: { playerId: string }) {
   const p = idx.playerById.get(playerId)!;
   const [roleSel, setRoleSel] = useState(p.preferredRole);
   const hl = roleHighlight(roleSel);
+  const changes = p.isUser ? career?.lastReport?.attrChanges : undefined;
   const club: Club | undefined = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
-  const age = ageOn(p.birthDate, world.startDate);
+  const age = ageOn(p.birthDate, today);
   const label = personalityLabel(p);
   const info = PERSONALITY_INFO[label];
   const isGK = p.mainPosition === 'GK';
@@ -508,16 +514,18 @@ function PlayerView({ playerId }: { playerId: string }) {
           keys={isGK ? GOALKEEPING : TECHNICAL}
           values={isGK ? p.goalkeeping : p.technical}
           hl={hl}
+          changes={changes}
         />
-        <AttrBlock title="Mental" keys={MENTAL} values={p.mental} hl={hl} />
+        <AttrBlock title="Mental" keys={MENTAL} values={p.mental} hl={hl} changes={changes} />
         <div>
-          <AttrBlock title="Physical" keys={PHYSICAL} values={p.physical} hl={hl} />
+          <AttrBlock title="Physical" keys={PHYSICAL} values={p.physical} hl={hl} changes={changes} />
           {isGK && (
             <AttrBlock
               title="Technical (kiper)"
               keys={['First Touch', 'Passing']}
               values={p.technical}
               hl={hl}
+              changes={changes}
             />
           )}
         </div>
@@ -539,53 +547,9 @@ function PlayerView({ playerId }: { playerId: string }) {
 
 function MyCareerView() {
   const career = useGame((s) => s.career)!;
-  const idx = useGame((s) => s.idx)!;
-  const go = useGame((s) => s.go);
-  const p = idx.playerById.get(career.playerId)!;
-  const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
   return (
-    <div>
-      <section className="panel life">
-        <div className="life-item">
-          <div className="muted small">Tanggal</div>
-          <b>{new Date(career.currentDate + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</b>
-        </div>
-        <div className="life-item">
-          <div className="muted small">Uang</div>
-          <b>{money(career.money)}</b>
-        </div>
-        <div className="life-item">
-          <div className="muted small">Stres</div>
-          <div className="stress">
-            <div
-              className={`stress-fill ${career.stress >= 70 ? 'hi' : career.stress >= 40 ? 'mid' : ''}`}
-              style={{ width: `${career.stress}%` }}
-            />
-          </div>
-          <span className="muted small">{career.stress} / 100</span>
-        </div>
-        <div className="life-item">
-          <div className="muted small">Tim sekarang</div>
-          {club ? (
-            <button className="link" onClick={() => go({ kind: 'club', clubId: club.id })}>
-              {club.name}
-            </button>
-          ) : (
-            <b>{career.teamLabel}</b>
-          )}
-        </div>
-        <div className="life-item">
-          <div className="muted small">Asal · Keluarga</div>
-          <b>
-            {ORIGIN_INFO[career.origin].label} · {FAMILY_INFO[career.family.wealth].label}
-          </b>
-        </div>
-      </section>
-      <div className="next-step muted small">
-        Kalender mingguan, latihan, dan keuangan dibangun di tahap berikutnya. Sekarang kamu bisa melihat profilmu dan
-        menjelajah dunia lewat menu kiri.
-      </div>
+    <CareerHome>
       <PlayerView key={career.playerId} playerId={career.playerId} />
-    </div>
+    </CareerHome>
   );
 }

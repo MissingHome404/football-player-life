@@ -4,9 +4,11 @@
 import { TECHNICAL, MENTAL, PHYSICAL, GOALKEEPING, PERSONALITY, HIDDEN } from '../data/attributes';
 import { COUNTRIES } from '../data/countries';
 import type { Career, Player, World } from '../types';
+import { migrateCareer } from '../sim/week';
 
 export const SAVE_MAGIC = 'FPL-SAVE';
-export const SAVE_FORMAT = 1;
+// 1: tahap 4 (karier dasar). 2: tahap 5 (minggu, latihan, inbox).
+export const SAVE_FORMAT = 2;
 
 const GROUPS = {
   technical: TECHNICAL,
@@ -90,6 +92,8 @@ export function readSaveFile(data: unknown): { file: SaveFile; world: World; car
     countries: COUNTRIES,
     players: f.world.players.map((p) => unpackPlayer(p as Record<string, unknown>)),
   };
-  if (!world.players.some((p) => p.id === f.career.playerId)) throw new Error('Pemain kamu tidak ada di file save.');
-  return { file: f, world, career: f.career };
+  const me = world.players.find((p) => p.id === f.career.playerId);
+  if (!me) throw new Error('Pemain kamu tidak ada di file save.');
+  const career = f.format < 2 ? migrateCareer(f.career, !!me.contract) : f.career;
+  return { file: f, world, career };
 }
