@@ -3,6 +3,7 @@ import { StartScreen } from './ui/StartScreen';
 import { WorldBrowser } from './ui/WorldBrowser';
 import { CharacterScreen } from './ui/CharacterScreen';
 import { GlobalLayer } from './ui/SavePanel';
+import { MatchLayer } from './ui/MatchViewer';
 
 export default function App() {
   const world = useGame((s) => s.world);
@@ -12,6 +13,7 @@ export default function App() {
     <>
       {screen}
       <GlobalLayer />
+      <MatchLayer />
     </>
   );
 }

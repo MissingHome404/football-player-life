@@ -21,7 +21,9 @@ Sudah ada:
 - **Kehidupan dan belanja:** tempat tinggal (rumah orang tua sampai rumah mewah), sepatu, perlengkapan, aksesori, kendaraan, staf pribadi (ahli gizi, fisio), liburan, bantu orang tua, donasi, dan tabungan berbunga. Setiap barang punya efek (atribut, kebugaran, stres, media), dan turun gaya hidup bikin stres.
 - **Model 3D di beranda:** pemain low-poly (Three.js) dengan jersey klub, sepatu, aksesori, kendaraan, dan suasana rumah sesuai barang yang dibeli.
 
-Belum ada: match engine 2D, timnas, penghargaan, pensiun.
+- **Match engine 2D:** laga timmu dimainkan 22 pemain yang bergerak dan memilih umpan, dribel, atau tembakan dari atribut mereka (ala FM), termasuk penjagaan, lari menembus, umpan silang, sepak pojok, tendangan bebas, dan penalti. Hasilnya langsung masuk klasemen dan statistikmu. Tonton di layar 2D: susunan pemain, 90 menit (sekitar 2,5 menit per babak), kecepatan 1× sampai 8×, lewati ke akhir, ringkasan rating dan statistik, dan tonton ulang dari kartu laga terakhir. Laga tim lain tetap disimulasikan cepat.
+
+Belum ada: timnas, penghargaan, pensiun.
 
 ## Menjalankan di komputer sendiri
 
@@ -35,6 +37,7 @@ npm run stats    # ringkasan keseimbangan dunia (kekuatan liga, gaji, potensi)
 npx tsx scripts/career.ts 4 12   # simulasi karier 4 tahun untuk 12 karakter
 npx tsx scripts/seasons.ts 5     # cek dunia 5 musim: kekuatan liga, umur, statistik pemain
 npx tsx scripts/transfers.ts     # simulasi karier dengan agent dan tawaran klub, cetak riwayat klub
+npx tsx scripts/engine.ts 200    # kalibrasi match engine: gol, tembakan, penguasaan bola, rating, pencetak gol per posisi
 ```
 
 ## Struktur kode
@@ -42,7 +45,7 @@ npx tsx scripts/transfers.ts     # simulasi karier dengan agent dan tawaran klub
 ```
 src/game/data/      data statis: atribut, negara, liga + klub, kumpulan nama
 src/game/gen/       generator: nama, pemain, personality, dunia, karakter
-src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, transfer, relasi, kehidupan
+src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, match engine, transfer, relasi, kehidupan
 src/game/save/      format file save, simpan di browser (IndexedDB)
 src/game/rng.ts     angka acak ber-seed
 src/game/worker.ts  generate dunia di Web Worker

@@ -150,6 +150,8 @@ export interface PlayedFixture {
   home: boolean;
   score: [number, number]; // [klub ini, lawan]
   date: string;
+  round: number;
+  index: number; // urutan laga di ronde (untuk mengganti skor dengan hasil match engine)
 }
 
 // Naik-turun performa tim per musim (manajer baru, chemistry, keberuntungan), supaya juara tidak selalu sama
@@ -172,14 +174,14 @@ function playRound(
   played?: Map<string, PlayedFixture>,
 ): LeagueSeason {
   const results = season.results.slice();
-  results[r] = season.rounds[r].map(([h, a]) => {
+  results[r] = season.rounds[r].map(([h, a], index) => {
     const hid = season.clubs[h];
     const aid = season.clubs[a];
     const hs = (strength.get(hid)?.senior ?? 60) + seasonForm(hid, season.year);
     const as = (strength.get(aid)?.senior ?? 60) + seasonForm(aid, season.year);
     const score = simScore(rng, hs, as);
     if (played) {
-      const base = { leagueId: season.leagueId, season: season.label, date: roundDate(season, r) };
+      const base = { leagueId: season.leagueId, season: season.label, date: roundDate(season, r), round: r, index };
       played.set(hid, { ...base, clubId: hid, opponentId: aid, home: true, score });
       played.set(aid, { ...base, clubId: aid, opponentId: hid, home: false, score: [score[1], score[0]] });
     }

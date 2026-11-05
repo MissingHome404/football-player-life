@@ -2,6 +2,7 @@
 // lalu event inbox. Semua acak memakai seed karakter + nomor minggu, jadi
 // minggu yang sama dari save yang sama selalu memberi hasil yang sama.
 
+import type { EngineInput } from './engine';
 import type { Career, Message, Player, WeekPlan, WeekReport, World } from '../types';
 import type { CharacterRoll } from '../gen/character';
 import { Rng, clamp } from '../rng';
@@ -182,6 +183,8 @@ export interface WeekResult {
   world: World;
   career: Career;
   report: WeekReport;
+  /** Input match engine untuk laga yang kamu mainkan minggu ini (bisa ditonton ulang) */
+  sim?: EngineInput;
 }
 
 export function advanceWeek(world: World, prev: Career): WeekResult {
@@ -268,7 +271,10 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   const weekEnd = addDays(career.currentDate, 7);
   const week = playWeek(world, career.currentDate, weekEnd, new Rng(`${world.seed}:${weekEnd}`));
   let w: World = { ...world, seasons: week.seasons };
-  const match = userMatch(w, career, player, week, rng.fork('match'));
+  const played = userMatch(w, career, player, week, rng.fork('match'));
+  const match = played?.rec ?? null;
+  const sim = played?.sim;
+  if (match && sim) career.lastSim = { date: match.date, input: sim };
   if (match) {
     career.matches.unshift(match);
     career.matches.length = Math.min(career.matches.length, 30);
@@ -400,7 +406,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     notes,
   };
   career.lastReport = report;
-  return { world: w, career, report };
+  return { world: w, career, report, sim };
 }
 
 /** Pemain memilih jawaban untuk pesan di inbox */

@@ -69,6 +69,22 @@ interface State {
   setWish: (patch: Partial<Pick<Career, 'listed' | 'wantsLoan'>>) => void;
   /** Aksi halaman Kehidupan; hasilnya teks untuk ditampilkan */
   lifeOp: (op: LifeOp) => string;
+  /** Layar pertandingan 2D sedang terbuka */
+  watching: boolean;
+  /** Buka layar pertandingan otomatis setelah lanjut 1 minggu */
+  autoWatch: boolean;
+  watch: () => void;
+  closeMatch: () => void;
+  setAutoWatch: (on: boolean) => void;
+}
+
+const AUTO_KEY = 'fpl:autoWatch';
+function readAutoWatch(): boolean {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== '0';
+  } catch {
+    return true;
+  }
 }
 
 // Kalau autosave masih berjalan, simpan sekali lagi setelah selesai
@@ -126,6 +142,7 @@ export const useGame = create<State>((set, get) => ({
       career,
       view: { kind: 'me' },
       history: [],
+      watching: false,
     });
     window.scrollTo(0, 0);
     void get().saveNow(); // simpan otomatis di awal karier
@@ -178,7 +195,7 @@ export const useGame = create<State>((set, get) => ({
     set({ view: h[h.length - 1], history: h.slice(0, -1) });
   },
   reset: () =>
-    set({ world: null, idx: null, view: null, history: [], career: null, saveStatus: 'idle', lastSavedAt: null }),
+    set({ world: null, idx: null, view: null, history: [], career: null, watching: false, saveStatus: 'idle', lastSavedAt: null }),
   toggleDev: () => set({ devMode: !get().devMode }),
   saveStatus: 'idle',
   lastSavedAt: null,
@@ -216,9 +233,24 @@ export const useGame = create<State>((set, get) => ({
     if (!c) return;
     set({ career: { ...c, plan: { ...c.plan, ...patch, coaches: { ...c.plan.coaches, ...patch.coaches } } } });
   },
+  watching: false,
+  autoWatch: readAutoWatch(),
+  watch: () => {
+    if (get().career?.lastSim) set({ watching: true });
+  },
+  closeMatch: () => set({ watching: false }),
+  setAutoWatch: (on) => {
+    try {
+      localStorage.setItem(AUTO_KEY, on ? '1' : '0');
+    } catch {
+      /* penyimpanan browser tidak tersedia */
+    }
+    set({ autoWatch: on });
+  },
   nextWeek: (weeks = 1) => {
     let { world, career } = get();
     if (!world || !career) return;
+    const simBefore = career.lastSim;
     try {
       for (let i = 0; i < weeks; i++) {
         if (pendingChoices(career).length) break;
@@ -233,7 +265,8 @@ export const useGame = create<State>((set, get) => ({
       set({ message: e instanceof Error ? e.message : String(e) });
       return;
     }
-    set({ world, career, idx: buildIndexes(world) });
+    const watching = weeks === 1 && get().autoWatch && !!career.lastSim && career.lastSim.date !== simBefore?.date;
+    set({ world, career, idx: buildIndexes(world), watching });
     void get().saveNow();
   },
   choose: (msgId, choice) => {
@@ -304,6 +337,7 @@ export const useGame = create<State>((set, get) => ({
         idx: buildIndexes(world),
         view: { kind: 'me' },
         history: [],
+        watching: false,
         busy: null,
         saveStatus: 'saved',
         lastSavedAt: rec.savedAt,

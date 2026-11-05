@@ -1,0 +1,91 @@
+import { describe, it, expect } from 'vitest';
+import { generateWorld } from '../gen/world';
+import { squadOf } from '../sim/season';
+import { FULL, Match, pickXI, playEngine, type EngineInput, type ETeam } from '../sim/engine';
+import { rollCharacter } from '../gen/character';
+import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../sim/week';
+import { initRelations } from '../sim/relations';
+import type { Career, World } from '../types';
+
+const w = generateWorld({ seed: 'ENGINE', activeLeagues: ['IDN1', 'ENG1'] });
+const eng = w.clubs.filter((c) => c.leagueId === 'ENG1');
+const team = (id: string): ETeam => {
+  const c = w.clubs.find((x) => x.id === id)!;
+  return { id, name: c.name, color: c.colors[0], color2: c.colors[1], xi: pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false).xi };
+};
+
+describe('match engine', () => {
+  it('input yang sama selalu menghasilkan laga yang sama (layar 2D = hasil di klasemen)', () => {
+    const input: EngineInput = { seed: 'det', home: team(eng[0].id), away: team(eng[1].id) };
+    const before = JSON.stringify(input);
+    const a = playEngine(input);
+    expect(JSON.stringify(input)).toBe(before); // input tidak diubah, aman ditonton ulang
+    const b = playEngine(structuredClone(input));
+    expect(b).toEqual(a);
+    // diputar langkah demi langkah seperti di layar pertandingan
+    const m = new Match(structuredClone(input));
+    while (!m.done) m.step();
+    expect(m.result().score).toEqual(a.score);
+    expect(m.result().events).toEqual(a.events);
+  });
+
+  it('statistik laga masuk akal', () => {
+    let goals = 0;
+    for (let i = 0; i < 12; i++) {
+      const r = playEngine({ seed: `s${i}`, home: team(eng[i % 10].id), away: team(eng[10 + (i % 10)].id) });
+      goals += r.score[0] + r.score[1];
+      expect(r.score[0]).toBeLessThanOrEqual(10);
+      expect(r.possession[0] + r.possession[1]).toBe(100);
+      expect(Object.keys(r.stats)).toHaveLength(22);
+      for (const v of Object.values(r.ratings)) expect(v).toBeGreaterThanOrEqual(3);
+      expect(r.events.filter((e) => e.kind === 'goal')).toHaveLength(r.score[0] + r.score[1]);
+    }
+    expect(goals / 12).toBeGreaterThan(1);
+    expect(goals / 12).toBeLessThan(5);
+  }, 30_000);
+
+  it('pemain cadangan masuk di menit yang ditentukan', () => {
+    const home = team(eng[2].id);
+    const benchP = squadOf(w, eng[2].id).find((p) => !p.isYouth && !home.xi.some((e) => e.id === p.id))!;
+    const xi = pickXI([benchP], benchP, true).xi[0];
+    home.sub = { at: FULL - 20, player: { ...xi, user: true }, slot: xi.slot };
+    const r = playEngine({ seed: 'sub', home, away: team(eng[3].id) });
+    const st = r.stats[benchP.id];
+    expect(st.on).toBeGreaterThanOrEqual(FULL - 20);
+    expect(r.events.some((e) => e.kind === 'sub' && e.name === xi.name)).toBe(true);
+  });
+});
+
+describe('laga mingguan memakai match engine', () => {
+  it('skor di catatanmu = skor tayangan ulang = skor di klasemen', () => {
+    const roll = rollCharacter(w, { countryId: 'IDN', position: 'ST' }, 'ENGWEEK');
+    let world: World = { ...w, players: [...w.players, roll.player] };
+    let career: Career = newCareer(roll, 0, 'test', w.startDate);
+    career.rel = initRelations(world, career, roll.player);
+    let checked = 0;
+    for (let i = 0; i < 160 && checked < 3; i++) {
+      for (const m of pendingChoices(career)) ({ world, career } = resolveChoice(world, career, m.id, 0));
+      const r = advanceWeek(world, career);
+      ({ world, career } = r);
+      if (!r.sim || career.matches[0].comp !== 'Liga') continue;
+      const rec = career.matches[0];
+      const replay = playEngine(structuredClone(career.lastSim!.input));
+      const us = rec.home ? 0 : 1;
+      expect([replay.score[us], replay.score[1 - us]]).toEqual(rec.score);
+      // hasil di klasemen liga
+      const me = world.players.find((p) => p.isUser)!;
+      const club = world.clubs.find((c) => c.id === me.contract!.clubId)!;
+      const s = world.seasons[club.leagueId];
+      const found = s.rounds.some((rd, ri) =>
+        rd.some(([h, a], ii) => {
+          const res = s.results[ri][ii];
+          return !!res && s.clubs[h] === (rec.home ? club.id : rec.opponentId) && s.clubs[a] === (rec.home ? rec.opponentId : club.id) && res[0] === replay.score[0] && res[1] === replay.score[1];
+        }),
+      );
+      expect(found).toBe(true);
+      expect(rec.scorers?.length).toBe(rec.score[0] + rec.score[1]);
+      checked++;
+    }
+    expect(checked).toBe(3);
+  }, 120_000);
+});

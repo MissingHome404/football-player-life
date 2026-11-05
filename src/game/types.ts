@@ -12,6 +12,7 @@ import type {
   Position,
 } from './data/attributes';
 import type { Origin, FamilyWealth } from './gen/character';
+import type { EngineInput } from './sim/engine';
 
 export type Confederation = 'UEFA' | 'AFC' | 'CONMEBOL' | 'CAF' | 'CONCACAF';
 
@@ -167,6 +168,10 @@ export interface MatchRecord {
   assists: number;
   cleanSheet?: boolean;
   motm?: boolean;
+  /** dari match engine: [menit, 0 = tim kita / 1 = lawan, nama pencetak] */
+  scorers?: [number, 0 | 1, string][];
+  shots?: [number, number];
+  possession?: [number, number];
 }
 
 /** Statistik pemain kita per musim, tim, dan kompetisi */
@@ -187,6 +192,8 @@ export interface SeasonStat {
 
 /** Karier pemain kita (data yang nanti disimpan di save) */
 export interface Career {
+  /** Laga terakhir yang dimainkan match engine, untuk ditonton (ulang) */
+  lastSim?: { date: string; input: EngineInput };
   saveId: string; // id slot save di browser
   characterSeed: string;
   rerolls: number;

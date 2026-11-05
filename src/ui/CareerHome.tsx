@@ -464,6 +464,8 @@ function ReportPanel() {
 
 function LastMatch({ m }: { m: MatchRecord }) {
   const reactions = matchReactions(m);
+  const canWatch = useGame((s) => s.career?.lastSim?.date === m.date);
+  const watch = useGame((s) => s.watch);
   const [us, them] = m.score;
   const res = us > them ? 'win' : us < them ? 'loss-r' : 'draw';
   return (
@@ -481,6 +483,31 @@ function LastMatch({ m }: { m: MatchRecord }) {
         </span>
         <span className="lm-team right">{m.opponent}</span>
       </div>
+      {m.scorers && m.scorers.length > 0 && (
+        <div className="lm-goals small">
+          {[0, 1].map((side) => (
+            <div key={side}>
+              {m.scorers!
+                .filter((g) => g[1] === side)
+                .map((g, i) => (
+                  <div key={i}>
+                    {g[2]} <span className="muted num">{g[0]}'</span>
+                  </div>
+                ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {m.shots && m.possession && (
+        <div className="lm-extra small muted">
+          <span>
+            Penguasaan bola {m.possession[0]}% - {m.possession[1]}%
+          </span>
+          <span>
+            Tembakan {m.shots[0]} - {m.shots[1]}
+          </span>
+        </div>
+      )}
       <div className="lm-me">
         {m.minutes > 0 ? (
           <>
@@ -513,6 +540,13 @@ function LastMatch({ m }: { m: MatchRecord }) {
           </span>
         )}
       </div>
+      {canWatch && (
+        <div className="lm-watch">
+          <button className="chip" onClick={watch}>
+            ▶ Tonton ulang laga 2D
+          </button>
+        </div>
+      )}
     </div>
   );
 }
