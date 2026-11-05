@@ -12,6 +12,7 @@ import { econOf } from './economy';
 import { recentForm } from './match';
 import { squadOf } from './season';
 import { startSpell } from './transfer';
+import { setMate } from './relations';
 
 export interface EventCtx {
   world: World;
@@ -413,7 +414,7 @@ export const EVENTS: EventDef[] = [
         title: 'Tawaran latihan tambahan',
         body: `${mentor ? fullName(mentor) : 'Seorang pemain senior'} melihat potensimu dan menawarkan latihan tambahan setelah sesi tim.`,
         eventId: 'mentor_offer',
-        data: { mentorProf: mentor?.personality.Professionalism ?? 12 },
+        data: { mentorProf: mentor?.personality.Professionalism ?? 12, mentorId: mentor?.id ?? '' },
         choices: [
           { label: 'Terima', hint: 'Latihan ekstra, bisa ketularan profesional' },
           { label: 'Sungkan, tolak', hint: 'Tidak ada perubahan' },
@@ -428,6 +429,8 @@ export const EVENTS: EventDef[] = [
       }
       addStress(c, 2);
       if (prof > c.player.personality.Professionalism) nudgePersonality(c, 'Professionalism', 1, 0.4);
+      const mentor = c.world.players.find((p) => p.id === msg.data!.mentorId);
+      if (mentor) setMate(c.career, mentor, 'mentor', 35);
       return 'Latihan tambahannya berat, tapi kamu belajar banyak dari pengalamannya.';
     },
   },

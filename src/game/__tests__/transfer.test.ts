@@ -66,6 +66,11 @@ describe('transfer dan kontrak', () => {
     expect(last.to).toBeUndefined();
     expect(r.career.history[r.career.history.length - 2].to).toBe(career.currentDate);
     expect(r.career.signed).toBe(career.currentDate);
+    // relasi pindah ke klub baru: manajer baru, fans klub lama kecewa
+    const newClub = r.world.clubs.find((c) => c.id === o.clubId)!;
+    expect(r.career.rel.clubId).toBe(o.clubId);
+    expect(r.career.rel.manager!.staffId).toBe(newClub.managerId);
+    expect(r.career.rel.fans[p.contract!.clubId]).toBeLessThan(0);
     // setelah pindah: tidak ada tawaran klub lain selama setahun
     const me2 = structuredClone(me);
     const c2 = structuredClone(r.career);

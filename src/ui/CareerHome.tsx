@@ -18,6 +18,8 @@ import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, 
 import { nextFixture, shortDate } from './LeagueSeason';
 import { roundDate } from '../game/sim/season';
 import { TransferPanel } from './TransferPanel';
+import { RelationsPanel } from './RelationsPanel';
+import { matchReactions } from '../game/sim/relations';
 
 const fmtDate = (d: string, long = false) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', {
@@ -47,7 +49,7 @@ export function CareerHome({ children }: { children: ReactNode }) {
   const go = useGame((s) => s.go);
   const p = idx.playerById.get(career.playerId)!;
   const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
-  const stress = stressTarget(career, p);
+  const stress = stressTarget(career, p, p.contract ? idx.clubById.get(p.contract.clubId)?.countryId : undefined);
 
   return (
     <div className="home">
@@ -109,6 +111,7 @@ export function CareerHome({ children }: { children: ReactNode }) {
           <Inbox />
           <TransferPanel />
           <MatchPanel />
+          <RelationsPanel />
           <ReportPanel />
         </div>
       </div>
@@ -158,7 +161,7 @@ function PlanPanel() {
   const plan = career.plan;
   const econ = econOf(p.nationalityId);
   const budget = weeklyBudget(career, p);
-  const stress = stressTarget(career, p);
+  const stress = stressTarget(career, p, p.contract ? idx.clubById.get(p.contract.clubId)?.countryId : undefined);
   const pending = pendingChoices(career).length;
   const hasWage = !!p.contract?.wagePerWeek;
   const resting = plan.focus === 'istirahat';
@@ -455,6 +458,7 @@ function ReportPanel() {
 }
 
 function LastMatch({ m }: { m: MatchRecord }) {
+  const reactions = matchReactions(m);
   const [us, them] = m.score;
   const res = us > them ? 'win' : us < them ? 'loss-r' : 'draw';
   return (
@@ -483,6 +487,16 @@ function LastMatch({ m }: { m: MatchRecord }) {
               {m.cleanSheet && ' · clean sheet'}
             </span>
             {m.motm && <span className="pill ok">Man of the Match</span>}
+            {reactions && (
+              <div className="lm-react small">
+                <div>
+                  <span className="muted">Manajer:</span> {reactions.manager}
+                </div>
+                <div>
+                  <span className="muted">Fans:</span> {reactions.fans}
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <span className="small muted">

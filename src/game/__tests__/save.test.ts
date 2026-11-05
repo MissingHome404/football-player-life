@@ -24,8 +24,8 @@ describe('file save', () => {
   it('save lama (format 1) tetap bisa dibuka', () => {
     const f = buildSaveFile('old', world, career, summary);
     const { week: _w, fitness: _f, injury: _i, plan: _p, progress: _g, inbox: _x, lastReport: _l, cooldowns: _c, ...rest } = career;
-    const { agent: _a, offers: _o, loan: _n, history: _h, listed: _s, wantsLoan: _wl, joined: _j, ...v1 } = rest;
-    void [_w, _f, _i, _p, _g, _x, _l, _c, _a, _o, _n, _h, _s, _wl, _j];
+    const { agent: _a, offers: _o, loan: _n, history: _h, listed: _s, wantsLoan: _wl, joined: _j, rel: _r, ...v1 } = rest;
+    void [_w, _f, _i, _p, _g, _x, _l, _c, _a, _o, _n, _h, _s, _wl, _j, _r];
     const back = readSaveFile(JSON.parse(JSON.stringify({ ...f, format: 1, career: v1 })));
     expect(back.career.week).toBe(0);
     expect(back.career.plan.focus).toBe('seimbang');
@@ -35,6 +35,9 @@ describe('file save', () => {
     expect(back.career.offers).toEqual([]);
     expect(back.career.agent).toBeNull();
     expect(back.career.history.length).toBe(1);
+    // relasi (format 5) ikut dibuat
+    expect(back.career.rel.media).toBe(0);
+    expect(back.career.rel.partner).toBeNull();
   });
 
   it('menolak file yang bukan save', () => {

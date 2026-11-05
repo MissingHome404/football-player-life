@@ -13,6 +13,7 @@ import { generateName, fullName } from '../gen/names';
 import { COUNTRY_BY_ID } from '../data/countries';
 import { groupOf, recentForm } from './match';
 import { clubStrengths, replacePlayer, seasonEnd, squadOf } from './season';
+import { addFans, addManager, syncClub } from './relations';
 
 export const AGENT_INFO: Record<
   AgentTier,
@@ -112,7 +113,7 @@ function loanUntil(world: World, club: Club, date: string): string {
   return end > date ? addDays(end, 3) : addDays(date, 280);
 }
 
-function makeOffer(
+export function makeOffer(
   world: World,
   career: Career,
   p: Player,
@@ -365,6 +366,7 @@ export function acceptOffer(world: World, prev: Career, offerId: string): { worl
   const club = world.clubs.find((c) => c.id === offer.clubId)!;
   const date = career.currentDate;
   const net = (v: number) => Math.round(v * (1 - (career.agent?.fee ?? 0)));
+  const oldClub = p.contract?.clubId;
 
   if (offer.type === 'pinjaman' && p.contract) {
     career.loan = { parentClubId: p.contract.clubId, parentContract: p.contract, until: offer.until! };
@@ -400,6 +402,14 @@ export function acceptOffer(world: World, prev: Career, offerId: string): { worl
   career.offers = [];
   career.renewalNoted = undefined;
   if (offer.type !== 'pinjaman') career.signed = date;
+  // fans klub lama kecewa kalau kamu pergi; perpanjangan menyenangkan fans dan manajer
+  if (offer.type === 'perpanjangan') {
+    addFans(career, club.id, 5);
+    addManager(career, 4);
+  } else if (oldClub) {
+    addFans(career, oldClub, prev.listed ? -4 : -12);
+  }
+  syncClub(world, career, p, new Rng(`join:${career.characterSeed}:${date}`));
   return { world: replacePlayer(world, p), career };
 }
 
@@ -499,9 +509,11 @@ export const TRANSFER_EVENTS: Record<string, EventDef> = {
       if (choice === 0) {
         if (c.rng.chance(0.5)) {
           c.career.cooldowns.promise_bonus = c.career.week;
+          addManager(c.career, -4);
           return 'Manajer mengakui kesalahannya dan berjanji memberimu kesempatan beberapa minggu ke depan.';
         }
         c.career.stress = clamp(c.career.stress + 6, 0, 100);
+        addManager(c.career, -12);
         return 'Manajer tidak suka diprotes. Suasana jadi tegang.';
       }
       if (choice === 1) {

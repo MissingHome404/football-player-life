@@ -319,6 +319,21 @@ input { font: inherit; }
 .tr-history { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
 .tr-history li { display: grid; grid-template-columns: 112px 1fr auto; gap: 8px; align-items: center; font-size: 14px; }
 
+/* relasi */
+.rel-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+.rel-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 86px; gap: 10px; align-items: center; }
+.rel-who { display: flex; flex-direction: column; min-width: 0; }
+.rel-who b, .rel-who .link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 0; }
+.rel-who .link { font-weight: 600; }
+.rel-word { text-align: right; }
+.relbar { position: relative; height: 8px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+.relbar::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); opacity: .6; }
+.relbar-fill { position: absolute; top: 0; bottom: 0; }
+.relbar-fill.up { background: var(--accent); }
+.relbar-fill.down { background: var(--a-poor); }
+.rel-tip { margin: 8px 0 0; }
+.lm-react { flex-basis: 100%; display: grid; gap: 2px; margin-top: 4px; }
+
 @media (max-width: 800px) {
   .char-grid { grid-template-columns: 1fr; }
   .char-choices { position: static; }
@@ -342,4 +357,5 @@ input { font: inherit; }
   .coach-list { grid-template-columns: 1fr; }
   .offer-grid { grid-template-columns: 1fr 1.4fr; }
   .tr-history li { grid-template-columns: 96px 1fr auto; }
+  .rel-row { grid-template-columns: minmax(0, 1fr) 70px 78px; gap: 8px; }
 }

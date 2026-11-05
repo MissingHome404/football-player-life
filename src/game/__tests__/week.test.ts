@@ -3,6 +3,7 @@ import { generateWorld } from '../gen/world';
 import { rollCharacter } from '../gen/character';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../sim/week';
 import { ALL_VISIBLE } from '../data/attributes';
+import { initRelations } from '../sim/relations';
 import { getAttr } from '../sim/training';
 import type { Career, Intensity, World } from '../types';
 
@@ -11,7 +12,9 @@ const w0 = generateWorld({ seed: 'WEEK', activeLeagues: ['IDN1', 'ENG1'] });
 function start(seed: string, countryId = 'IDN') {
   const roll = rollCharacter(w0, { countryId }, seed);
   const world: World = { ...w0, players: [...w0.players, roll.player] };
-  return { world, career: newCareer(roll, 0, 'test', w0.startDate) };
+  const career = newCareer(roll, 0, 'test', w0.startDate);
+  career.rel = initRelations(world, career, roll.player);
+  return { world, career };
 }
 
 function run(world: World, career: Career, weeks: number) {
@@ -63,6 +66,12 @@ describe('minggu demi minggu', () => {
       expect(career.fitness).toBeLessThanOrEqual(100);
       expect(Number.isFinite(career.money)).toBe(true);
       expect(career.inbox.length).toBeLessThanOrEqual(61);
+      // relasi tetap di -100..100
+      const rel = career.rel;
+      const vals = [rel.media, ...Object.values(rel.fans), ...rel.mates.map((m) => m.value)];
+      if (rel.manager) vals.push(rel.manager.value);
+      if (rel.partner) vals.push(rel.partner.value);
+      for (const v of vals) expect(Math.abs(v)).toBeLessThanOrEqual(100);
       // sudah ikut pertandingan dan statistik tercatat
       expect(career.matches.length).toBeGreaterThan(20);
       const apps = career.stats.reduce((s, x) => s + x.apps, 0);

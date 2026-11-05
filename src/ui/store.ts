@@ -15,6 +15,7 @@ import { fullName } from '../game/gen/names';
 import { ageOn } from '../game/gen/player';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../game/sim/week';
 import { acceptOffer, hireAgent, negotiate, rejectOffer, type Ask } from '../game/sim/transfer';
+import { applyWish, initRelations } from '../game/sim/relations';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -113,10 +114,12 @@ export const useGame = create<State>((set, get) => ({
   startCareer: (roll, rerolls) => {
     const w = get().world!;
     const world: World = { ...w, players: [...w.players.filter((p) => !p.isUser), roll.player] };
+    const career = newCareer(roll, rerolls, newSaveId(), world.startDate);
+    career.rel = initRelations(world, career, roll.player);
     set({
       world,
       idx: buildIndexes(world),
-      career: newCareer(roll, rerolls, newSaveId(), world.startDate),
+      career,
       view: { kind: 'me' },
       history: [],
     });
@@ -270,9 +273,9 @@ export const useGame = create<State>((set, get) => ({
     void get().saveNow();
   },
   setWish: (patch) => {
-    const c = get().career;
-    if (!c) return;
-    set({ career: { ...c, ...patch } });
+    const { career: c, idx } = get();
+    if (!c || !idx) return;
+    set({ career: applyWish(c, patch, idx.playerById.get(c.playerId)?.contract?.clubId) });
     void get().saveNow();
   },
   loadSave: async (id) => {

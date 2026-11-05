@@ -95,6 +95,8 @@ function selection(rng: Rng, p: Player, teammates: Player[], career: Career): Ma
   // janji peran di kontrak dan janji manajer setelah diprotes
   if (p.contract?.role === 'Inti') mine += 5;
   else if (p.contract?.role === 'Rotasi') mine += 2;
+  // manajer yang menyukaimu lebih sering memainkanmu
+  mine += (career.rel.manager?.value ?? 0) / 15;
   const promised = career.cooldowns.promise_bonus;
   if (promised !== undefined && career.week - promised <= 8) mine += 6;
   const rank = teammates.filter((q) => GROUP[q.mainPosition] === g && q.ca + rng.normal(0, 5) > mine).length;

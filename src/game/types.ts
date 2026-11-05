@@ -217,6 +217,32 @@ export interface Career {
   joined: string; // tanggal bergabung dengan klub sekarang
   renewalNoted?: string; // tanggal habis kontrak yang sudah diberi tahu "tidak diperpanjang"
   signed?: string; // tanggal terakhir tanda tangan kontrak (pindah, bebas transfer, perpanjangan)
+  rel: Relations;
+}
+
+/** Relasi bernilai -100 sampai 100 */
+export type MateTag = 'sahabat' | 'mentor' | 'rival';
+export interface Mate {
+  playerId: string;
+  name: string;
+  tag: MateTag;
+  value: number;
+  clubId?: string; // klub si rekan saat terakhir dicek
+}
+export interface Partner {
+  name: string;
+  since: string;
+  value: number;
+  stage: 'pacaran' | 'tunangan' | 'menikah';
+  stageSince: string;
+}
+export interface Relations {
+  clubId?: string; // klub yang dipakai untuk manajer dan rekan setim di bawah
+  manager: { staffId: string; value: number; since: string } | null;
+  fans: Record<string, number>; // per klub
+  media: number;
+  partner: Partner | null;
+  mates: Mate[];
 }
 
 export type AgentTier = 'lokal' | 'regional' | 'super';

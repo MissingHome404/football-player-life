@@ -13,6 +13,9 @@ import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
 import { TRANSFER_EVENTS, contractWeek } from './transfer';
+import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, relationsWeek } from './relations';
+
+const ALL_EVENTS = [...EVENTS, ...RELATION_EVENTS];
 
 export const DEFAULT_PLAN: WeekPlan = {
   focus: 'seimbang',
@@ -62,6 +65,7 @@ export function newCareer(roll: CharacterRoll, rerolls: number, saveId: string, 
     matches: [],
     stats: [],
     ...careerDefaults(base.teamLabel, roll.clubId ?? undefined, !!roll.clubId, startDate),
+    rel: emptyRelations(), // diisi initRelations saat karier dimulai (butuh data dunia)
   };
 }
 
@@ -92,6 +96,7 @@ export function migrateCareer(c: Partial<Career> & Pick<Career, 'teamLabel' | 'c
     matches: [],
     stats: [],
     ...careerDefaults(c.teamLabel, undefined, false, c.currentDate),
+    rel: emptyRelations(),
     ...c,
   } as Career;
 }
@@ -116,7 +121,7 @@ const withPlayer = replacePlayer;
  * Titik yang dituju stres kalau rencana dan keadaan tidak berubah.
  * Setiap minggu stres bergerak 25% ke arah ini.
  */
-export function stressTarget(career: Career, player: Player) {
+export function stressTarget(career: Career, player: Player, clubCountry?: string) {
   const plan = career.plan;
   const age = ageOn(player.birthDate, career.currentDate);
   const parts: [string, number][] = [['Kehidupan sehari-hari', 30]];
@@ -147,6 +152,7 @@ export function stressTarget(career: Career, player: Player) {
     if (form >= 7.3) parts.push(['Performa bagus', -6]);
     else if (form <= 6.2) parts.push(['Performa buruk', 8]);
   }
+  parts.push(...relationStress(career, player, clubCountry));
   if (player.personality.Pressure <= 7) parts.push(['Mudah tertekan', 10]);
   else if (player.personality.Pressure >= 16) parts.push(['Tahan tekanan', -5]);
   const target = clamp(parts.reduce((s, [, v]) => s + v, 0), 0, 100);
@@ -272,7 +278,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   }
 
   // 5. Stres bergerak perlahan ke "arah stres" minggu ini
-  const target = stressTarget(career, player).target;
+  const clubCountry = player.contract ? w.clubs.find((c) => c.id === player.contract!.clubId)?.countryId : undefined;
+  const target = stressTarget(career, player, clubCountry).target;
   career.stress = clamp(Math.round(career.stress + (target - career.stress) * 0.25 + rng.normal(0, 2)), 0, 100);
 
   // 6. Efek kecil dari kegiatan
@@ -335,6 +342,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
 
   // Kontrak, tawaran klub, pinjaman
   contractWeek(w, career, player, rng.fork('contract'));
+  // Relasi: manajer, fans, rekan setim, pasangan
+  w = relationsWeek(w, career, player, match, rng.fork('rel'));
   w = withPlayer(w, player);
 
   // 8. Event inbox
@@ -345,14 +354,14 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   if (career.stress >= 90 && ready('burnout', burnout.cooldown)) picks.push('burnout');
   let slots = rng.chance(0.5) ? (rng.chance(0.15) ? 2 : 1) : 0;
   while (slots-- > 0) {
-    const options = EVENTS.filter((e) => e.id !== 'burnout' && !picks.includes(e.id) && ready(e.id, e.cooldown))
+    const options = ALL_EVENTS.filter((e) => e.id !== 'burnout' && !picks.includes(e.id) && ready(e.id, e.cooldown))
       .map((e) => [e, e.weight(ctx)] as const)
       .filter(([, w]) => w > 0);
     if (!options.length) break;
     picks.push(rng.weighted(options).id);
   }
   for (const id of picks) {
-    const def = EVENT_BY_ID[id];
+    const def = EVENT_BY_ID[id] ?? RELATION_EVENT_BY_ID[id];
     const msg: Message = { id: `w${career.week}-${id}`, date: career.currentDate, ...def.create(ctx) };
     career.cooldowns[id] = career.week;
     if (!msg.choices?.length && def.resolve) msg.result = def.resolve(ctx, 0, msg) || undefined;
@@ -384,7 +393,7 @@ export function resolveChoice(world: World, prev: Career, msgId: string, choice:
   const career: Career = structuredClone(prev);
   const msg = career.inbox.find((m) => m.id === msgId);
   if (!msg || !msg.choices || msg.chosen !== undefined) return { world, career: prev };
-  const def = msg.eventId ? (EVENT_BY_ID[msg.eventId] ?? TRANSFER_EVENTS[msg.eventId]) : undefined;
+  const def = msg.eventId ? (EVENT_BY_ID[msg.eventId] ?? TRANSFER_EVENTS[msg.eventId] ?? RELATION_EVENT_BY_ID[msg.eventId]) : undefined;
   const player: Player = structuredClone(world.players.find((p) => p.id === career.playerId)!);
   const rng = new Rng(`${career.characterSeed}:w${career.week}:${msgId}:${choice}`);
   const ctx = makeCtx(world, career, player, rng);

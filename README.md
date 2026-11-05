@@ -16,7 +16,9 @@ Sudah ada:
 
 - **Transfer dan kontrak:** bursa transfer (musim panas dan Januari), tawaran dari klub lain sesuai level dan reputasimu, bebas transfer, pinjaman, perpanjangan kontrak, negosiasi gaji atau peran, agent (lokal, regional, super) dengan komisi, minta dipinjamkan atau dijual, janji menit main yang bisa dilanggar, nilai pasar, dan riwayat klub.
 
-Belum ada: relasi (manajer, rekan setim, media), belanja dan model 3D, match engine 2D.
+- **Relasi:** manajer (menentukan menit main, bisa dipecat dan diganti), rekan setim (sahabat, mentor, rival posisi; sahabat yang pindah klub bisa mengajakmu ikut), fans per klub (bekas klub menyambut atau mencemooh), media (wawancara setelah laga, selebrasi gol), keluarga, dan pasangan (pacaran, tunangan, menikah).
+
+Belum ada: belanja dan model 3D, match engine 2D, timnas.
 
 ## Menjalankan di komputer sendiri
 
@@ -37,7 +39,7 @@ npx tsx scripts/transfers.ts     # simulasi karier dengan agent dan tawaran klub
 ```
 src/game/data/      data statis: atribut, negara, liga + klub, kumpulan nama
 src/game/gen/       generator: nama, pemain, personality, dunia, karakter
-src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, transfer
+src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, transfer, relasi
 src/game/save/      format file save, simpan di browser (IndexedDB)
 src/game/rng.ts     angka acak ber-seed
 src/game/worker.ts  generate dunia di Web Worker
