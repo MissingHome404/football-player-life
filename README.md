@@ -12,7 +12,9 @@ Sudah ada:
 - **Save/load:** simpan otomatis di browser, ekspor/impor file `.fplsave`. Save versi lama tetap bisa dibuka.
 - **Minggu demi minggu:** rencana latihan (fokus, intensitas), kegiatan di luar latihan, pelatih pribadi, uang (uang saku, gaji, pajak, biaya hidup), stres, kebugaran, cedera, dan inbox event ala BitLife (trial scout, dipanggil tim utama, pesta, keluarga, sponsor, dll).
 
-Belum ada: transfer dan negosiasi kontrak, simulasi liga, match engine 2D.
+- **Musim dan pertandingan:** jadwal kandang-tandang dan klasemen untuk 26 liga, hasil disimulasikan tiap minggu. Pemain kita dipilih pelatih (inti, cadangan, tidak masuk skuad) dan dapat rating, gol, assist, clean sheet. Pemain U19 main di liga U19, pemain tanpa klub main di tim amatir. Akhir musim: juara dicatat, pemain AI berkembang, menua, pensiun, pindah ke klub lebih kuat, dan pemain muda baru masuk.
+
+Belum ada: transfer dan negosiasi kontrak, agent, match engine 2D.
 
 ## Menjalankan di komputer sendiri
 
@@ -24,6 +26,7 @@ npm run dev      # buka http://localhost:5173
 npm test         # jalankan tes
 npm run stats    # ringkasan keseimbangan dunia (kekuatan liga, gaji, potensi)
 npx tsx scripts/career.ts 4 12   # simulasi karier 4 tahun untuk 12 karakter
+npx tsx scripts/seasons.ts 5     # cek dunia 5 musim: kekuatan liga, umur, statistik pemain
 ```
 
 ## Struktur kode
@@ -31,7 +34,7 @@ npx tsx scripts/career.ts 4 12   # simulasi karier 4 tahun untuk 12 karakter
 ```
 src/game/data/      data statis: atribut, negara, liga + klub, kumpulan nama
 src/game/gen/       generator: nama, pemain, personality, dunia, karakter
-src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox
+src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan
 src/game/save/      format file save, simpan di browser (IndexedDB)
 src/game/rng.ts     angka acak ber-seed
 src/game/worker.ts  generate dunia di Web Worker

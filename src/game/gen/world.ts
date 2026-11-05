@@ -5,18 +5,19 @@ import type { Club, League, Player, PlayingStyle, Staff, World, BadgeShape } fro
 import { Rng, clamp } from '../rng';
 import { generatePlayer } from './player';
 import { generateName } from './names';
+import { createSeasons } from '../sim/season';
 
 export const WORLD_VERSION = 1;
 export const START_DATE = '2026-07-01';
 
 // Komposisi skuad senior (25 pemain)
-const SQUAD: [Position, number][] = [
+export const SQUAD: [Position, number][] = [
   ['GK', 3], ['DC', 4], ['DR', 2], ['DL', 2], ['DM', 2], ['MC', 4],
   ['AMR', 1], ['MR', 1], ['AML', 1], ['ML', 1], ['AMC', 1], ['ST', 3],
 ];
 
 // Komposisi tim U19 (12 pemain)
-const YOUTH: Position[] = ['GK', 'DC', 'DC', 'DR', 'DL', 'DM', 'MC', 'MC', 'AMR', 'AML', 'AMC', 'ST'];
+export const YOUTH: Position[] = ['GK', 'DC', 'DC', 'DR', 'DL', 'DM', 'MC', 'MC', 'AMR', 'AML', 'AMC', 'ST'];
 
 const STYLES: PlayingStyle[] = ['Possession', 'Gegenpress', 'Counter', 'Direct', 'Wing Play', 'Defensive'];
 
@@ -50,6 +51,15 @@ export function wageFor(
   clubRep: number,
 ): number {
   return roundNice(50 * Math.exp((ca / 200) * 8) * leagueWageMultiplier(league) * (0.5 + clubRep / 100));
+}
+
+/** Kekuatan pemain inti sebuah klub: gabungan reputasi liga dan reputasi klub */
+export const clubStarterCA = (leagueRep: number, clubRep: number) => 15 + leagueRep * 0.6 + clubRep;
+
+/** Negara asal pemain asing yang wajar untuk liga ini */
+export function foreignPoolFor(countryId: string): readonly (readonly [string, number])[] {
+  const isEurope = COUNTRY_BY_ID[countryId].confederation === 'UEFA';
+  return (isEurope ? FOREIGN_POOL_EUROPE : FOREIGN_POOL_ASIA).filter(([c]) => c !== countryId);
 }
 
 export interface GenerateOptions {
@@ -88,15 +98,13 @@ export function generateWorld(opts: GenerateOptions): World {
     const minRep = Math.min(...reps);
     const maxRep = Math.max(...reps);
     const isEurope = COUNTRY_BY_ID[ls.countryId].confederation === 'UEFA';
-    const foreignPool = (isEurope ? FOREIGN_POOL_EUROPE : FOREIGN_POOL_ASIA).filter(
-      ([c]) => c !== ls.countryId,
-    );
+    const foreignPool = foreignPoolFor(ls.countryId);
     const wageMult = leagueWageMultiplier(league);
 
     ls.clubs.forEach(([name, realRef, city, c1, c2, rep], idx) => {
       const clubId = `${ls.id}-${String(idx + 1).padStart(2, '0')}`;
             // Kekuatan skuad: gabungan reputasi liga dan reputasi klub
-      const starterCA = clamp(15 + ls.reputation * 0.6 + rep + rng.normal(0, 3), 40, 192);
+      const starterCA = clamp(clubStarterCA(ls.reputation, rep) + rng.normal(0, 3), 40, 192);
 
       // Manajer
       const mgrCountry = rng.chance(isEurope ? 0.3 : 0.45)
@@ -225,7 +233,7 @@ export function generateWorld(opts: GenerateOptions): World {
     });
   }
 
-  return {
+  const world: World = {
     seed: opts.seed,
     version: WORLD_VERSION,
     startDate: START_DATE,
@@ -234,5 +242,10 @@ export function generateWorld(opts: GenerateOptions): World {
     clubs,
     players,
     staff,
+    seasons: {},
+    honours: [],
   };
+  // Jadwal musim pertama; liga yang musimnya sudah berjalan langsung punya hasil pekan-pekan awal
+  world.seasons = createSeasons(world, START_DATE, root.fork('seasons'));
+  return world;
 }

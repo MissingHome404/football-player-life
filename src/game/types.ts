@@ -125,6 +125,64 @@ export interface World {
   clubs: Club[];
   players: Player[];
   staff: Staff[];
+  seasons: Record<string, LeagueSeason>; // musim berjalan / berikutnya per liga
+  honours: Honour[]; // juara liga tiap musim
+}
+
+/** Satu musim liga: jadwal kandang-tandang dan hasilnya */
+export interface LeagueSeason {
+  leagueId: string;
+  year: number; // tahun mulai
+  label: string; // "2026/27" atau "2027"
+  startDate: string; // tanggal pekan 1
+  clubs: string[]; // id klub; jadwal memakai indeks array ini
+  rounds: [number, number][][]; // per pekan: [kandang, tandang]
+  results: ([number, number] | null)[][];
+}
+
+export interface Honour {
+  leagueId: string;
+  season: string;
+  championId: string;
+  runnerUpId: string;
+}
+
+export type Competition = 'Liga' | 'U19' | 'Amatir';
+export type MatchStatus = 'Inti' | 'Cadangan' | 'Tidak masuk skuad' | 'Cedera';
+
+/** Satu pertandingan pemain kita */
+export interface MatchRecord {
+  date: string;
+  comp: Competition;
+  season: string;
+  team: string;
+  opponent: string;
+  opponentId?: string;
+  home: boolean;
+  score: [number, number]; // [tim kita, lawan]
+  status: MatchStatus;
+  minutes: number;
+  rating?: number;
+  goals: number;
+  assists: number;
+  cleanSheet?: boolean;
+  motm?: boolean;
+}
+
+/** Statistik pemain kita per musim, tim, dan kompetisi */
+export interface SeasonStat {
+  season: string;
+  team: string;
+  clubId?: string;
+  comp: Competition;
+  apps: number;
+  starts: number;
+  minutes: number;
+  goals: number;
+  assists: number;
+  cleanSheets: number;
+  ratingSum: number;
+  motm: number;
 }
 
 /** Karier pemain kita (data yang nanti disimpan di save) */
@@ -148,6 +206,8 @@ export interface Career {
   inbox: Message[];
   lastReport: WeekReport | null;
   cooldowns: Record<string, number>; // eventId -> minggu terakhir muncul
+  matches: MatchRecord[]; // pertandingan terakhir (terbaru di depan)
+  stats: SeasonStat[]; // statistik semua musim
 }
 
 export type TrainingFocus = 'seimbang' | 'teknik' | 'mental' | 'fisik' | 'peran' | 'istirahat';

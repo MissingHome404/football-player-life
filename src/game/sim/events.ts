@@ -9,6 +9,7 @@ import { wageFor } from '../gen/world';
 import { fullName } from '../gen/names';
 import { personalityLabel } from '../gen/personality';
 import { econOf } from './economy';
+import { recentForm } from './match';
 
 export interface EventCtx {
   world: World;
@@ -76,7 +77,10 @@ export const EVENTS: EventDef[] = [
       if (c.player.contract) return 0;
       const domestic = c.world.clubs.filter((k) => k.countryId === c.player.nationalityId);
       const minLevel = Math.min(...domestic.map((k) => trialLevel(c, k.id)));
-      return c.player.ca >= minLevel - 15 ? 3 + (c.player.ca - minLevel) / 10 : 0.3;
+      // main bagus di tim amatir = lebih cepat dilirik scout
+      const form = recentForm(c.career) ?? 6.5;
+      const formBoost = 1 + Math.max(0, form - 6.5);
+      return (c.player.ca >= minLevel - 15 ? 3 + (c.player.ca - minLevel) / 10 : 0.3) * formBoost;
     },
     create: (c) => {
       const domestic = c.world.clubs
@@ -141,7 +145,9 @@ export const EVENTS: EventDef[] = [
     cooldown: 8,
     weight: (c) => {
       if (!c.player.contract || !c.player.isYouth || c.age < 16) return 0;
-      return c.player.ca >= seniorCutoff(c, c.player.contract.clubId) - 6 ? 6 : 0;
+      const form = recentForm(c.career) ?? 6.5;
+      const margin = form >= 7.2 ? 10 : 6;
+      return c.player.ca >= seniorCutoff(c, c.player.contract.clubId) - margin ? 6 : 0;
     },
     create: (c) => {
       const mgr = c.world.staff.find((s) => s.id === c.club?.managerId);

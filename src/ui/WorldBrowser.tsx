@@ -4,6 +4,7 @@ import { Badge, Flag, Stars, AttrBlock, RolePanel, roleHighlight, caStars, money
 import { ROLES } from '../game/data/roles';
 import { SaveControls } from './SavePanel';
 import { CareerHome } from './CareerHome';
+import { ClubFixtures, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
@@ -174,6 +175,8 @@ function LeagueView({ leagueId }: { leagueId: string }) {
         </div>
       </div>
 
+      <SeasonPanel leagueId={leagueId} />
+
       <section className="panel">
         <h2>Klub</h2>
         <div className="table-wrap">
@@ -338,6 +341,8 @@ function ClubView({ clubId }: { clubId: string }) {
         <InfoCard label="Budget gaji">{money(club.finances.wageBudget)} / minggu</InfoCard>
         <InfoCard label="Fans">± {num(club.fanBase)}</InfoCard>
       </div>
+
+      <ClubFixtures clubId={clubId} />
 
       <section className="panel">
         <div className="tabs">

@@ -5,11 +5,14 @@
 import type { Career, Message, Player, WeekPlan, WeekReport, World } from '../types';
 import type { CharacterRoll } from '../gen/character';
 import { Rng, clamp } from '../rng';
+import { addDays } from '../date';
 import { ageOn } from '../gen/player';
 import { wageFor } from '../gen/world';
 import { ACTIVITY_INFO, COACH_INFO, INTENSITY_INFO, econOf, weeklyBudget } from './economy';
 import { trainWeek } from './training';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
+import { playWeek, rolloverLeagues, standings } from './season';
+import { recentForm, userMatch } from './match';
 
 export const DEFAULT_PLAN: WeekPlan = {
   focus: 'seimbang',
@@ -56,6 +59,8 @@ export function newCareer(roll: CharacterRoll, rerolls: number, saveId: string, 
     inbox: [welcomeMessage(base, !!roll.clubId)],
     lastReport: null,
     cooldowns: {},
+    matches: [],
+    stats: [],
   };
 }
 
@@ -70,18 +75,14 @@ export function migrateCareer(c: Partial<Career> & Pick<Career, 'teamLabel' | 'c
     inbox: [welcomeMessage(c, hasClub)],
     lastReport: null,
     cooldowns: {},
+    matches: [],
+    stats: [],
     ...c,
   } as Career;
 }
 
 export const pendingChoices = (career: Career) =>
   career.inbox.filter((m) => m.choices?.length && m.chosen === undefined);
-
-function addDays(date: string, days: number): string {
-  const d = new Date(date + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 const INJURIES: [name: string, min: number, max: number, weight: number][] = [
   ['Memar di paha', 1, 2, 5],
@@ -122,10 +123,39 @@ export function stressTarget(career: Career, player: Player) {
   if (plan.coaches.psikolog) parts.push(['Psikolog', -15]);
   if (career.injury) parts.push(['Cedera', 15]);
   if (career.money < 0) parts.push(['Uang minus', 20]);
+  // menit bermain dan performa 6 minggu terakhir
+  const since = addDays(career.currentDate, -42);
+  const recent = career.matches.filter((m) => m.date >= since && m.comp !== 'Amatir');
+  if (player.contract && recent.length >= 3) {
+    const starts = recent.filter((m) => m.status === 'Inti').length;
+    if (starts === 0) parts.push(['Jarang dimainkan', 12]);
+    else if (starts >= Math.ceil(recent.length * 0.7)) parts.push(['Main reguler', -6]);
+  }
+  const rated = career.matches.filter((m) => m.date >= since && m.rating !== undefined);
+  const form = recentForm(career);
+  if (form !== null && rated.length >= 3) {
+    if (form >= 7.3) parts.push(['Performa bagus', -6]);
+    else if (form <= 6.2) parts.push(['Performa buruk', 8]);
+  }
   if (player.personality.Pressure <= 7) parts.push(['Mudah tertekan', 10]);
   else if (player.personality.Pressure >= 16) parts.push(['Tahan tekanan', -5]);
   const target = clamp(parts.reduce((s, [, v]) => s + v, 0), 0, 100);
   return { target, parts };
+}
+
+function injure(career: Career, rng: Rng, notes: string[], where: 'latihan' | 'pertandingan') {
+  const [name, min, max] = rng.weighted(INJURIES.map((x) => [x, x[3]] as const));
+  const weeks = rng.int(min, max);
+  career.injury = { name, weeksLeft: weeks };
+  career.fitness = clamp(career.fitness - 15, 0, 100);
+  notes.push(`Kamu cedera saat ${where}: ${name.toLowerCase()}, perkiraan absen ${weeks} minggu.`);
+  career.inbox.unshift({
+    id: `w${career.week}-injury-${where}`,
+    date: addDays(career.currentDate, 7),
+    from: 'Tim medis',
+    title: `Cedera: ${name}`,
+    body: `Kamu mengalami ${name.toLowerCase()} saat ${where} dan harus absen sekitar ${weeks} minggu. Selama cedera kamu tidak bisa berlatih atau bermain.`,
+  });
 }
 
 export interface WeekResult {
@@ -169,6 +199,13 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   let extra = 1;
   if (plan.activity === 'kerja' && !player.contract?.wagePerWeek) extra *= 0.85;
   if (plan.activity === 'pesta') extra *= 0.9;
+  // pengalaman bertanding minggu lalu ikut membantu perkembangan
+  const last = career.matches[0];
+  if (last && last.date > addDays(career.currentDate, -7)) {
+    if (last.minutes >= 60) extra *= 1.15;
+    else if (last.minutes > 0) extra *= 1.05;
+    else if (last.comp === 'Liga') extra *= 0.95;
+  }
   const training = trainWeek(career, player, club, extra);
 
   // 3. Kebugaran
@@ -198,19 +235,29 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       (career.fitness < 40 ? 2 : 1) *
       (career.fitness < 20 ? 1.5 : 1) *
       (plan.coaches.fisik ? 0.7 : 1);
-    if (rng.chance(chance)) {
-      const [name, min, max] = rng.weighted(INJURIES.map((x) => [x, x[3]] as const));
-      const weeks = rng.int(min, max);
-      career.injury = { name, weeksLeft: weeks };
-      career.fitness = clamp(career.fitness - 15, 0, 100);
-      notes.push(`Kamu cedera saat latihan: ${name.toLowerCase()}, perkiraan absen ${weeks} minggu.`);
-      career.inbox.unshift({
-        id: `w${career.week}-injury`,
-        date: addDays(career.currentDate, 7),
-        from: 'Tim medis',
-        title: `Cedera: ${name}`,
-        body: `Kamu mengalami ${name.toLowerCase()} dan harus absen sekitar ${weeks} minggu. Selama cedera kamu tidak bisa berlatih.`,
-      });
+    if (rng.chance(chance)) injure(career, rng, notes, 'latihan');
+  }
+
+  // 4b. Pertandingan minggu ini: semua liga, lalu pemain kita
+  const weekEnd = addDays(career.currentDate, 7);
+  const week = playWeek(world, career.currentDate, weekEnd, new Rng(`${world.seed}:${weekEnd}`));
+  let w: World = { ...world, seasons: week.seasons };
+  const match = userMatch(w, career, player, week, rng.fork('match'));
+  if (match) {
+    career.matches.unshift(match);
+    career.matches.length = Math.min(career.matches.length, 30);
+    if (match.minutes > 0) {
+      career.fitness = clamp(Math.round(career.fitness - match.minutes / 9), 0, 100);
+      const good = (match.rating ?? 0) >= 7.5;
+      const repChance = { Liga: 0.5, U19: 0.2, Amatir: 0.1 }[match.comp];
+      if (good && rng.chance(repChance)) player.reputation.home = clamp(player.reputation.home + 1, 1, 100);
+      if (match.motm && match.comp === 'Liga') player.reputation.home = clamp(player.reputation.home + 1, 1, 100);
+      if (good && match.comp === 'Liga' && club) {
+        const lrep = world.leagues.find((l) => l.id === club.leagueId)!.reputation;
+        if (rng.chance(lrep / 250)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
+      }
+      const proneness = Math.max(0.15, 1 + (player.hidden['Injury Proneness'] - 10) / 10);
+      if (!career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness)) injure(career, rng, notes, 'pertandingan');
     }
   }
 
@@ -228,7 +275,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
 
   // 7. Kalender
   career.week += 1;
-  career.currentDate = addDays(career.currentDate, 7);
+  career.currentDate = weekEnd;
   const ageNow = ageOn(player.birthDate, career.currentDate);
   if (ageNow > ageBefore) {
     const gift = Math.round({ miskin: 10, menengah: 60, kaya: 500 }[career.family.wealth] * econOf(player.nationalityId));
@@ -274,9 +321,42 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     }
   }
 
+  // Musim liga yang selesai minggu ini: juara, pemain AI berkembang/pensiun, jadwal baru
+  w = withPlayer(w, player);
+  if (week.finished.length) {
+    const finished = w.seasons;
+    const r = rolloverLeagues(w, week.finished, career.currentDate, new Rng(`${world.seed}:rollover:${career.currentDate}`));
+    w = r.world;
+    for (const h of r.honours) {
+      const league = w.leagues.find((l) => l.id === h.leagueId)!;
+      const mine = player.contract && w.clubs.find((c) => c.id === player.contract!.clubId)?.leagueId === league.id;
+      if (!mine && league.countryId !== player.nationalityId) continue;
+      const name = (id: string) => w.clubs.find((c) => c.id === id)!.name;
+      let body = `${name(h.championId)} juara ${league.name} musim ${h.season}, ${name(h.runnerUpId)} di posisi kedua.`;
+      if (mine) {
+        const pos = standings(finished[league.id]).findIndex((r) => r.clubId === player.contract!.clubId) + 1;
+        body += ` ${name(player.contract!.clubId)} finis di posisi ke-${pos}.`;
+      }
+      const rows = career.stats.filter((x) => x.season === h.season);
+      const apps = rows.reduce((a, x) => a + x.apps, 0);
+      if (apps) {
+        const goals = rows.reduce((a, x) => a + x.goals, 0);
+        const assists = rows.reduce((a, x) => a + x.assists, 0);
+        const avg = rows.reduce((a, x) => a + x.ratingSum, 0) / apps;
+        body += ` Musimmu: ${apps} kali main, ${goals} gol, ${assists} assist, rating rata-rata ${avg.toFixed(2)}.`;
+      }
+      career.inbox.unshift({
+        id: `season-${h.leagueId}-${h.season}`,
+        date: career.currentDate,
+        from: league.name,
+        title: `Musim ${h.season} selesai`,
+        body,
+      });
+    }
+  }
+
   // 8. Event inbox
-  const updated = withPlayer(world, player);
-  const ctx = makeCtx(updated, career, player, rng);
+  const ctx = makeCtx(w, career, player, rng);
   const ready = (id: string, cd: number) => career.cooldowns[id] === undefined || career.week - career.cooldowns[id] >= cd;
   const burnout = EVENT_BY_ID.burnout;
   const picks: string[] = [];
@@ -314,7 +394,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     notes,
   };
   career.lastReport = report;
-  return { world: updated, career, report };
+  return { world: w, career, report };
 }
 
 /** Pemain memilih jawaban untuk pesan di inbox */

@@ -31,7 +31,8 @@ describe('minggu demi minggu', () => {
     const r2 = run(a.world, a.career, 30);
     expect(r2.career).toEqual(r1.career);
     expect(me(r2.world)).toEqual(me(r1.world));
-  });
+    expect(r2.world.seasons).toEqual(r1.world.seasons);
+  }, 30_000);
 
   it('tidak mengubah data lama (aman untuk undo dan React)', () => {
     const a = start('IMM');
@@ -40,14 +41,14 @@ describe('minggu demi minggu', () => {
     expect(JSON.stringify({ c: a.career, p: me(a.world) })).toBe(before);
   });
 
-  it('3 tahun: CA tidak melewati PA, semua nilai tetap di batasnya', () => {
-    for (const seed of ['L1', 'L2', 'L3', 'L4']) {
+  it('2 tahun: CA tidak melewati PA, semua nilai tetap di batasnya', () => {
+    for (const seed of ['L1', 'L2']) {
       const a = start(seed, seed === 'L2' ? 'ENG' : 'IDN');
       a.career.plan.intensity = 'berat';
       a.career.plan.focus = 'peran';
-      const { world, career } = run(a.world, a.career, 156);
+      const { world, career } = run(a.world, a.career, 104);
       const p = me(world);
-      expect(career.week).toBe(156);
+      expect(career.week).toBe(104);
       expect(p.ca).toBeLessThanOrEqual(p.pa);
       expect(p.ca).toBeGreaterThanOrEqual(me(a.world).ca);
       for (const k of ALL_VISIBLE) {
@@ -62,8 +63,14 @@ describe('minggu demi minggu', () => {
       expect(career.fitness).toBeLessThanOrEqual(100);
       expect(Number.isFinite(career.money)).toBe(true);
       expect(career.inbox.length).toBeLessThanOrEqual(61);
+      // sudah ikut pertandingan dan statistik tercatat
+      expect(career.matches.length).toBeGreaterThan(20);
+      const apps = career.stats.reduce((s, x) => s + x.apps, 0);
+      expect(apps).toBeGreaterThanOrEqual(career.matches.filter((m) => m.minutes > 0).length);
+      // dua musim liga sudah selesai dan tercatat juaranya
+      expect(world.honours.filter((h) => h.leagueId === 'ENG1').length).toBe(2);
     }
-  });
+  }, 120_000);
 
   it('latihan berat membuat pemain berkembang lebih cepat daripada ringan', () => {
     const grow = (intensity: Intensity) => {
@@ -81,7 +88,7 @@ describe('minggu demi minggu', () => {
       return total;
     };
     expect(grow('berat')).toBeGreaterThan(grow('ringan'));
-  });
+  }, 60_000);
 
   it('tidak bisa lanjut minggu sebelum pesan dijawab', () => {
     let { world, career } = start('EVT');

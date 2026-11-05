@@ -5,10 +5,12 @@ import { TECHNICAL, MENTAL, PHYSICAL, GOALKEEPING, PERSONALITY, HIDDEN } from '.
 import { COUNTRIES } from '../data/countries';
 import type { Career, Player, World } from '../types';
 import { migrateCareer } from '../sim/week';
+import { createSeasons } from '../sim/season';
+import { Rng } from '../rng';
 
 export const SAVE_MAGIC = 'FPL-SAVE';
-// 1: tahap 4 (karier dasar). 2: tahap 5 (minggu, latihan, inbox).
-export const SAVE_FORMAT = 2;
+// 1: tahap 4 (karier dasar). 2: tahap 5 (minggu, latihan, inbox). 3: tahap 6 (musim, pertandingan).
+export const SAVE_FORMAT = 3;
 
 const GROUPS = {
   technical: TECHNICAL,
@@ -94,6 +96,11 @@ export function readSaveFile(data: unknown): { file: SaveFile; world: World; car
   };
   const me = world.players.find((p) => p.id === f.career.playerId);
   if (!me) throw new Error('Pemain kamu tidak ada di file save.');
-  const career = f.format < 2 ? migrateCareer(f.career, !!me.contract) : f.career;
+  let career = f.format < 2 ? migrateCareer(f.career, !!me.contract) : f.career;
+  if (f.format < 3) {
+    career = { ...career, matches: career.matches ?? [], stats: career.stats ?? [] };
+    world.seasons = createSeasons(world, career.currentDate, new Rng(`${world.seed}:seasons`));
+    world.honours = [];
+  }
   return { file: f, world, career };
 }

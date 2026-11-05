@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { useGame } from './store';
-import { Stars, caStars, money } from './components';
+import { Badge, Stars, caStars, money } from './components';
 import { ORIGIN_INFO, FAMILY_INFO } from '../game/gen/character';
 import { ageOn } from '../game/gen/player';
 import {
@@ -14,7 +14,9 @@ import {
   weeklyBudget,
 } from '../game/sim/economy';
 import { pendingChoices, stressTarget } from '../game/sim/week';
-import type { Activity, CoachKind, Intensity, Message, TrainingFocus } from '../game/types';
+import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
+import { nextFixture, shortDate } from './LeagueSeason';
+import { roundDate } from '../game/sim/season';
 
 const fmtDate = (d: string, long = false) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', {
@@ -104,6 +106,7 @@ export function CareerHome({ children }: { children: ReactNode }) {
         <PlanPanel />
         <div className="home-side">
           <Inbox />
+          <MatchPanel />
           <ReportPanel />
         </div>
       </div>
@@ -443,6 +446,145 @@ function ReportPanel() {
             <li key={i}>{n}</li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function LastMatch({ m }: { m: MatchRecord }) {
+  const [us, them] = m.score;
+  const res = us > them ? 'win' : us < them ? 'loss-r' : 'draw';
+  return (
+    <div className="last-match">
+      <div className="lm-top">
+        <span className="pill">{m.comp === 'Liga' ? 'Liga' : m.comp}</span>
+        <span className="muted small">
+          {shortDate(m.date)} · {m.home ? 'Kandang' : 'Tandang'}
+        </span>
+      </div>
+      <div className="lm-score">
+        <span className="lm-team">{m.team}</span>
+        <span className={`res big ${res}`}>
+          {us} - {them}
+        </span>
+        <span className="lm-team right">{m.opponent}</span>
+      </div>
+      <div className="lm-me">
+        {m.minutes > 0 ? (
+          <>
+            <span className={`rating ${m.rating! >= 7.5 ? 'hi' : m.rating! < 6 ? 'lo' : ''}`}>{m.rating!.toFixed(1)}</span>
+            <span className="small">
+              {m.status === 'Inti' ? 'Main sejak awal' : 'Masuk dari bangku cadangan'} · {m.minutes}'
+              {m.goals > 0 && ` · ⚽ ${m.goals > 1 ? `×${m.goals}` : ''}`}
+              {m.assists > 0 && ` · 🅰️ ${m.assists > 1 ? `×${m.assists}` : ''}`}
+              {m.cleanSheet && ' · clean sheet'}
+            </span>
+            {m.motm && <span className="pill ok">Man of the Match</span>}
+          </>
+        ) : (
+          <span className="small muted">
+            {m.status === 'Cedera'
+              ? 'Kamu absen karena cedera.'
+              : m.status === 'Cadangan'
+                ? 'Kamu duduk di bangku cadangan dan tidak dimainkan.'
+                : 'Kamu tidak masuk skuad pertandingan.'}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const avg = (s: SeasonStat) => (s.apps ? (s.ratingSum / s.apps).toFixed(2) : '-');
+
+function MatchPanel() {
+  const career = useGame((s) => s.career)!;
+  const world = useGame((s) => s.world)!;
+  const idx = useGame((s) => s.idx)!;
+  const [showAll, setShowAll] = useState(false);
+  const p = idx.playerById.get(career.playerId)!;
+  const last = career.matches[0];
+  const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
+  const leagueId = club?.leagueId ?? world.leagues.find((l) => l.countryId === p.nationalityId)?.id;
+  const season = leagueId ? world.seasons[leagueId] : undefined;
+  const next = club && !p.isYouth ? nextFixture(world, club.id, career.currentDate) : null;
+  const nextOpp = next ? idx.clubById.get(next.opponentId) : undefined;
+  // jadwal U19/amatir ikut pekan liga
+  const nextRoundDate = season
+    ? (season.rounds.map((_, r) => roundDate(season, r)).find((d) => d > career.currentDate) ?? null)
+    : null;
+  const current = career.stats.filter((s) => season && s.season === season.label);
+  const rows = showAll ? [...career.stats].reverse() : current;
+
+  return (
+    <section className="panel matches">
+      <h2>Pertandingan</h2>
+      {last ? <LastMatch m={last} /> : <p className="muted small">Belum ada pertandingan.</p>}
+      <div className="next-match small">
+        <span className="muted">Berikutnya: </span>
+        {next && nextOpp ? (
+          <span className="nm">
+            {shortDate(next.date)} · {next.home ? 'vs' : 'di kandang'} <Badge club={nextOpp} size={16} /> <b>{nextOpp.name}</b>{' '}
+            <span className="muted">(pekan {next.round})</span>
+          </span>
+        ) : nextRoundDate ? (
+          <span>
+            {shortDate(nextRoundDate)} ·{' '}
+            {p.contract ? `pertandingan U19 ${club?.name}` : `pertandingan bersama ${career.teamLabel}`}
+          </span>
+        ) : (
+          <span className="muted">Jeda musim. Jadwal baru menyusul.</span>
+        )}
+      </div>
+      {(rows.length > 0 || career.stats.length > 0) && (
+        <>
+          <div className="table-wrap">
+            <table className="tbl stats">
+              <thead>
+                <tr>
+                  {showAll && <th className="left">Musim</th>}
+                  <th className="left">Tim</th>
+                  <th>Main</th>
+                  <th>Gol</th>
+                  <th>Ast</th>
+                  {p.mainPosition === 'GK' || ['DC', 'DR', 'DL', 'WBR', 'WBL'].includes(p.mainPosition) ? <th>CS</th> : null}
+                  <th>Rating</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s) => (
+                  <tr key={`${s.season}-${s.team}-${s.comp}`}>
+                    {showAll && <td className="left">{s.season}</td>}
+                    <td className="left">
+                      {s.team}
+                      {s.comp !== 'Liga' && <span className="muted small"> · {s.comp}</span>}
+                    </td>
+                    <td className="num">
+                      {s.apps}
+                      {s.apps > s.starts && <span className="muted small"> ({s.apps - s.starts})</span>}
+                    </td>
+                    <td className="num">{s.goals}</td>
+                    <td className="num">{s.assists}</td>
+                    {p.mainPosition === 'GK' || ['DC', 'DR', 'DL', 'WBR', 'WBL'].includes(p.mainPosition) ? (
+                      <td className="num">{s.cleanSheets}</td>
+                    ) : null}
+                    <td className="num">{avg(s)}</td>
+                  </tr>
+                ))}
+                {!rows.length && (
+                  <tr>
+                    <td colSpan={6} className="left muted small">
+                      Belum main musim ini.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <button className="link old-toggle" onClick={() => setShowAll(!showAll)}>
+            {showAll ? 'Musim ini saja' : 'Riwayat semua musim'}
+          </button>
+        </>
       )}
     </section>
   );
