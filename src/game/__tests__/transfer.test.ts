@@ -65,6 +65,12 @@ describe('transfer dan kontrak', () => {
     expect(last.clubId).toBe(o.clubId);
     expect(last.to).toBeUndefined();
     expect(r.career.history[r.career.history.length - 2].to).toBe(career.currentDate);
+    expect(r.career.signed).toBe(career.currentDate);
+    // setelah pindah: tidak ada tawaran klub lain selama setahun
+    const me2 = structuredClone(me);
+    const c2 = structuredClone(r.career);
+    waitForOffer(r.world, c2, me2, 8);
+    expect(c2.offers.filter((x) => x.type !== 'perpanjangan')).toEqual([]);
     // tidak mengubah data lama
     expect(world.players.find((x) => x.id === p.id)!.contract!.clubId).not.toBe(o.clubId);
   });

@@ -261,6 +261,10 @@ export function contractWeek(world: World, career: Career, p: Player, rng: Rng) 
     let chance = 0.15 + outgrown + (agent?.chance ?? 0) + (career.listed ? 0.2 : 0) + (!p.contract ? 0.25 : 0);
     if (career.injury) chance *= 0.3;
 
+    // klub tidak melepas pemain yang baru tanda tangan kontrak (setahun),
+    // kecuali pemainnya sendiri minta dijual
+    const settled = !!career.signed && career.signed > addDays(date, -365) && !career.listed;
+
     // pinjaman yang diminta
     if (career.wantsLoan && p.contract && club && rng.chance(0.5)) {
       const conf = COUNTRY_BY_ID[club.countryId].confederation;
@@ -276,7 +280,7 @@ export function contractWeek(world: World, career: Career, p: Player, rng: Rng) 
         career.offers.push(o);
         infoMessage(career, 'offer', pick.name, `Tawaran pinjaman dari ${pick.name}`, `${pick.name} ingin meminjammu sampai akhir musim mereka. Lihat di panel Kontrak & transfer.`);
       }
-    } else if (rng.chance(chance)) {
+    } else if (!settled && rng.chance(chance)) {
       const home = club ?? world.clubs.find((c) => c.countryId === p.nationalityId);
       const homeLeague = home ? world.leagues.find((l) => l.id === home.leagueId) : undefined;
       const conf = COUNTRY_BY_ID[home?.countryId ?? p.nationalityId].confederation;
@@ -392,8 +396,10 @@ export function acceptOffer(world: World, prev: Career, offerId: string): { worl
   career.teamLabel = club.name;
   career.listed = false;
   career.wantsLoan = false;
-  career.offers = offer.type === 'perpanjangan' ? career.offers.filter((o) => o.id !== offerId) : [];
+  // sudah memutuskan: semua tawaran lain hangus
+  career.offers = [];
   career.renewalNoted = undefined;
+  if (offer.type !== 'pinjaman') career.signed = date;
   return { world: replacePlayer(world, p), career };
 }
 

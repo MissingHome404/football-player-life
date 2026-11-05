@@ -6,6 +6,7 @@ import { useGame } from './store';
 import { Badge, Flag, Stars, caStars, money } from './components';
 import { shortDate } from './LeagueSeason';
 import { ageOn } from '../game/gen/player';
+import { addDays } from '../game/date';
 import { fullName } from '../game/gen/names';
 import { groupOf } from '../game/sim/match';
 import { squadOf } from '../game/sim/season';
@@ -52,6 +53,7 @@ export function TransferPanel() {
   const parent = career.loan ? idx.clubById.get(career.loan.parentClubId) : undefined;
   const agent = career.agent;
   const agentRank = agent ? TIERS.indexOf(agent.tier) : -1;
+  const settledUntil = career.signed && addDays(career.signed, 365) > date ? addDays(career.signed, 365) : null;
 
   return (
     <section className="panel transfer">
@@ -172,7 +174,9 @@ export function TransferPanel() {
               ? 'Klub mencarikan klub peminjam saat bursa transfer buka.'
               : career.listed
                 ? 'Kamu masuk daftar jual: tawaran lebih sering datang saat bursa buka.'
-                : 'Tawaran datang sendiri saat bursa transfer buka, tergantung reputasi, performa, dan agentmu.'}
+                : settledUntil
+                  ? `Kamu baru tanda tangan kontrak, jadi klub lain belum akan menawar sampai ${shortDate(settledUntil)} ${settledUntil.slice(0, 4)}, kecuali kamu minta dijual.`
+                  : 'Tawaran datang sendiri saat bursa transfer buka, tergantung reputasi, performa, dan agentmu.'}
           </p>
         </div>
       )}

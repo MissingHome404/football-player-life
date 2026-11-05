@@ -216,6 +216,7 @@ export interface Career {
   wantsLoan: boolean; // minta dipinjamkan
   joined: string; // tanggal bergabung dengan klub sekarang
   renewalNoted?: string; // tanggal habis kontrak yang sudah diberi tahu "tidak diperpanjang"
+  signed?: string; // tanggal terakhir tanda tangan kontrak (pindah, bebas transfer, perpanjangan)
 }
 
 export type AgentTier = 'lokal' | 'regional' | 'super';

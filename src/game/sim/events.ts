@@ -120,6 +120,7 @@ export const EVENTS: EventDef[] = [
       const year = Number(c.career.currentDate.slice(0, 4));
       c.career.teamLabel = club.name;
       c.career.joined = c.career.currentDate;
+      c.career.signed = c.career.currentDate;
       startSpell(c.career, { clubId: club.id, team: club.name, from: c.career.currentDate, kind: c.age >= 19 ? 'Senior' : 'Akademi' });
       addStress(c, -10);
       addRep(c, 3);
@@ -179,6 +180,7 @@ export const EVENTS: EventDef[] = [
       };
       addRep(c, 5);
       c.career.joined = c.career.currentDate;
+      c.career.signed = c.career.currentDate;
       startSpell(c.career, { clubId: club.id, team: club.name, from: c.career.currentDate, kind: 'Senior' });
       addStress(c, -6);
       return `Resmi! Kamu sekarang pemain senior ${club.name} dengan gaji ${eur(c.player.contract.wagePerWeek)} per minggu.`;

@@ -106,5 +106,10 @@ export function readSaveFile(data: unknown): { file: SaveFile; world: World; car
     const c = me.contract;
     career = { ...careerDefaults(career.teamLabel, c?.clubId, me.isYouth, career.currentDate), ...career };
   }
+  if (career.signed === undefined) {
+    // save sebelum ada catatan tanda tangan: pakai tanggal masuk klub terakhir (bukan pinjaman)
+    const last = [...career.history].reverse().find((h) => h.clubId && h.kind !== 'Pinjaman');
+    if (last && last.from > career.history[0].from) career = { ...career, signed: last.from };
+  }
   return { file: f, world, career };
 }
