@@ -6,8 +6,10 @@ import { useGame } from './store';
 import {
   DT,
   FULL,
+  GOAL_HALF,
   HALF,
   Match,
+  NET_DEPTH,
   PITCH_H,
   PITCH_W,
   minuteOf,
@@ -19,6 +21,8 @@ import {
 
 type Phase = 'lineup' | 'play' | 'end';
 const SPEEDS = [1, 2, 4, 8] as const;
+/** Ruang di luar garis (meter) supaya gawang, jaring & bola yang keluar tetap terlihat */
+const EDGE = 3;
 
 /** Dipasang sekali di App: muncul saat pemain menonton laga */
 export function MatchLayer() {
@@ -69,7 +73,10 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
   const team = names[e.side];
   switch (e.kind) {
     case 'goal':
+      if (e.og) return `⚽ GOL! Bunuh diri ${e.name} (untuk ${team})`;
       return `⚽ GOL! ${e.name} (${team})${e.assist ? `, assist ${e.assist}` : ''}`;
+    case 'offside':
+      return `🚩 Offside: ${e.name} (${team})`;
     case 'penalty':
       return `Penalti untuk ${team}!`;
     case 'freekick':
@@ -89,7 +96,22 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
   }
 }
 
-const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'sub', 'half', 'full']);
+const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full']);
+
+const RESTART_TEXT: Record<string, string> = {
+  throw: 'Lemparan ke dalam',
+  corner: 'Tendangan sudut',
+  goalkick: 'Tendangan gawang',
+  free: 'Tendangan bebas',
+  penalty: 'Penalti',
+};
+
+/** Bola mati yang sedang berlangsung, untuk label kecil di atas lapangan */
+function restartLabel(match: Match, names: [string, string]): string | null {
+  const r = match.dead ?? match.restart;
+  if (!r || !RESTART_TEXT[r.kind]) return null;
+  return `${RESTART_TEXT[r.kind]} · ${names[r.side]}`;
+}
 
 // --- komponen utama ------------------------------------------------------------------
 
@@ -285,7 +307,7 @@ function Live({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [paused, setPaused] = useState(false);
-  const [hud, setHud] = useState({ min: 1, half: 1, score: [0, 0] as [number, number], events: 0 });
+  const [hud, setHud] = useState({ min: 1, half: 1, score: [0, 0] as [number, number], events: 0, rs: null as string | null });
   const [banner, setBanner] = useState<string | null>(null);
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
@@ -293,13 +315,15 @@ function Live({
   pausedRef.current = paused;
   const endRef = useRef(onEnd);
   endRef.current = onEnd;
+  const namesRef = useRef(names);
+  namesRef.current = names;
 
   useEffect(() => {
     const canvas = canvasRef.current!;
     const wrap = wrapRef.current!;
     const ctx = canvas.getContext('2d')!;
     const prev = new WeakMap<Body, Snap>();
-    const prevBall: Snap = { x: match.ball.x, y: match.ball.y };
+    const prevBall = { x: match.ball.x, y: match.ball.y, z: match.ball.z };
     let raf = 0;
     let last = performance.now();
     let acc = 0;
@@ -313,9 +337,9 @@ function Live({
       const w = wrap.clientWidth;
       const vertical = w < 560;
       const maxH = Math.max(260, window.innerHeight * (vertical ? 0.58 : 0.62));
-      const pad = 10;
-      const long = PITCH_W + 4; // ruang untuk gawang
-      const short = PITCH_H;
+      const pad = 6;
+      const long = PITCH_W + 2 * EDGE; // ruang untuk gawang & bola yang keluar lapangan
+      const short = PITCH_H + 2 * EDGE;
       let s = vertical ? (w - 2 * pad) / short : (w - 2 * pad) / long;
       const h = (vertical ? long : short) * s + 2 * pad;
       if (h > maxH) s *= (maxH - 2 * pad) / (h - 2 * pad);
@@ -333,14 +357,15 @@ function Live({
     /** Koordinat lapangan ke piksel */
     function P(x: number, y: number): [number, number] {
       const { s, pad, vertical } = geo;
-      if (vertical) return [pad + y * s, pad + (PITCH_W + 2 - x) * s];
-      return [pad + (x + 2) * s, pad + y * s];
+      if (vertical) return [pad + (y + EDGE) * s, pad + (PITCH_W + EDGE - x) * s];
+      return [pad + (x + EDGE) * s, pad + (y + EDGE) * s];
     }
 
     function snapshot() {
       for (const b of match.bodies) prev.set(b, { x: b.x, y: b.y });
       prevBall.x = match.ball.x;
       prevBall.y = match.ball.y;
+      prevBall.z = match.ball.z;
     }
 
     function drawPitch() {
@@ -387,11 +412,35 @@ function Live({
         ctx.beginPath();
         ctx.arc(px, py, Math.max(1.2, s * 0.25), 0, Math.PI * 2);
         ctx.fill();
-        // gawang
+        // gawang + jaring di belakang garis
+        ctx.save();
+        const [n0x, n0y] = P(gx, 34 - GOAL_HALF);
+        const [n1x, n1y] = P(gx - d * NET_DEPTH, 34 + GOAL_HALF);
+        const nx = Math.min(n0x, n1x);
+        const ny = Math.min(n0y, n1y);
+        const nw = Math.abs(n1x - n0x);
+        const nh = Math.abs(n1y - n0y);
+        ctx.fillStyle = 'rgba(255,255,255,.12)';
+        ctx.fillRect(nx, ny, nw, nh);
+        ctx.beginPath();
+        ctx.rect(nx, ny, nw, nh);
+        ctx.clip();
+        ctx.strokeStyle = 'rgba(255,255,255,.35)';
+        ctx.lineWidth = 0.6;
+        const step = Math.max(2.5, s * 0.45);
+        for (let k = -nh; k < nw + nh; k += step) {
+          ctx.beginPath();
+          ctx.moveTo(nx + k, ny);
+          ctx.lineTo(nx + k + nh, ny + nh);
+          ctx.moveTo(nx + k + nh, ny);
+          ctx.lineTo(nx + k, ny + nh);
+          ctx.stroke();
+        }
+        ctx.restore();
         ctx.save();
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = Math.max(1.5, s * 0.3);
-        rect(gx, 34 - 3.66, gx - d * 1.6, 34 + 3.66);
+        rect(gx, 34 - GOAL_HALF, gx - d * NET_DEPTH, 34 + GOAL_HALF);
         ctx.restore();
       }
     }
@@ -435,15 +484,20 @@ function Live({
         ctx.fillText(name, x, ly);
       }
       // bola
+      // bayangan di tanah, bola digambar naik sesuai ketinggiannya (z)
       const bx = prevBall.x + (match.ball.x - prevBall.x) * alpha;
       const by = prevBall.y + (match.ball.y - prevBall.y) * alpha;
-      const air = !!(match.pass?.air || match.shot);
-      const [px, py] = P(bx, by);
-      const br = Math.max(3, s * 0.55) * (air ? 1.25 : 1);
-      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      const bz = Math.max(0, prevBall.z + (match.ball.z - prevBall.z) * alpha);
+      const [gx, gy] = P(bx, by);
+      const base = Math.max(3, s * 0.55);
+      const br = base * (1 + Math.min(bz, 12) * 0.05);
+      const lift = Math.min(bz, 15) * s * 0.55;
+      ctx.fillStyle = `rgba(0,0,0,${Math.max(0.15, 0.4 - bz * 0.02)})`;
       ctx.beginPath();
-      ctx.arc(px + (air ? br : 1), py + (air ? br : 1), br, 0, Math.PI * 2);
+      ctx.ellipse(gx + 1, gy + 1, base, base * 0.8, 0, 0, Math.PI * 2);
       ctx.fill();
+      const px = gx + lift * 0.35;
+      const py = gy - lift;
       ctx.fillStyle = '#fff';
       ctx.beginPath();
       ctx.arc(px, py, br, 0, Math.PI * 2);
@@ -469,7 +523,7 @@ function Live({
             seenEvents = match.events.length;
             const goal = fresh.find((e) => e.kind === 'goal');
             if (goal) {
-              setBanner(`GOL! ${goal.name}`);
+              setBanner(goal.og ? `GOL! (bunuh diri ${goal.name})` : `GOL! ${goal.name}`);
               holdUntil = now + 1600;
               acc = 0;
               break;
@@ -489,9 +543,10 @@ function Live({
       drawPlayers(Math.min(1, acc / DT));
       setHud((h) => {
         const min = minuteOf(match.t);
-        if (h.min === min && h.score[0] === match.score[0] && h.score[1] === match.score[1] && h.events === match.events.length && h.half === match.half)
+        const rs = restartLabel(match, namesRef.current);
+        if (h.min === min && h.score[0] === match.score[0] && h.score[1] === match.score[1] && h.events === match.events.length && h.half === match.half && h.rs === rs)
           return h;
-        return { min, half: match.half, score: [match.score[0], match.score[1]], events: match.events.length };
+        return { min, half: match.half, score: [match.score[0], match.score[1]], events: match.events.length, rs };
       });
       if (match.done && !ended && now >= holdUntil) {
         ended = true;
@@ -541,6 +596,7 @@ function Live({
       <div className="mv-pitch" ref={wrapRef}>
         <canvas ref={canvasRef} role="img" aria-label={`Pertandingan menit ${hud.min}, skor ${hud.score[0]}-${hud.score[1]}`} />
         {banner && <div className="mv-banner">{banner}</div>}
+        {!banner && hud.rs && <div className="mv-restart small">{hud.rs}</div>}
       </div>
       <div className="mv-controls">
         <button className="chip" onClick={() => setPaused((p) => !p)} aria-pressed={paused}>
@@ -639,7 +695,8 @@ function Summary({
               .filter((g) => g.side === side)
               .map((g, i) => (
                 <li key={i}>
-                  {g.name} <span className="muted num">{g.min}'</span>
+                  {g.name}
+                  {g.og && ' (bd)'} <span className="muted num">{g.min}'</span>
                 </li>
               ))}
           </ul>

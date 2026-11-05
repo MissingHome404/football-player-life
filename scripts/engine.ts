@@ -2,8 +2,13 @@
 // Pakai: npx tsx scripts/engine.ts [jumlah laga]
 import { generateWorld } from '../src/game/gen/world';
 import { squadOf } from '../src/game/sim/season';
-import { Match, pickXI, type ETeam } from '../src/game/sim/engine';
+import { Match, TUNE, pickXI, type ETeam } from '../src/game/sim/engine';
 const N = Number(process.argv[2] ?? 200);
+// penyetel bisa diubah dari baris perintah, mis. shotK=1.1 shootW=18
+for (const arg of process.argv.slice(3)) {
+  const [k, v] = arg.split('=');
+  if (k in TUNE) (TUNE as Record<string, number>)[k] = Number(v);
+}
 const w = generateWorld({ seed: 'CAL' });
 const clubs = w.clubs.filter((c) => c.leagueId === 'ENG1' || c.leagueId === 'IDN1');
 const team = (id: string): ETeam => {

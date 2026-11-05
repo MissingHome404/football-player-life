@@ -2,7 +2,7 @@
 // lalu event inbox. Semua acak memakai seed karakter + nomor minggu, jadi
 // minggu yang sama dari save yang sama selalu memberi hasil yang sama.
 
-import type { EngineInput } from './engine';
+import { ENGINE_VERSION, type EngineInput } from './engine';
 import type { Career, Message, Player, WeekPlan, WeekReport, World } from '../types';
 import type { CharacterRoll } from '../gen/character';
 import { Rng, clamp } from '../rng';
@@ -274,7 +274,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   const played = userMatch(w, career, player, week, rng.fork('match'));
   const match = played?.rec ?? null;
   const sim = played?.sim;
-  if (match && sim) career.lastSim = { date: match.date, input: sim };
+  if (match && sim) career.lastSim = { date: match.date, input: sim, v: ENGINE_VERSION };
   if (match) {
     career.matches.unshift(match);
     career.matches.length = Math.min(career.matches.length, 30);

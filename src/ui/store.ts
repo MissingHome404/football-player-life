@@ -17,6 +17,7 @@ import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../game/s
 import { acceptOffer, hireAgent, negotiate, rejectOffer, type Ask } from '../game/sim/transfer';
 import { applyWish, initRelations } from '../game/sim/relations';
 import { applyLife, type LifeOp } from '../game/sim/life';
+import { ENGINE_VERSION } from '../game/sim/engine';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -236,7 +237,7 @@ export const useGame = create<State>((set, get) => ({
   watching: false,
   autoWatch: readAutoWatch(),
   watch: () => {
-    if (get().career?.lastSim) set({ watching: true });
+    if (get().career?.lastSim?.v === ENGINE_VERSION) set({ watching: true });
   },
   closeMatch: () => set({ watching: false }),
   setAutoWatch: (on) => {

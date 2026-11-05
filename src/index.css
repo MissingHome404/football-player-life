@@ -438,3 +438,4 @@ input { font: inherit; }
 .lm-goals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
 .lm-goals > div:last-child { text-align: right; }
 .lm-watch { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.mv-restart { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(10, 12, 16, .78); color: #fff; padding: 3px 10px; border-radius: 999px; white-space: nowrap; pointer-events: none; }

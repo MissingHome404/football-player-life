@@ -193,7 +193,8 @@ export interface SeasonStat {
 /** Karier pemain kita (data yang nanti disimpan di save) */
 export interface Career {
   /** Laga terakhir yang dimainkan match engine, untuk ditonton (ulang) */
-  lastSim?: { date: string; input: EngineInput };
+  /** input match engine laga terakhir (v = versi engine; replay hanya bila versinya sama) */
+  lastSim?: { date: string; input: EngineInput; v?: number };
   saveId: string; // id slot save di browser
   characterSeed: string;
   rerolls: number;

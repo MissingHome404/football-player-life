@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { FULL, Match, pickXI, playEngine, type EngineInput, type ETeam } from '../sim/engine';
+import { BAR, ENGINE_VERSION, FULL, GOAL_HALF, Match, PITCH_W, pickXI, playEngine, type EngineInput, type ETeam } from '../sim/engine';
 import { rollCharacter } from '../gen/character';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../sim/week';
 import { initRelations } from '../sim/relations';
@@ -44,6 +44,52 @@ describe('match engine', () => {
     expect(goals / 12).toBeLessThan(5);
   }, 30_000);
 
+  it('aturan & fisika bola: gol harus masuk gawang, offside, lemparan ke dalam, tidak ada bola teleport', () => {
+    const restarts: Record<string, number> = {};
+    const afterMiss: Record<string, number> = {};
+    let offside = 0;
+    let goals = 0;
+    for (let i = 0; i < 8; i++) {
+      const m = new Match({ seed: `rules${i}`, home: team(eng[i].id), away: team(eng[19 - i].id) });
+      let seen = 0;
+      let missOpen = false;
+      let lastRestart = m.restart;
+      while (!m.done) {
+        const p0 = { ...m.ball };
+        m.step();
+        const b = m.ball;
+        expect(Number.isFinite(b.x + b.y + b.z)).toBe(true);
+        if (m.restart && m.restart !== lastRestart) {
+          restarts[m.restart.kind] = (restarts[m.restart.kind] ?? 0) + 1;
+          if (missOpen) afterMiss[m.restart.kind] = (afterMiss[m.restart.kind] ?? 0) + 1;
+          missOpen = false;
+        }
+        lastRestart = m.restart;
+        for (const e of m.events.slice(seen)) {
+          if (e.kind === 'offside') offside++;
+          if (e.kind === 'miss') missOpen = true;
+          if (e.kind !== 'goal') continue;
+          goals++;
+          // titik bola melewati garis gawang: di antara tiang & di bawah mistar
+          const line = p0.x > PITCH_W / 2 ? PITCH_W : 0;
+          const f = (line - p0.x) / (b.x - p0.x);
+          const raw = { x: p0.x + (b.x - p0.x) * f, y: p0.y + (b.y - p0.y) * f, z: p0.z + (b.z - p0.z) * f };
+          expect(Math.abs(raw.y - 34)).toBeLessThan(GOAL_HALF + 0.15);
+          expect(raw.z).toBeLessThan(BAR + 0.3);
+          // lalu bola tertahan di jaring
+          expect(b.x < 0 || b.x > PITCH_W).toBe(true);
+        }
+        seen = m.events.length;
+      }
+    }
+    expect(goals).toBeGreaterThan(0);
+    expect(offside).toBeGreaterThan(0);
+    expect(restarts.throw).toBeGreaterThan(0);
+    expect(restarts.goalkick).toBeGreaterThan(0);
+    // tembakan melenceng = tendangan gawang / sudut, bukan bola kembali ke tengah
+    expect((afterMiss.goalkick ?? 0) + (afterMiss.corner ?? 0)).toBeGreaterThanOrEqual(Object.values(afterMiss).reduce((a, b) => a + b, 0) - 1);
+  }, 30_000);
+
   it('pemain cadangan masuk di menit yang ditentukan', () => {
     const home = team(eng[2].id);
     const benchP = squadOf(w, eng[2].id).find((p) => !p.isYouth && !home.xi.some((e) => e.id === p.id))!;
@@ -84,6 +130,7 @@ describe('laga mingguan memakai match engine', () => {
       );
       expect(found).toBe(true);
       expect(rec.scorers?.length).toBe(rec.score[0] + rec.score[1]);
+      expect(career.lastSim!.v).toBe(ENGINE_VERSION);
       checked++;
     }
     expect(checked).toBe(3);

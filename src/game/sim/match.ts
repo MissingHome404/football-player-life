@@ -241,7 +241,7 @@ export function userMatch(
         }
       : { minutes: 0, goals: 0, assists: 0 };
     extra = {
-      scorers: r.events.filter((e) => e.kind === 'goal').map((e) => [e.min, e.side === us ? 0 : 1, e.name ?? ''] as [number, 0 | 1, string]),
+      scorers: r.events.filter((e) => e.kind === 'goal').map((e) => [e.min, e.side === us ? 0 : 1, e.og ? `${e.name ?? ''} (bd)` : (e.name ?? '')] as [number, 0 | 1, string]),
       shots: [r.shots[us], r.shots[1 - us]],
       possession: [r.possession[us], r.possession[1 - us]],
     };

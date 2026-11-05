@@ -21,6 +21,7 @@ import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
 import { AvatarPanel } from './LifeView';
 import { matchReactions } from '../game/sim/relations';
+import { ENGINE_VERSION } from '../game/sim/engine';
 
 const fmtDate = (d: string, long = false) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', {
@@ -464,7 +465,7 @@ function ReportPanel() {
 
 function LastMatch({ m }: { m: MatchRecord }) {
   const reactions = matchReactions(m);
-  const canWatch = useGame((s) => s.career?.lastSim?.date === m.date);
+  const canWatch = useGame((s) => s.career?.lastSim?.date === m.date && s.career.lastSim.v === ENGINE_VERSION);
   const watch = useGame((s) => s.watch);
   const [us, them] = m.score;
   const res = us > them ? 'win' : us < them ? 'loss-r' : 'draw';
