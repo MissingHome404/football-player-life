@@ -1,7 +1,7 @@
 {
   "name": "football-player-life",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,7 @@
     "fflate": "^0.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "three": "^0.170.0",
     "zustand": "^5.0.5"
   },
   "devDependencies": {
@@ -30,6 +31,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "@types/three": "^0.170.0"
   }
 }

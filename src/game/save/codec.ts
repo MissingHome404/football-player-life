@@ -6,12 +6,14 @@ import { COUNTRIES } from '../data/countries';
 import type { Career, Player, World } from '../types';
 import { careerDefaults, migrateCareer } from '../sim/week';
 import { initRelations } from '../sim/relations';
+import { defaultLife } from '../sim/life';
+import { ageOn } from '../gen/player';
 import { createSeasons } from '../sim/season';
 import { Rng } from '../rng';
 
 export const SAVE_MAGIC = 'FPL-SAVE';
 // 1: tahap 4 (karier dasar). 2: tahap 5 (minggu, latihan, inbox). 3: tahap 6 (musim, pertandingan).
-export const SAVE_FORMAT = 5;
+export const SAVE_FORMAT = 6;
 
 const GROUPS = {
   technical: TECHNICAL,
@@ -108,6 +110,7 @@ export function readSaveFile(data: unknown): { file: SaveFile; world: World; car
     career = { ...careerDefaults(career.teamLabel, c?.clubId, me.isYouth, career.currentDate), ...career };
   }
   if (f.format < 5) career = { ...career, rel: initRelations(world, career, me) };
+  if (f.format < 6) career = { ...career, life: defaultLife(ageOn(me.birthDate, career.currentDate), career.currentDate) };
   if (career.signed === undefined) {
     // save sebelum ada catatan tanda tangan: pakai tanggal masuk klub terakhir (bukan pinjaman)
     const last = [...career.history].reverse().find((h) => h.clubId && h.kind !== 'Pinjaman');

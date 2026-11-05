@@ -102,3 +102,28 @@ describe('transfer dan kontrak', () => {
     expect(career.inbox[0].title).toMatch(/habis/);
   });
 });
+
+describe('kehidupan dan belanja', () => {
+  it('beli sepatu menambah atribut sekali, rumah mengubah biaya mingguan', async () => {
+    const { applyLife, defaultLife } = await import('../sim/life');
+    const { weeklyBudget } = await import('../sim/economy');
+    const { world, career, p } = setup();
+    career.life = defaultLife(22, career.currentDate);
+    career.money = 5000;
+    const before = p.technical['First Touch'];
+    const r = applyLife(world, career, { op: 'buy', id: 'sepatu_pro' });
+    const me2 = r.world.players.find((x) => x.id === p.id)!;
+    expect(me2.technical['First Touch']).toBe(Math.min(20, before + 1));
+    expect(r.career.life.boots).toBe('sepatu_pro');
+    expect(r.career.money).toBe(5000 - 220);
+    // tidak bisa beli dua kali
+    expect(applyLife(r.world, r.career, { op: 'buy', id: 'sepatu_pro' }).career).toBe(r.career);
+    // pindah ke rumah: biaya tempat tinggal naik
+    const kos = weeklyBudget(r.career, me2).living;
+    const h = applyLife(r.world, r.career, { op: 'house', id: 'rumah' });
+    expect(weeklyBudget(h.career, me2).living).toBeGreaterThan(kos);
+    // uang tidak cukup: gagal tanpa mengubah apa pun
+    const poor = { ...h.career, money: 10 };
+    expect(applyLife(h.world, poor, { op: 'buy', id: 'super' }).career).toBe(poor);
+  });
+});

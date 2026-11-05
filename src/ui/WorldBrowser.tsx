@@ -4,6 +4,7 @@ import { Badge, Flag, Stars, AttrBlock, RolePanel, roleHighlight, caStars, money
 import { ROLES } from '../game/data/roles';
 import { SaveControls } from './SavePanel';
 import { CareerHome } from './CareerHome';
+import { LifeView } from './LifeView';
 import { ClubFixtures, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { marketValue } from '../game/sim/transfer';
@@ -101,6 +102,17 @@ export function WorldBrowser() {
               {pending > 0 && <span className="count">{pending}</span>}
             </button>
           )}
+          {career && (
+            <button
+              className={`side-item me ${view.kind === 'life' ? 'sel' : ''}`}
+              onClick={() => {
+                go({ kind: 'life' });
+                setMenuOpen(false);
+              }}
+            >
+              🛍️ Kehidupan & belanja
+            </button>
+          )}
           <div className="side-title">Eropa</div>
           {europe.map(leagueLink)}
           <div className="side-title">Asia</div>
@@ -111,6 +123,7 @@ export function WorldBrowser() {
           {view.kind === 'club' && <ClubView clubId={view.clubId} />}
           {view.kind === 'player' && <PlayerView key={view.playerId} playerId={view.playerId} />}
           {view.kind === 'me' && career && <MyCareerView />}
+          {view.kind === 'life' && career && <LifeView />}
         </main>
       </div>
     </div>

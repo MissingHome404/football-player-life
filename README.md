@@ -18,7 +18,10 @@ Sudah ada:
 
 - **Relasi:** manajer (menentukan menit main, bisa dipecat dan diganti), rekan setim (sahabat, mentor, rival posisi; sahabat yang pindah klub bisa mengajakmu ikut), fans per klub (bekas klub menyambut atau mencemooh), media (wawancara setelah laga, selebrasi gol), keluarga, dan pasangan (pacaran, tunangan, menikah).
 
-Belum ada: belanja dan model 3D, match engine 2D, timnas.
+- **Kehidupan dan belanja:** tempat tinggal (rumah orang tua sampai rumah mewah), sepatu, perlengkapan, aksesori, kendaraan, staf pribadi (ahli gizi, fisio), liburan, bantu orang tua, donasi, dan tabungan berbunga. Setiap barang punya efek (atribut, kebugaran, stres, media), dan turun gaya hidup bikin stres.
+- **Model 3D di beranda:** pemain low-poly (Three.js) dengan jersey klub, sepatu, aksesori, kendaraan, dan suasana rumah sesuai barang yang dibeli.
+
+Belum ada: match engine 2D, timnas, penghargaan, pensiun.
 
 ## Menjalankan di komputer sendiri
 
@@ -39,7 +42,7 @@ npx tsx scripts/transfers.ts     # simulasi karier dengan agent dan tawaran klub
 ```
 src/game/data/      data statis: atribut, negara, liga + klub, kumpulan nama
 src/game/gen/       generator: nama, pemain, personality, dunia, karakter
-src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, transfer, relasi
+src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, transfer, relasi, kehidupan
 src/game/save/      format file save, simpan di browser (IndexedDB)
 src/game/rng.ts     angka acak ber-seed
 src/game/worker.ts  generate dunia di Web Worker

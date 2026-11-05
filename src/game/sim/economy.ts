@@ -2,7 +2,7 @@
 // Semua harga dasar dalam EUR "Eropa Barat", lalu dikali kekuatan ekonomi negara.
 
 import { ECONOMY } from '../gen/character';
-import { ageOn } from '../gen/player';
+import { lifeCosts } from './life';
 import type { Activity, Career, CoachKind, Intensity, Player, TrainingFocus } from '../types';
 
 export const econOf = (countryId: string) => ECONOMY[countryId] ?? 0.5;
@@ -52,21 +52,21 @@ export const COACH_INFO: Record<CoachKind, { label: string; desc: string; cost: 
 export const ALLOWANCE = { miskin: 8, menengah: 40, kaya: 200 } as const;
 
 export const TAX_RATE = 0.3;
-const LIVING_COST = 40; // biaya hidup mandiri per minggu, mulai umur 18
 
 const round = (v: number) => Math.round(v * 100) / 100;
 
 /** Perkiraan uang masuk dan keluar minggu ini sesuai rencana */
 export function weeklyBudget(career: Career, player: Player) {
   const econ = econOf(player.nationalityId);
-  const age = ageOn(player.birthDate, career.currentDate);
   const wage = player.contract?.wagePerWeek ?? 0;
   // uang saku keluarga berhenti saat sudah digaji layak oleh klub
   const fullAllowance = ALLOWANCE[career.family.wealth] * econ;
   const allowance = round(wage >= fullAllowance * 3 ? 0 : fullAllowance);
   const tax = round(wage * TAX_RATE);
   const agent = round(wage * (career.agent?.fee ?? 0));
-  const living = round(age >= 18 ? LIVING_COST * econ : 0);
+  const lc = lifeCosts(career, econ);
+  const living = round(lc.house);
+  const lifestyle = round(lc.subs + lc.upkeep);
   let coaches = 0;
   for (const k of Object.keys(COACH_INFO) as CoachKind[]) {
     if (career.plan.coaches[k]) coaches += COACH_INFO[k].cost * econ;
@@ -75,12 +75,13 @@ export function weeklyBudget(career: Career, player: Player) {
   // kerja sampingan hanya menghasilkan uang kalau belum digaji klub
   const activity = career.plan.activity === 'kerja' && wage > 0 ? 0 : act.cost * econ;
   const income = allowance + wage + (activity < 0 ? -activity : 0);
-  const expense = round(coaches) + (activity > 0 ? activity : 0) + tax + living + agent;
+  const expense = round(coaches) + (activity > 0 ? activity : 0) + tax + living + lifestyle + agent;
   return {
     allowance,
     wage,
     tax,
     living,
+    lifestyle,
     agent,
     coaches: round(coaches),
     activity: round(activity),

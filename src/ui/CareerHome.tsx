@@ -19,6 +19,7 @@ import { nextFixture, shortDate } from './LeagueSeason';
 import { roundDate } from '../game/sim/season';
 import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
+import { AvatarPanel } from './LifeView';
 import { matchReactions } from '../game/sim/relations';
 
 const fmtDate = (d: string, long = false) =>
@@ -108,6 +109,7 @@ export function CareerHome({ children }: { children: ReactNode }) {
       <div className="home-grid">
         <PlanPanel />
         <div className="home-side">
+          <AvatarPanel />
           <Inbox />
           <TransferPanel />
           <MatchPanel />
@@ -174,7 +176,8 @@ function PlanPanel() {
       ['Kerja sampingan', budget.activity < 0 ? -budget.activity : 0],
       ['Pajak gaji (30%)', -budget.tax],
       ['Komisi agent', -budget.agent],
-      ['Biaya hidup', -budget.living],
+      ['Tempat tinggal', -budget.living],
+      ['Staf pribadi & kendaraan', -budget.lifestyle],
       ['Pelatih pribadi', -budget.coaches],
       [ACTIVITY_INFO[plan.activity].label, budget.activity > 0 ? -budget.activity : 0],
     ] as [string, number][]

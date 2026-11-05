@@ -335,6 +335,27 @@ input { font: inherit; }
 .rel-hint { margin-top: -4px; }
 .lm-react { flex-basis: 100%; display: grid; gap: 2px; margin-top: 4px; }
 
+/* kehidupan & model 3D */
+.avatar3d { width: 100%; border-radius: 8px; overflow: hidden; background: var(--panel-2); cursor: grab; }
+.avatar3d canvas { display: block; max-width: 100%; }
+.avatar-fallback { display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; }
+.avatar-panel { padding: 10px; }
+.avatar-info { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.life-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.life-top { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
+.life-top .panel p { margin: 8px 0 0; }
+.mt { margin-top: 16px; }
+.life-actions { display: grid; gap: 8px; }
+.shop-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.shop-group { margin-bottom: 14px; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.shop-card { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.shop-card.cur { border-color: var(--accent); }
+.shop-card .chips { margin-top: auto; }
+.shop-card > .chip, .shop-card > .pill { margin-top: auto; }
+.chip.buy { border-color: var(--accent-2); }
+.swatch { position: absolute; top: 12px; right: 12px; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line); }
+
 @media (max-width: 800px) {
   .char-grid { grid-template-columns: 1fr; }
   .char-choices { position: static; }
@@ -359,4 +380,6 @@ input { font: inherit; }
   .offer-grid { grid-template-columns: 1fr 1.4fr; }
   .tr-history li { grid-template-columns: 96px 1fr auto; }
   .rel-row { grid-template-columns: minmax(0, 1fr) 70px 78px; gap: 8px; }
+  .life-top { grid-template-columns: minmax(0, 1fr); }
+  .shop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

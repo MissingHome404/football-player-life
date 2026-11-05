@@ -13,6 +13,7 @@ import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
 import { TRANSFER_EVENTS, contractWeek } from './transfer';
+import { defaultLife, lifeFitness, lifeInjuryFactor, lifeStress, lifeWeek } from './life';
 import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, relationsWeek } from './relations';
 
 const ALL_EVENTS = [...EVENTS, ...RELATION_EVENTS];
@@ -66,6 +67,7 @@ export function newCareer(roll: CharacterRoll, rerolls: number, saveId: string, 
     stats: [],
     ...careerDefaults(base.teamLabel, roll.clubId ?? undefined, !!roll.clubId, startDate),
     rel: emptyRelations(), // diisi initRelations saat karier dimulai (butuh data dunia)
+    life: defaultLife(ageOn(roll.player.birthDate, startDate), startDate),
   };
 }
 
@@ -97,6 +99,7 @@ export function migrateCareer(c: Partial<Career> & Pick<Career, 'teamLabel' | 'c
     stats: [],
     ...careerDefaults(c.teamLabel, undefined, false, c.currentDate),
     rel: emptyRelations(),
+    life: defaultLife(18, c.currentDate),
     ...c,
   } as Career;
 }
@@ -153,6 +156,7 @@ export function stressTarget(career: Career, player: Player, clubCountry?: strin
     else if (form <= 6.2) parts.push(['Performa buruk', 8]);
   }
   parts.push(...relationStress(career, player, clubCountry));
+  parts.push(...lifeStress(career, age));
   if (player.personality.Pressure <= 7) parts.push(['Mudah tertekan', 10]);
   else if (player.personality.Pressure >= 16) parts.push(['Tahan tekanan', -5]);
   const target = clamp(parts.reduce((s, [, v]) => s + v, 0), 0, 100);
@@ -236,6 +240,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     const load = resting ? 18 : INTENSITY_INFO[plan.intensity].fitness;
     career.fitness = clamp(Math.round(career.fitness + load + recovery + (kerjaCounts ? act.fitness : 0)), 0, 100);
   }
+  career.fitness = clamp(career.fitness + lifeFitness(career), 0, 100);
 
   // 4. Cedera
   if (career.injury) {
@@ -252,9 +257,12 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       Math.max(0.15, proneness) *
       (career.fitness < 40 ? 2 : 1) *
       (career.fitness < 20 ? 1.5 : 1) *
-      (plan.coaches.fisik ? 0.7 : 1);
+      (plan.coaches.fisik ? 0.7 : 1) *
+      lifeInjuryFactor(career);
     if (rng.chance(chance)) injure(career, rng, notes, 'latihan');
   }
+  const abroad = !!club && club.countryId !== player.nationalityId;
+  lifeWeek(career, abroad, () => rng.chance(0.4));
 
   // 4b. Pertandingan minggu ini: semua liga, lalu pemain kita
   const weekEnd = addDays(career.currentDate, 7);
@@ -275,7 +283,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
         if (rng.chance(lrep / 250)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
       }
       const proneness = Math.max(0.15, 1 + (player.hidden['Injury Proneness'] - 10) / 10);
-      if (!career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness)) injure(career, rng, notes, 'pertandingan');
+      if (!career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness * lifeInjuryFactor(career))) injure(career, rng, notes, 'pertandingan');
     }
   }
 

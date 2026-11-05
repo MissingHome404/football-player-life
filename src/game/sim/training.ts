@@ -18,7 +18,7 @@ for (const a of GOALKEEPING) GROUP_OF[a] = 'goalkeeping';
 export function getAttr(p: Player, a: string): number {
   return (p[GROUP_OF[a]] as Record<string, number>)[a];
 }
-function setAttr(p: Player, a: string, v: number) {
+export function setAttr(p: Player, a: string, v: number) {
   (p[GROUP_OF[a]] as Record<string, number>)[a] = v;
 }
 

@@ -16,6 +16,7 @@ import { ageOn } from '../game/gen/player';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../game/sim/week';
 import { acceptOffer, hireAgent, negotiate, rejectOffer, type Ask } from '../game/sim/transfer';
 import { applyWish, initRelations } from '../game/sim/relations';
+import { applyLife, type LifeOp } from '../game/sim/life';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -23,7 +24,8 @@ export type View =
   | { kind: 'league'; leagueId: string }
   | { kind: 'club'; clubId: string }
   | { kind: 'player'; playerId: string }
-  | { kind: 'me' };
+  | { kind: 'me' }
+  | { kind: 'life' };
 
 interface Indexes {
   clubById: Map<string, Club>;
@@ -65,6 +67,8 @@ interface State {
   hireAgent: (tier: AgentTier) => void;
   fireAgent: () => void;
   setWish: (patch: Partial<Pick<Career, 'listed' | 'wantsLoan'>>) => void;
+  /** Aksi halaman Kehidupan; hasilnya teks untuk ditampilkan */
+  lifeOp: (op: LifeOp) => string;
 }
 
 // Kalau autosave masih berjalan, simpan sekali lagi setelah selesai
@@ -277,6 +281,15 @@ export const useGame = create<State>((set, get) => ({
     if (!c || !idx) return;
     set({ career: applyWish(c, patch, idx.playerById.get(c.playerId)?.contract?.clubId) });
     void get().saveNow();
+  },
+  lifeOp: (op) => {
+    const { world, career } = get();
+    if (!world || !career) return '';
+    const r = applyLife(world, career, op);
+    if (r.career === career) return r.result;
+    set({ world: r.world, career: r.career, ...(r.world !== world ? { idx: buildIndexes(r.world) } : {}) });
+    void get().saveNow();
+    return r.result;
   },
   loadSave: async (id) => {
     set({ busy: 'Memuat karier…', message: null });

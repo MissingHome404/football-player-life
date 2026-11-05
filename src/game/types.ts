@@ -218,6 +218,20 @@ export interface Career {
   renewalNoted?: string; // tanggal habis kontrak yang sudah diberi tahu "tidak diperpanjang"
   signed?: string; // tanggal terakhir tanda tangan kontrak (pindah, bebas transfer, perpanjangan)
   rel: Relations;
+  life: Life;
+}
+
+/** Kehidupan dan barang milik pemain (lihat sim/life.ts) */
+export interface Life {
+  house: 'ortu' | 'kos' | 'apartemen' | 'rumah' | 'mewah';
+  houseSince: string;
+  shockUntil?: string; // stres karena turun gaya hidup
+  owned: string[];
+  boots: string;
+  car: string | null;
+  wear: string[];
+  subs: Partial<Record<'suplemen' | 'gizi' | 'fisio', boolean>>;
+  savings: number;
 }
 
 /** Relasi bernilai -100 sampai 100 */
