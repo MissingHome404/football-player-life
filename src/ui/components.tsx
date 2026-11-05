@@ -1,12 +1,17 @@
 import type { Club, Player } from '../game/types';
-import type { Position } from '../game/data/attributes';
+import { POSITIONS, type Position } from '../game/data/attributes';
 import { ROLES, POSITION_ROLES, roleRating } from '../game/data/roles';
 import { flagOf, COUNTRY_BY_ID } from '../game/data/countries';
+
+// Inisial yang sama dengan kode posisi (mis. "ST" untuk Serdadu Tridatu) membingungkan
+const POS_CODES = new Set<string>(POSITIONS);
+const badgeText = (club: Club) =>
+  POS_CODES.has(club.badge.initials) ? club.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() : club.badge.initials;
 
 /** Logo klub otomatis: bentuk + 2 warna + inisial */
 export function Badge({ club, size = 32 }: { club: Club; size?: number }) {
   const [c1, c2] = club.colors;
-  const text = club.badge.initials;
+  const text = badgeText(club);
   const light = isLight(c1);
   const fg = light ? (isLight(c2) ? '#111' : c2) : isLight(c2) ? c2 : '#fff';
   const fs = text.length >= 3 ? 26 : 32;
