@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useGame } from './store';
 import { Badge, Flag, Stars, AttrBlock, RolePanel, roleHighlight, caStars, money, num } from './components';
 import { ROLES } from '../game/data/roles';
+import { SaveControls } from './SavePanel';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   TECHNICAL,
@@ -71,13 +72,15 @@ export function WorldBrowser() {
         </button>
         <div className="brand">⚽ Football Player Life</div>
         <div className="top-meta muted">
-          Seed <b>{world.seed}</b> · {num(world.players.length)} pemain · {world.clubs.length} klub · {genMs} ms
+          Seed <b>{world.seed}</b> · {num(world.players.length)} pemain · {world.clubs.length} klub
+          {genMs > 0 && ` · ${genMs} ms`}
         </div>
-        <label className="dev-toggle" title="Tampilkan angka tersembunyi (CA, PA, personality, hidden)">
+        <SaveControls />
+        <label className="dev-toggle hide-sm" title="Tampilkan angka tersembunyi (CA, PA, personality, hidden)">
           <input type="checkbox" checked={devMode} onChange={toggleDev} /> Mode developer
         </label>
-        <button className="ghost" onClick={reset}>
-          Dunia baru
+        <button className="ghost" onClick={reset} title="Kembali ke layar awal (simpan dulu kalau perlu)">
+          Menu utama
         </button>
       </header>
       <div className="layout">

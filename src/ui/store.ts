@@ -2,6 +2,19 @@ import { create } from 'zustand';
 import type { World, Player, Club, Career } from '../game/types';
 import type { CharacterRoll } from '../game/gen/character';
 import type { GenerateOptions } from '../game/gen/world';
+import type { SaveSummary } from '../game/save/codec';
+import {
+  encodeSave,
+  decodeSave,
+  writeSave,
+  readSave,
+  downloadFile,
+  newSaveId,
+} from '../game/save/storage';
+import { fullName } from '../game/gen/names';
+import { ageOn } from '../game/gen/player';
+
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export type View =
   | { kind: 'league'; leagueId: string }
@@ -30,6 +43,33 @@ interface State {
   back: () => void;
   reset: () => void;
   toggleDev: () => void;
+  saveStatus: SaveStatus;
+  lastSavedAt: string | null;
+  message: string | null; // pesan error/info untuk ditampilkan
+  busy: string | null; // teks saat sedang memuat
+  saveNow: () => Promise<void>;
+  loadSave: (id: string) => Promise<void>;
+  exportSave: (id?: string) => Promise<void>;
+  importSave: (file: File) => Promise<void>;
+  clearMessage: () => void;
+}
+
+function summaryOf(career: Career, idx: Indexes): SaveSummary {
+  const p = idx.playerById.get(career.playerId)!;
+  const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
+  return {
+    playerName: fullName(p),
+    age: ageOn(p.birthDate, career.currentDate),
+    position: p.mainPosition,
+    countryId: p.nationalityId,
+    team: club?.name ?? career.teamLabel,
+    gameDate: career.currentDate,
+  };
+}
+
+function fileName(summary: SaveSummary): string {
+  const safe = summary.playerName.normalize('NFKD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '') || 'karier';
+  return `${safe}-${summary.gameDate}.fplsave`;
 }
 
 function buildIndexes(w: World): Indexes {
@@ -61,6 +101,7 @@ export const useGame = create<State>((set, get) => ({
       world,
       idx: buildIndexes(world),
       career: {
+        saveId: newSaveId(),
         characterSeed: roll.seed,
         rerolls,
         playerId: roll.player.id,
@@ -76,6 +117,7 @@ export const useGame = create<State>((set, get) => ({
       history: [],
     });
     window.scrollTo(0, 0);
+    void get().saveNow(); // simpan otomatis di awal karier
   },
   generate: (opts) => {
     set({ generating: true });
@@ -124,6 +166,83 @@ export const useGame = create<State>((set, get) => ({
     if (!h.length) return;
     set({ view: h[h.length - 1], history: h.slice(0, -1) });
   },
-  reset: () => set({ world: null, idx: null, view: null, history: [], career: null }),
+  reset: () =>
+    set({ world: null, idx: null, view: null, history: [], career: null, saveStatus: 'idle', lastSavedAt: null }),
   toggleDev: () => set({ devMode: !get().devMode }),
+  saveStatus: 'idle',
+  lastSavedAt: null,
+  message: null,
+  busy: null,
+  clearMessage: () => set({ message: null }),
+  saveNow: async () => {
+    const { world, career, idx } = get();
+    if (!world || !career || !idx) return;
+    set({ saveStatus: 'saving' });
+    try {
+      const summary = summaryOf(career, idx);
+      const { bytes, savedAt } = await encodeSave(world, career, summary);
+      await writeSave({ id: career.saveId, savedAt, summary, data: bytes });
+      set({ saveStatus: 'saved', lastSavedAt: savedAt });
+    } catch (e) {
+      set({
+        saveStatus: 'error',
+        message: `Gagal menyimpan di browser: ${e instanceof Error ? e.message : e}. Gunakan Ekspor file supaya kariermu tetap aman.`,
+      });
+    }
+  },
+  loadSave: async (id) => {
+    set({ busy: 'Memuat karier…', message: null });
+    try {
+      const rec = await readSave(id);
+      if (!rec) throw new Error('Save tidak ditemukan.');
+      const { world, career } = await decodeSave(rec.data);
+      const c = { ...career, saveId: rec.id };
+      set({
+        world,
+        career: c,
+        idx: buildIndexes(world),
+        view: { kind: 'me' },
+        history: [],
+        busy: null,
+        saveStatus: 'saved',
+        lastSavedAt: rec.savedAt,
+        genMs: 0,
+      });
+      window.scrollTo(0, 0);
+    } catch (e) {
+      set({ busy: null, message: `Gagal memuat save: ${e instanceof Error ? e.message : e}` });
+    }
+  },
+  exportSave: async (id) => {
+    try {
+      if (id) {
+        const rec = await readSave(id);
+        if (!rec) throw new Error('Save tidak ditemukan.');
+        downloadFile(rec.data, fileName(rec.summary));
+        return;
+      }
+      const { world, career, idx } = get();
+      if (!world || !career || !idx) return;
+      set({ busy: 'Menyiapkan file…' });
+      const summary = summaryOf(career, idx);
+      const { bytes } = await encodeSave(world, career, summary);
+      set({ busy: null });
+      downloadFile(bytes, fileName(summary));
+    } catch (e) {
+      set({ busy: null, message: `Gagal mengekspor: ${e instanceof Error ? e.message : e}` });
+    }
+  },
+  importSave: async (file) => {
+    set({ busy: 'Membaca file save…', message: null });
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const { summary, savedAt } = await decodeSave(bytes.slice()); // validasi isi file
+      const id = newSaveId();
+      await writeSave({ id, savedAt, summary, data: bytes });
+      set({ busy: null });
+      await get().loadSave(id);
+    } catch (e) {
+      set({ busy: null, message: `File tidak bisa dibuka: ${e instanceof Error ? e.message : e}` });
+    }
+  },
 }));

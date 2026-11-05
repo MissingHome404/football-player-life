@@ -4,6 +4,7 @@ import { COUNTRY_BY_ID } from '../game/data/countries';
 import { randomSeed } from '../game/rng';
 import { useGame } from './store';
 import { Flag } from './components';
+import { SavePanel } from './SavePanel';
 
 export function StartScreen() {
   const generate = useGame((s) => s.generate);
@@ -54,10 +55,13 @@ export function StartScreen() {
         <div className="logo">⚽</div>
         <div>
           <h1>Football Player Life</h1>
-          <p className="muted">Prototipe tahap 2: pembuatan dunia game</p>
+          <p className="muted">Karier pemain sepak bola, dari umur belasan sampai pensiun</p>
         </div>
       </header>
 
+      <SavePanel />
+
+      <h2 className="section-title">Karier baru</h2>
       <section className="panel">
         <h2>Liga yang aktif</h2>
         <p className="muted">

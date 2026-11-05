@@ -179,11 +179,29 @@ input { font: inherit; }
 .lg-pref { background: rgba(63, 191, 127, .12); }
 .field select:disabled { opacity: .5; }
 
+/* save */
+.section-title { margin: 22px 0 10px; }
+.saves-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.saves-head p { margin: 4px 0 0; max-width: 62ch; }
+.save-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.save-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.save-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.save-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.small-btn { padding: 6px 14px; }
+.danger { background: #b9433f; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; font-weight: 600; }
+.save-controls { display: flex; align-items: center; gap: 6px; }
+.save-status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.save-status.saving { color: #e0b03f; }
+.save-status.error { color: #e0605a; }
+.overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(8, 10, 14, .6); }
+.overlay-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 24px; font-weight: 600; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; display: flex; gap: 12px; align-items: center; max-width: min(640px, calc(100vw - 32px)); background: #3a1f22; border: 1px solid #7a3438; border-radius: 10px; padding: 10px 14px; }
+
 @media (max-width: 800px) {
   .char-grid { grid-template-columns: 1fr; }
   .char-choices { position: static; }
   .menu-btn { display: inline-block; }
-  .top-meta, .brand { display: none; }
+  .top-meta, .brand, .save-status { display: none; }
   .topbar { justify-content: space-between; }
   .sidebar { position: fixed; left: 0; top: 49px; z-index: 20; transform: translateX(-100%); transition: transform .2s; box-shadow: 4px 0 20px rgba(0,0,0,.5); }
   .sidebar.open { transform: none; }

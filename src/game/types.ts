@@ -129,6 +129,7 @@ export interface World {
 
 /** Karier pemain kita (data yang nanti disimpan di save) */
 export interface Career {
+  saveId: string; // id slot save di browser
   characterSeed: string;
   rerolls: number;
   playerId: string;
