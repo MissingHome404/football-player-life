@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { LEAGUES } from '../game/data/leagues';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import { randomSeed } from '../game/rng';
@@ -12,6 +12,9 @@ export function StartScreen() {
   const generating = useGame((s) => s.generating);
   const [seed, setSeed] = useState(randomSeed);
   const [active, setActive] = useState<Set<string>>(() => new Set(LEAGUES.map((l) => l.id)));
+  // file nama milik pemain (opsional), langsung dipakai di dunia baru
+  const [names, setNames] = useState<{ file: string; text: string } | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const toggle = (id: string) => {
     const next = new Set(active);
@@ -87,6 +90,43 @@ export function StartScreen() {
         </div>
       </section>
 
+      <section className="panel seed-row">
+        <div>
+          <h2>File nama (opsional)</h2>
+          <p className="muted">
+            Game memakai nama fiktif. Punya file nama sendiri (CSV dari Editor nama)? Pilih di sini supaya langsung dipakai.
+          </p>
+        </div>
+        <div className="seed-input">
+          {names ? (
+            <>
+              <span className="names-picked" title={names.file}>
+                📄 {names.file}
+              </span>
+              <button onClick={() => setNames(null)} title="Jangan pakai file nama" aria-label="Hapus file nama">
+                ✕
+              </button>
+            </>
+          ) : (
+            <button className="ghost names-pick" onClick={() => nameRef.current?.click()}>
+              Pilih file…
+            </button>
+          )}
+          <input
+            ref={nameRef}
+            id="start-names"
+            type="file"
+            accept=".csv,.txt,text/csv,text/plain"
+            hidden
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) setNames({ file: f.name, text: await f.text() });
+            }}
+          />
+        </div>
+      </section>
+
       <div className="start-actions">
         <span className="muted">
           {active.size} liga aktif · {LEAGUES.length} liga total · {clubCount} klub aktif
@@ -94,7 +134,7 @@ export function StartScreen() {
         <button
           className="primary"
           disabled={generating || !seed}
-          onClick={() => generate({ seed, activeLeagues: [...active] })}
+          onClick={() => generate({ seed, activeLeagues: [...active] }, names?.text)}
         >
           {generating ? 'Membuat dunia…' : 'Buat dunia'}
         </button>

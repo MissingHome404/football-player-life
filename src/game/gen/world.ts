@@ -24,7 +24,8 @@ const STYLES: PlayingStyle[] = ['Possession', 'Gegenpress', 'Counter', 'Direct',
 // Pengali gaji per negara (liga kaya vs liga kecil)
 const WAGE_BONUS: Record<string, number> = { KSA: 3, QAT: 1.6, UAE: 1.5, ENG: 1.2, TUR: 1.2 };
 
-function initials(name: string): string {
+/** Inisial lambang klub dari namanya: "North London Cannons" -> NLC, "Persib" -> PER */
+export function initials(name: string): string {
   const words = name.split(/[\s-]+/).filter(Boolean);
   if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
   return words

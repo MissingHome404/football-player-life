@@ -150,6 +150,10 @@ export interface World {
   candidates?: Record<string, Candidate[]>;
   /** peringkat penghargaan dunia terakhir */
   worldAward?: { year: string; top: Candidate[]; young: Candidate[] };
+  /** nama kompetisi yang diganti pemain lewat editor nama (id benua mis. EU1, atau `cup:<liga>`) */
+  compNames?: Record<string, string>;
+  /** nama bawaan game sebelum diganti lewat editor nama, per `<jenis>:<id>`, untuk dikembalikan */
+  originalNames?: Record<string, string>;
 }
 
 /** [main, gol, assist, total rating, id klub, clean sheet] */

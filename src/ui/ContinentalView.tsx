@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useGame } from './store';
 import { Badge } from './components';
 import { shortDate } from './LeagueSeason';
-import { CONT_DEFS, aggregate, contWinner, groupTable, type Confed } from '../game/sim/continental';
+import { CONT_DEFS, aggregate, contName, contWinner, groupTable, type Confed } from '../game/sim/continental';
 import type { ContComp, ContGroup, ContRound, ContTie } from '../game/types';
 
 function useMyClub() {
@@ -202,7 +202,7 @@ export function ContinentalView({ confed }: { confed: Confed }) {
         <CompPanel key={comp.id} c={comp} />
       ) : (
         <section className="panel">
-          <p className="muted">Undian {def.name} dilakukan setelah minggu pertama kariermu berjalan.</p>
+          <p className="muted">Undian {contName(world, def)} dilakukan setelah minggu pertama kariermu berjalan.</p>
         </section>
       )}
       {past.length > 0 && (

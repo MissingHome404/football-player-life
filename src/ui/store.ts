@@ -21,6 +21,19 @@ import { acceptOffer, hireAgent, negotiate, rejectOffer, type Ask } from '../gam
 import { applyWish, initRelations } from '../game/sim/relations';
 import { applyLife, type LifeOp } from '../game/sim/life';
 import { ENGINE_VERSION } from '../game/sim/engine';
+import {
+  KIND_LABEL,
+  applyNameEdits,
+  applyNameFile,
+  nameTemplate,
+  renameInCareer,
+  restoreNames,
+  type NameChange,
+  type NameEdit,
+  type RenameKind,
+  type TemplatePlayers,
+} from '../game/sim/rename';
+import { csvFormat, downloadCsv } from './csv';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -30,7 +43,22 @@ export type View =
   | { kind: 'player'; playerId: string }
   | { kind: 'me' }
   | { kind: 'life' }
-  | { kind: 'continent'; confed: 'UEFA' | 'AFC' };
+  | { kind: 'continent'; confed: 'UEFA' | 'AFC' }
+  | { kind: 'names'; edit?: { kind: RenameKind; id: string } };
+
+/** Ringkasan impor file nama untuk ditampilkan */
+export interface NamesImportSummary {
+  changed: number;
+  text: string;
+  problems: string[];
+}
+
+/** "3 klub, 120 pemain" */
+function changeText(changes: NameChange[]): string {
+  const n = new Map<RenameKind, number>();
+  for (const c of changes) n.set(c.kind, (n.get(c.kind) ?? 0) + 1);
+  return [...n].map(([k, v]) => `${v} ${KIND_LABEL[k].toLowerCase()}`).join(', ');
+}
 
 interface Indexes {
   clubById: Map<string, Club>;
@@ -50,7 +78,8 @@ interface State {
   startCareer: (roll: CharacterRoll, rerolls: number) => void;
   /** setelah pensiun: lanjutkan sebagai anak/keponakan di dunia beberapa tahun kemudian */
   startNextGen: (position?: Position) => Promise<void>;
-  generate: (opts: GenerateOptions) => void;
+  /** names: isi file nama (CSV) yang langsung dipakai di dunia baru */
+  generate: (opts: GenerateOptions, names?: string) => void;
   go: (v: View) => void;
   back: () => void;
   reset: () => void;
@@ -85,6 +114,14 @@ interface State {
   setAutoWatch: (on: boolean) => void;
   /** Pensiun atas pilihan sendiri */
   retire: () => void;
+  /** Editor nama: ganti (atau kembalikan) satu nama */
+  renameOne: (edit: NameEdit) => void;
+  /** Impor file nama milik pemain sendiri */
+  importNames: (file: File) => Promise<NamesImportSummary | null>;
+  /** Unduh template file nama dari dunia ini */
+  exportNames: (players: TemplatePlayers) => void;
+  /** Kembalikan semua nama bawaan game; hasilnya jumlah nama yang dikembalikan */
+  restoreAllNames: () => number;
 }
 
 const AUTO_KEY = 'fpl:autoWatch';
@@ -179,11 +216,21 @@ export const useGame = create<State>((set, get) => ({
       set({ busy: null, message: `Gagal membuat generasi berikutnya: ${(e as Error).message}` });
     }
   },
-  generate: (opts) => {
+  generate: (opts, names) => {
     set({ generating: true });
-    const done = (w: World, ms: number) => {
+    const done = (generated: World, ms: number) => {
+      let w = generated;
+      let message: string | null = null;
+      if (names) {
+        const r = applyNameFile(w, names);
+        w = r.world;
+        message = r.changes.length
+          ? `File nama dipakai: ${changeText(r.changes)} diganti.${r.problems.length ? ` ${r.problems.length} baris dilewati.` : ''}`
+          : `File nama tidak mengganti apa pun.${r.problems[0] ? ` ${r.problems[0]}` : ''}`;
+      }
       const first = w.leagues.find((l) => l.active) ?? w.leagues[0];
       set({
+        message,
         world: w,
         idx: buildIndexes(w),
         genMs: ms,
@@ -425,6 +472,50 @@ export const useGame = create<State>((set, get) => ({
     } catch (e) {
       set({ busy: null, message: `File tidak bisa dibuka: ${e instanceof Error ? e.message : e}` });
     }
+  },
+  renameOne: (edit) => {
+    const { world, career } = get();
+    if (!world) return;
+    const r = applyNameEdits(world, [edit]);
+    if (!r.changes.length) return;
+    set({ world: r.world, idx: buildIndexes(r.world), ...(career ? { career: renameInCareer(career, r.changes) } : {}) });
+    if (career) void get().saveNow();
+  },
+  importNames: async (file) => {
+    const { world, career } = get();
+    if (!world) return null;
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      set({ message: 'File nama tidak bisa dibaca.' });
+      return null;
+    }
+    const r = applyNameFile(world, text, career?.currentDate);
+    if (r.changes.length) {
+      set({ world: r.world, idx: buildIndexes(r.world), ...(career ? { career: renameInCareer(career, r.changes) } : {}) });
+      if (career) void get().saveNow();
+    }
+    return {
+      changed: r.changes.length,
+      text: r.changes.length ? `${r.changes.length} nama diganti (${changeText(r.changes)}).` : 'Tidak ada nama yang diganti.',
+      problems: r.problems,
+    };
+  },
+  exportNames: (players) => {
+    const { world, career } = get();
+    if (!world) return;
+    downloadCsv(nameTemplate(world, { players, sep: csvFormat().sep, today: career?.currentDate }), `nama-${world.seed}.csv`);
+  },
+  restoreAllNames: () => {
+    const { world, career } = get();
+    if (!world) return 0;
+    const r = restoreNames(world);
+    if (r.changes.length) {
+      set({ world: r.world, idx: buildIndexes(r.world), ...(career ? { career: renameInCareer(career, r.changes) } : {}) });
+      if (career) void get().saveNow();
+    }
+    return r.changes.length;
   },
 }));
 

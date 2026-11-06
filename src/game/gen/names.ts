@@ -2,22 +2,33 @@ import { NAME_POOLS } from '../data/names';
 import { COUNTRY_BY_ID } from '../data/countries';
 import type { Rng } from '../rng';
 
-// Kombinasi yang sama persis dengan pemain bintang asli dihindari,
-// supaya tidak ada "Erling Haaland" umur 17 di klub antah berantah.
-const FAMOUS = new Set([
-  'Harry Kane', 'Declan Rice', 'Bukayo Saka', 'Jude Bellingham', 'Phil Foden', 'Cole Palmer',
-  'Trent Alexander-Arnold', 'Erling Haaland', 'Martin Ødegaard', 'Alexander Sørloth',
-  'Kylian Mbappé', 'Antoine Griezmann', 'Olivier Giroud', 'Ousmane Dembélé', 'Lionel Messi',
-  'Cristiano Ronaldo', 'Bruno Fernandes', 'Bernardo Silva', 'Rúben Dias', 'Kevin De_Bruyne',
-  'Kevin De Bruyne', 'Romelu Lukaku', 'Thibaut Courtois', 'Virgil Van Dijk', 'Frenkie De Jong',
-  'Luka Modrić', 'Heung-min Son', 'Kang-in Lee', 'Min-jae Kim', 'Takefusa Kubo', 'Kaoru Mitoma',
-  'Vinícius Júnior', 'Lautaro Martínez', 'Julián Álvarez', 'Robert Lewandowski',
-  'Christian Eriksen', 'Kasper Schmeichel', 'Thomas Müller', 'Manuel Neuer', 'Joshua Kimmich',
-  'Mohamed Salah', 'Achraf Hakimi', 'Sadio Mané', 'Victor Osimhen', 'Riyad Mahrez',
-  'Arda Güler', 'Hakan Çalhanoğlu', 'Salem Al-Dawsari', 'Mehdi Taremi', 'Sardar Azmoun',
-  'Alexander Isak', 'Dušan Vlahović', 'Khvicha Kvaratskhelia', 'Nicolò Barella',
-  'Gianluigi Donnarumma', 'Pedri González', 'Rodrigo Hernández', 'Lamine Yamal',
-  'Mohammed Kudus', 'Lucas Hernandez', 'Lucas Hernández', 'Theo Hernandez', 'Bukayo Saka',
+// Pool nama sudah dibersihkan dari nama khas pemain asli (lihat data/names.ts), tapi nama umum
+// tetap bisa kebetulan sama persis dengan pemain terkenal. Kombinasi itu dihindari supaya tidak
+// ada "Sergio Ramos" umur 17 di klub antah berantah.
+export const FAMOUS = new Set([
+  'Harry Kane', 'Declan Rice', 'Jude Bellingham', 'Cole Palmer', 'Kyle Walker', 'Jordan Henderson',
+  'Callum Wilson', 'Ben White', 'Luke Shaw', 'Lewis Hall', 'Erling Haaland', 'Patrick Berg',
+  'Marcus Pedersen', 'Kylian Mbappé', 'Antoine Griezmann', 'Lionel Messi', 'Cristiano Ronaldo',
+  'Bruno Fernandes', 'Bernardo Silva', 'Rúben Dias', 'Rúben Neves', 'Diogo Costa', 'Pedro Neto',
+  'Nuno Mendes', 'Rafael Leão', 'João Neves', 'Danilo Pereira', 'Ricardo Pereira', 'André Silva',
+  'Pedro Gonçalves', 'José Sá', 'Rui Silva', 'Matheus Nunes', 'António Silva', 'Vinícius Júnior',
+  'Thiago Silva', 'Gabriel Magalhães', 'Bruno Guimarães', 'Matheus Cunha', 'Julián Álvarez',
+  'Enzo Fernández', 'Emiliano Martínez', 'Federico Valverde', 'Ronald Araújo', 'Luis Suárez',
+  'Luis Díaz', 'Richard Ríos', 'Santiago Arias', 'Cristian Romero', 'Nicolás González',
+  'Ángel Correa', 'Joaquín Correa', 'Facundo Torres', 'Camilo Vargas', 'Santiago Giménez',
+  'Sergio Ramos', 'Marcos Alonso', 'Íñigo Martínez', 'Fabián Ruiz', 'Pau Torres', 'Borja Iglesias',
+  'Rodrigo Hernández', 'Lorenzo Pellegrini', 'Gianluca Mancini', 'Samuele Ricci', 'Thomas Müller',
+  'Pascal Groß', 'Julian Brandt', 'Robin Koch', 'Jonas Hofmann', 'Timo Werner', 'Luuk De Jong',
+  'Mateo Kovačić', 'Aleksandar Mitrović', 'Filip Kostić', 'Strahinja Pavlović', 'Luka Jović',
+  'Ivan Ilić', 'Christian Eriksen', 'Joachim Andersen', 'Andreas Christensen', 'Rasmus Kristensen',
+  'Victor Kristiansen', 'Mathias Jensen', 'Oliver Christensen', 'Emil Forsberg', 'Jesper Karlsson',
+  'Robin Olsen', 'Hugo Larsson', 'Gustaf Nilsson', 'Jakub Kamiński', 'Ladislav Krejčí', 'David Zima',
+  'Václav Černý', 'Matěj Kovář', 'Arda Güler', 'Barış Yılmaz', 'Burak Yılmaz', 'Uğurcan Çakır',
+  'Salih Özcan', 'Zeki Çelik', 'İsmail Yüksek', 'Kenan Yıldız', 'Oğuz Aydın', 'Enes Ünal',
+  'Cenk Tosun', 'Salem Al-Dawsari', 'Yasser Al-Shahrani', 'Abdulaziz Hatem', 'Sultan Al-Ghannam',
+  'Abdullah Al-Hamdan', 'Saleh Al-Shehri', 'Milad Mohammadi', 'Majid Hosseini', 'Ali Karimi',
+  'Wataru Endo', 'Junya Ito', 'Hiroki Ito', 'Keito Nakamura', 'Ao Tanaka', 'Kento Hashimoto',
+  'Koki Ogawa', 'Yuma Suzuki', 'Takefusa Kubo', 'Heung-min Son', 'Min-jae Kim', 'Kang-in Lee',
 ]);
 
 export function generateName(

@@ -12,7 +12,9 @@ import { addStats, engineGame, selection } from './match';
 import type { EngineInput } from './engine';
 import { afterGame, serveBan } from './discipline';
 
-export const cupName = (league: League) => `Piala ${COUNTRY_BY_ID[league.countryId]?.name ?? league.countryId}`;
+/** Nama piala domestik; bisa diganti lewat editor nama (world.compNames[`cup:<liga>`]) */
+export const cupName = (league: League, world?: Pick<World, 'compNames'>) =>
+  world?.compNames?.[`cup:${league.id}`] ?? `Piala ${COUNTRY_BY_ID[league.countryId]?.name ?? league.countryId}`;
 
 function roundName(teams: number): string {
   if (teams === 2) return 'Final';
@@ -22,7 +24,13 @@ function roundName(teams: number): string {
 }
 
 /** Bagan piala untuk satu musim liga: babak pertama untuk klub terlemah kalau jumlah klub bukan pangkat dua */
-export function createCup(league: League, season: LeagueSeason, strength: Map<string, { senior: number }>, rng: Rng): Cup {
+export function createCup(
+  league: League,
+  season: LeagueSeason,
+  strength: Map<string, { senior: number }>,
+  rng: Rng,
+  world?: Pick<World, 'compNames'>,
+): Cup {
   const clubs = season.clubs.slice().sort((a, b) => (strength.get(b)?.senior ?? 0) - (strength.get(a)?.senior ?? 0));
   const n = clubs.length;
   let size = 1;
@@ -44,7 +52,7 @@ export function createCup(league: League, season: LeagueSeason, strength: Map<st
   const entrants = extra ? clubs.slice(n - extra * 2) : clubs;
   if (extra) rounds[0].byes = clubs.slice(0, n - extra * 2);
   rounds[0].ties = draw(entrants, rng);
-  return { id: `${league.id}:${season.label}`, leagueId: league.id, name: cupName(league), season: season.label, rounds };
+  return { id: `${league.id}:${season.label}`, leagueId: league.id, name: cupName(league, world), season: season.label, rounds };
 }
 
 function draw(clubs: string[], rng: Rng): CupTie[] {
@@ -122,7 +130,7 @@ export function cupWeek(
     if (!season || season.clubs.length < 4) continue;
     let cup = cups[league.id];
     if (!cup || cup.season !== season.label) {
-      cup = createCup(league, season, strength, new Rng(`${world.seed}:cup:${league.id}:${season.label}`));
+      cup = createCup(league, season, strength, new Rng(`${world.seed}:cup:${league.id}:${season.label}`), world);
     } else if (cup.winner || cup.rounds.every((r) => r.date > to)) {
       continue;
     } else {

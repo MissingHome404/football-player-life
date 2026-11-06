@@ -31,6 +31,8 @@ export const CONT_DEFS: ContDef[] = [
 ];
 export const CONT_BY_ID = Object.fromEntries(CONT_DEFS.map((d) => [d.id, d])) as Record<string, ContDef>;
 
+/** Nama kompetisi benua; bisa diganti lewat editor nama (world.compNames[id]) */
+export const contName = (world: Pick<World, 'compNames'>, def: ContDef) => world.compNames?.[def.id] ?? def.name;
 export const confedOf = (league: League): Confed => (COUNTRY_BY_ID[league.countryId]?.confederation === 'AFC' ? 'AFC' : 'UEFA');
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -129,7 +131,7 @@ export function createEdition(world: World, def: ContDef, year: number, clubs: s
           { name: 'Semifinal', dates: legs('04-07', '04-28'), ties: [] },
         ];
   ko.push({ name: 'Final', dates: [onOrAfter(`${y}-05-29`, 6)], ties: [] });
-  return { id: `${def.id}:${year}`, comp: def.id, name: def.name, season: `${year}/${pad(y % 100)}`, year, groupDates, groups, ko };
+  return { id: `${def.id}:${year}`, comp: def.id, name: contName(world, def), season: `${year}/${pad(y % 100)}`, year, groupDates, groups, ko };
 }
 
 export interface GroupRow {

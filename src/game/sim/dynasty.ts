@@ -9,6 +9,7 @@ import { generateWorld } from '../gen/world';
 import { rollCharacter, type CharacterRoll, type FamilyWealth } from '../gen/character';
 import { fullName } from '../gen/names';
 import { emptySocial } from './social';
+import { carryNames } from './rename';
 
 export type HeirKind = 'anak' | 'keponakan';
 
@@ -98,12 +99,14 @@ export function nextGeneration(
   const kind = heirKind(career);
   const gen = (career.dynasty?.generation ?? 1) + 1;
   const year = Number(career.retired.date.slice(0, 4)) + heirGap(career);
-  const w = generateWorld({
+  const fresh = generateWorld({
     seed: world.seed,
     activeLeagues: world.leagues.filter((l) => l.active).map((l) => l.id),
     startDate: `${year}-07-01`,
     era: gen,
   });
+  // nama klub, liga, dan kompetisi yang kamu ganti tetap dipakai
+  const w = carryNames(world, fresh);
   // sejarah tetap: juara liga, piala, dan kompetisi benua dari generasi sebelumnya
   w.honours = [...world.honours];
   if (world.cupHonours) w.cupHonours = [...world.cupHonours];

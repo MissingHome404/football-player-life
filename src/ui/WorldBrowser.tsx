@@ -6,6 +6,7 @@ import { SaveControls } from './SavePanel';
 import { CareerHome } from './CareerHome';
 import { LifeView } from './LifeView';
 import { ContinentalView } from './ContinentalView';
+import { NamesView, RenameButton } from './NamesView';
 import { ClubFormation } from './FormationView';
 import { clubFormation } from '../game/sim/formation';
 import { ClubFixtures, CupPanel, SeasonPanel } from './LeagueSeason';
@@ -130,6 +131,15 @@ export function WorldBrowser() {
               🛍️ Kehidupan & belanja
             </button>
           )}
+          <button
+            className={`side-item me ${view.kind === 'names' ? 'sel' : ''}`}
+            onClick={() => {
+              go({ kind: 'names' });
+              setMenuOpen(false);
+            }}
+          >
+            ✏️ Editor nama
+          </button>
           <div className="side-title">Eropa</div>
           {contLink('UEFA')}
           {europe.map(leagueLink)}
@@ -144,6 +154,7 @@ export function WorldBrowser() {
           {view.kind === 'me' && career && <MyCareerView />}
           {view.kind === 'life' && career && <LifeView />}
           {view.kind === 'continent' && <ContinentalView key={view.confed} confed={view.confed} />}
+          {view.kind === 'names' && <NamesView key={view.edit ? `${view.edit.kind}:${view.edit.id}` : 'all'} edit={view.edit} />}
         </main>
       </div>
     </div>
@@ -195,7 +206,9 @@ function LeagueView({ leagueId }: { leagueId: string }) {
           <Flag id={league.countryId} />
         </div>
         <div>
-          <h1>{league.name}</h1>
+          <h1>
+            {league.name} <RenameButton kind="liga" id={league.id} />
+          </h1>
           <div className="muted">
             {COUNTRY_BY_ID[league.countryId].name} · Divisi {league.division} · Musim mulai{' '}
             {MONTHS[league.seasonStartMonth - 1]} · {clubs.length} klub · Pemain asing ±
@@ -341,7 +354,9 @@ function ClubView({ clubId }: { clubId: string }) {
         <div className="club-head-inner">
           <Badge club={club} size={72} />
           <div>
-            <h1>{club.name}</h1>
+            <h1>
+              {club.name} <RenameButton kind="klub" id={club.id} />
+            </h1>
             <div className="small">
               <Flag id={club.countryId} /> {club.city} ·{' '}
               <button className="link light" onClick={() => go({ kind: 'league', leagueId: league.id })}>
@@ -479,7 +494,9 @@ function PlayerView({ playerId }: { playerId: string }) {
         <div className="club-head-inner">
           {club && <Badge club={club} size={64} />}
           <div>
-            <h1>{fullName(p)}</h1>
+            <h1>
+              {fullName(p)} <RenameButton kind="pemain" id={p.id} />
+            </h1>
             <div className="small">
               {POSITION_LABEL[p.mainPosition]} ({ROLES[p.preferredRole].name}) · {age} tahun ·{' '}
               <Flag id={p.nationalityId} withName />

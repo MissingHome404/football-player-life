@@ -37,9 +37,10 @@ Sudah ada:
 
 - **Pensiun:** pensiun kapan saja lewat panel Kontrak & transfer, atau dipaksa cedera parah di usia 32+ dan otomatis di usia 41. Mulai umur 31 fisik pelan-pelan menurun. Setelah pensiun ada ringkasan karier, skor legacy dengan rinciannya (penampilan, gol, rating, trofi, penghargaan, timnas, rekor, lencana, puncak CA, reputasi), dan peringkat di **Hall of Fame** yang menyimpan semua karier yang sudah pensiun di browser ini.
 - **Generasi berikutnya:** setelah pensiun, lanjutkan kisah keluarga sebagai anakmu (kalau kamu menikah) atau keponakanmu. Dunia maju beberapa tahun sampai sang pewaris berumur ±15: klubnya sama, pemain dan staf generasi baru, sejarah juara liga, piala, dan kompetisi benua tetap tercatat. Pewaris membawa nama keluarga, sebagian bakat dari puncak kemampuanmu, tinggi badan, kaki terkuat, sebagian watak, status keluarga dari uang dan tabunganmu, sedikit reputasi, dan sebagian pengikut media sosial. Silsilah (generasi ke-berapa, anak siapa) tampil di beranda karier.
+- **Nama sendiri (editor nama):** game hanya memakai nama fiktif dan tidak menyertakan nama asli; kumpulan nama acaknya juga sudah dibersihkan dari nama khas pemain bintang asli. Kalau mau, ganti nama klub (plus inisial lambang), pemain, pelatih, liga, dan kompetisi sendiri lewat menu **Editor nama** (atau tombol ✏️ di judul halaman klub, pemain, dan liga). Untuk mengganti banyak sekaligus: unduh template CSV, isi kolom `nama_baru` / `singkatan_baru` di Excel atau Google Sheets, lalu impor. Pemisah `,` atau `;` dikenali otomatis; baris boleh dicocokkan lewat id atau nama sekarang. Id klub, liga, dan kompetisi sama di semua dunia, jadi file nama klub bisa dipakai lagi (juga bisa dipilih langsung saat membuat dunia baru); baris pemain dari dunia lain otomatis dilewati. Semua nama bisa dikembalikan ke bawaan, dan nama klub/liga/kompetisi yang diganti ikut terbawa ke generasi berikutnya.
 - **Ekspor ke Football Manager:** unduh statistik karier sebagai CSV (Excel): riwayat per musim, total, klub, trofi, penghargaan, rekor, atribut akhir dengan skala 1-20 dan urutan seperti layar FM, personality, dan hidden attributes.
 
-Belum ada: karier setelah pensiun (pundit, pelatih, anak), impor nama asli.
+Belum ada: karier setelah pensiun sebagai pundit atau pelatih.
 
 ## Menjalankan di komputer sendiri
 
@@ -61,7 +62,7 @@ npx tsx scripts/engine.ts 600    # kalibrasi match engine: gol, tembakan, kartu,
 ```
 src/game/data/      data statis: atribut, negara, liga + klub, kumpulan nama
 src/game/gen/       generator: nama, pemain, personality, dunia, karakter
-src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, match engine, transfer, relasi, kehidupan, timnas, penghargaan, lencana
+src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, match engine, transfer, relasi, kehidupan, timnas, penghargaan, lencana, editor nama (rename.ts)
 src/game/save/      format file save, simpan di browser (IndexedDB)
 src/game/rng.ts     angka acak ber-seed
 src/game/worker.ts  generate dunia di Web Worker
