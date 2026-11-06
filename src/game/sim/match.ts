@@ -5,9 +5,11 @@ import type { Position } from '../data/attributes';
 import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, PlayingStyle, SeasonStat, World } from '../types';
 import { Rng, clamp } from '../rng';
 import { simScore, squadOf, topEleven, type WeekMatches } from './season';
-import { FULL, engineAttrs, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type ETeam } from './engine';
+import { FULL, engineAttrs, injuryRisk, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type EP, type ETeam } from './engine';
+import { lifeInjuryFactor } from './life';
 import { shortName } from '../gen/names';
 import { applyBadges } from './badges';
+import { afterGame, cardOf, serveBan } from './discipline';
 
 type Group = 'GK' | 'DEF' | 'MID' | 'ATT';
 const GROUP: Record<Position, Group> = {
@@ -42,7 +44,12 @@ export interface Perf {
   assists: number;
   cleanSheet?: boolean;
   motm?: boolean;
+  card?: MatchRecord['card'];
+  injured?: boolean;
 }
+
+/** Kartu di laga simulasi cepat: bek dan pemain agresif lebih sering kena */
+const CARD_W: Record<Group, number> = { GK: 0.25, DEF: 1.2, MID: 1.1, ATT: 0.75 };
 
 function performance(
   rng: Rng,
@@ -81,10 +88,14 @@ function performance(
   else if (group === 'DEF') rating += (cleanSheet ? 0.4 : 0) - conceded * 0.15;
   if (fitness < 50) rating -= 0.3;
   rating += rng.normal(0, sd);
+  const cw = CARD_W[group] * (0.5 + m.Aggression / 20) * share;
+  const card: Perf['card'] = rng.chance(0.006 * cw) ? 'R' : rng.chance(0.13 * cw) ? (rng.chance(0.04) ? 'YR' : 'Y') : undefined;
+  if (card === 'Y') rating -= 0.2;
+  else if (card) rating -= 1;
   // pemain pengganti: rating lebih dekat ke 6.5
   rating = 6.5 + (rating - 6.5) * (0.4 + 0.6 * share);
   rating = Math.round(clamp(rating, 4, 10) * 10) / 10;
-  return { minutes, rating, goals, assists, cleanSheet, motm: rating >= 8.2 };
+  return { minutes, rating, goals, assists, cleanSheet, motm: rating >= 8.2, ...(card ? { card } : {}) };
 }
 
 /** Dipilih pelatih? Bandingkan dengan rekan seposisi (CA + sedikit acak) */
@@ -162,21 +173,40 @@ export function engineGame(o: {
     applyBadges(user.a, career.badges);
     for (const k of ['pace', 'acc', 'sta'] as const) user.a[k] *= fit;
   }
-  const ourTeam: ETeam = { id: o.ours.id, name: o.ours.name, color: o.ours.colors[0], color2: o.ours.colors[1], xi: xiOurs.xi, style: o.ours.style };
-  if (status === 'Cadangan' && rng.chance(0.45)) {
-    const mins = rng.int(5, 35);
+  const ourTeam: ETeam = {
+    id: o.ours.id,
+    name: o.ours.name,
+    color: o.ours.colors[0],
+    color2: o.ours.colors[1],
+    xi: xiOurs.xi,
+    bench: xiOurs.bench,
+    style: o.ours.style,
+  };
+  // risiko cedera pemain kita juga dipengaruhi gaya hidup (ahli gizi, fisio, dll.)
+  if (user) user.a.inj = injuryRisk(p) * lifeInjuryFactor(career);
+  if (status === 'Cadangan') {
     const a = engineAttrs(p);
     applyBadges(a, career.badges);
     for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
+    a.inj = injuryRisk(p) * lifeInjuryFactor(career);
     const slot = slotFor(p);
-    ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: { id: p.id, name: shortName(p), num: 12, slot, user: true, a }, slot };
+    const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a };
+    if (rng.chance(0.45)) {
+      const mins = rng.int(5, 35);
+      ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: me, slot };
+    } else {
+      // tetap di bangku: bisa masuk kalau rekan seposisi cedera
+      ourTeam.bench = [me, ...xiOurs.bench.filter((b) => b.id !== p.id)].map((b, i) => ({ ...b, num: 12 + i }));
+    }
   }
+  const xiTheirs = pickXI(o.theirs.squad, undefined, false);
   const oppTeam: ETeam = {
     id: o.theirs.id,
     name: o.theirs.name,
     color: o.theirs.colors[0],
     color2: o.theirs.colors[1],
-    xi: pickXI(o.theirs.squad, undefined, false).xi,
+    xi: xiTheirs.xi,
+    bench: xiTheirs.bench,
     style: o.theirs.style,
   };
   const sim: EngineInput = { seed: o.seed, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
@@ -201,6 +231,8 @@ export function engineGame(o: {
         assists: st.assists,
         cleanSheet: score[1] === 0 && minutes >= 60 && (group === 'GK' || group === 'DEF'),
         motm: r.motm === p.id,
+        ...(cardOf(st.yellow, st.red) ? { card: cardOf(st.yellow, st.red) } : {}),
+        ...(st.injured ? { injured: true } : {}),
       }
     : { minutes: 0, goals: 0, assists: 0 };
   const extra: Partial<MatchRecord> = {
@@ -212,8 +244,8 @@ export function engineGame(o: {
 }
 
 /** Catat menit, gol, assist, dan rating ke baris statistik musim */
-export function addStats(career: Career, rec: MatchRecord, clubId?: string) {
-  if (rec.minutes <= 0) return;
+export function addStats(career: Career, rec: MatchRecord, clubId?: string): SeasonStat | undefined {
+  if (rec.minutes <= 0) return undefined;
   const row = statRow(career, rec.season, rec.team, rec.comp, clubId);
   row.apps++;
   if (rec.status === 'Inti') row.starts++;
@@ -223,6 +255,7 @@ export function addStats(career: Career, rec: MatchRecord, clubId?: string) {
   if (rec.cleanSheet) row.cleanSheets++;
   row.ratingSum += rec.rating ?? 0;
   if (rec.motm) row.motm++;
+  return row;
 }
 
 /**
@@ -235,6 +268,7 @@ export function userMatch(
   p: Player,
   week: WeekMatches,
   rng: Rng,
+  notes?: string[],
 ): { rec: MatchRecord; sim?: EngineInput; engine?: UserEngineMatch } | null {
   const club: Club | undefined = p.contract ? world.clubs.find((c) => c.id === p.contract!.clubId) : undefined;
   const squad = club ? squadOf(world, club.id).filter((q) => !q.isUser) : [];
@@ -266,7 +300,7 @@ export function userMatch(
     score = f.score;
     const seniors = squad.filter((q) => !q.isYouth);
     teamCA = topEleven(seniors.map((q) => q.ca));
-    status = selection(rng, p, seniors, career);
+    status = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, seniors, career);
     ours = seniors;
     oppSquad = squadOf(world, f.opponentId).filter((q) => !q.isYouth && !q.isUser);
     fixture = { leagueId: f.leagueId, round: f.round, index: f.index, home: f.home };
@@ -288,7 +322,7 @@ export function userMatch(
     const oppCA = topEleven(oppSquad.map((q) => q.ca));
     const s = home ? simScore(rng, teamCA, oppCA) : simScore(rng, oppCA, teamCA);
     score = home ? s : [s[1], s[0]];
-    status = selection(rng, p, youth, career);
+    status = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, youth, career);
   } else {
     const league = world.leagues.find((l) => l.countryId === p.nationalityId);
     if (!league || !week.leaguesPlayed.has(league.id)) return null;
@@ -304,7 +338,7 @@ export function userMatch(
     const oppCA = teamCA + rng.normal(0, 10);
     const s = home ? simScore(rng, teamCA, oppCA) : simScore(rng, oppCA, teamCA);
     score = home ? s : [s[1], s[0]];
-    status = career.injury ? 'Cedera' : 'Inti';
+    status = serveBan(career, 'club') ? 'Skorsing' : career.injury ? 'Cedera' : 'Inti';
   }
 
   // Laga tim kita saat kamu masuk skuad: dimainkan oleh match engine 2D
@@ -341,6 +375,7 @@ export function userMatch(
     perf = performance(rng, p, status, teamCA, score, career.fitness);
   }
   const rec: MatchRecord = { date, comp, season, team, opponent, opponentId, home, score, status, ...perf, ...extra };
-  addStats(career, rec, club?.id);
+  const row = addStats(career, rec, club?.id);
+  afterGame(career, rec, rng, 'club', row, notes);
   return { rec, sim, engine };
 }

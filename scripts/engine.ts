@@ -13,10 +13,8 @@ const w = generateWorld({ seed: 'CAL' });
 const clubs = w.clubs.filter((c) => c.leagueId === 'ENG1' || c.leagueId === 'IDN1');
 const team = (id: string): ETeam => {
   const c = w.clubs.find((x) => x.id === id)!;
-  return {
-    id, name: c.name, color: c.colors[0], color2: c.colors[1], style: c.playingStyle,
-    xi: pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false).xi,
-  };
+  const { xi, bench } = pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false);
+  return { id, name: c.name, color: c.colors[0], color2: c.colors[1], style: c.playingStyle, xi, bench };
 };
 let played = 0;
 const kinds: number[][] = [];

@@ -21,7 +21,7 @@ import { Rng, clamp } from '../rng';
 import { shortName } from '../gen/names';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 5;
+export const ENGINE_VERSION = 6;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -38,7 +38,7 @@ const BOX_Y = 20.16;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 9.5, shootW: 28, progW: 45, xgPassW: 4, foul: 0.3, dribZone: 0.15, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 9.5, shootW: 28, progW: 45, xgPassW: 4, foul: 0.55, dribZone: 0.15, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.2, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 0.75,
@@ -46,6 +46,8 @@ export const TUNE = {
   headK: 0.45,
   /** tambahan peluang gol per meter kiper keluar dari posisi idealnya */
   gkOff: 0.12,
+  /** peluang cedera per benturan (tekel, dilanggar) untuk pemain dengan risiko rata-rata */
+  injury: 0.026,
   /** nilai dasar mencoba melewati lawan dengan dribel */
   takeOn: -0.15,
   /** nilai umpan aman yang menjaga penguasaan bola */
@@ -59,7 +61,7 @@ export const TUNE = {
   /** performa harian: simpangan tim & pemain (poin atribut) */
   formTeam: 0.3, formPlayer: 0.3,
   /** peluang kartu kuning per pelanggaran */
-  card: 0.2,
+  card: 0.4,
 };
 
 /** Pengali keputusan menurut gaya main tim */
@@ -120,6 +122,8 @@ const BASE: Record<Slot, [number, number]> = {
   LW: [62, 9],
 };
 const DEF_SLOTS = new Set<Slot>(['RB', 'RCB', 'LCB', 'LB']);
+/** pergantian pemain per tim per laga */
+export const MAX_SUBS = 5;
 const SLOT_GROUP: Record<Slot, string> = {
   GK: 'GK', RB: 'DEF', RCB: 'DEF', LCB: 'DEF', LB: 'DEF', RCM: 'MID', CM: 'MID', LCM: 'MID', RW: 'ATT', ST: 'ATT', LW: 'ATT',
 };
@@ -143,6 +147,8 @@ export interface EAttrs {
   cmp: number; dec: number; pos: number; ant: number; otb: number; wor: number; tea: number; con: number; agg: number;
   /** flair (gaya bermain berani & kreatif) dan bravery (berani duel, blok, sundul) */
   fla: number; bra: number;
+  /** pengali risiko cedera (1 = rata-rata; dari Injury Proneness, untuk pemain kita juga gaya hidup) */
+  inj: number;
   /** rata-rata atribut kiper (3 untuk pemain lapangan) */
   gk: number;
   ref: number; han: number; ono: number; aer: number; cmd: number; kic: number; rus: number;
@@ -165,6 +171,8 @@ export interface ETeam {
   xi: EP[];
   /** pemain kita masuk dari bangku di detik permainan ini, menggantikan slot ini */
   sub?: { at: number; player: EP; slot: Slot };
+  /** pemain cadangan yang bisa masuk menggantikan pemain cedera */
+  bench?: EP[];
   /** gaya main pelatih */
   style?: PlayingStyle;
 }
@@ -176,6 +184,9 @@ export interface EngineInput {
   /** lapangan netral (turnamen): tanpa keunggulan kandang */
   neutral?: boolean;
 }
+
+/** Risiko cedera dari Injury Proneness (sama dengan rumus cedera mingguan) */
+export const injuryRisk = (p: Player) => Math.max(0.15, 1 + (p.hidden['Injury Proneness'] - 10) / 10);
 
 export function engineAttrs(p: Player): EAttrs {
   const t = p.technical;
@@ -190,6 +201,7 @@ export function engineAttrs(p: Player): EAttrs {
     fk: t['Free Kick Taking'], pen: t['Penalty Taking'],
     cmp: m.Composure, dec: m.Decisions, pos: m.Positioning, ant: m.Anticipation, otb: m['Off the Ball'],
     wor: m['Work Rate'], tea: m.Teamwork, con: m.Concentration, agg: m.Aggression, fla: m.Flair, bra: m.Bravery,
+    inj: injuryRisk(p),
     gk: keeper ? (g.Handling + g.Reflexes + g['One on Ones'] + g['Command of Area']) / 4 : 3,
     ref: keeper ? g.Reflexes : 3, han: keeper ? g.Handling : 3, ono: keeper ? g['One on Ones'] : 3,
     aer: keeper ? g['Aerial Reach'] : 3, cmd: keeper ? g['Command of Area'] : 3, kic: keeper ? g.Kicking : 3,
@@ -206,14 +218,14 @@ function fullAttrs(a: Partial<EAttrs>): EAttrs {
     pas: d(a.pas), vis: d(a.vis), tec: d(a.tec), dri: d(a.dri), ft: d(a.ft), fin: d(a.fin), lon: d(a.lon),
     cro: d(a.cro), hea: d(a.hea), tck: d(a.tck), mar: d(a.mar), fk: d(a.fk, d(a.lon)), pen: d(a.pen, d(a.fin)),
     cmp: d(a.cmp), dec: d(a.dec), pos: d(a.pos), ant: d(a.ant), otb: d(a.otb), wor: d(a.wor), tea: d(a.tea),
-    con: d(a.con), agg: d(a.agg), fla: d(a.fla), bra: d(a.bra), gk,
+    con: d(a.con), agg: d(a.agg), fla: d(a.fla), bra: d(a.bra), inj: d(a.inj, 1), gk,
     ref: d(a.ref, gk), han: d(a.han, gk), ono: d(a.ono, gk), aer: d(a.aer, gk), cmd: d(a.cmd, gk), kic: d(a.kic, 10),
     rus: d(a.rus, 10),
   };
 }
 
 /** Susun 11 pemain (4-3-3) dari skuad. Pemain kita masuk kalau `userStarts`. */
-export function pickXI(squad: Player[], user: Player | undefined, userStarts: boolean): { xi: EP[]; userSlot?: Slot } {
+export function pickXI(squad: Player[], user: Player | undefined, userStarts: boolean): { xi: EP[]; userSlot?: Slot; bench: EP[] } {
   const taken = new Set<Slot>();
   const xi: EP[] = [];
   const place = (p: Player, isUser = false): Slot | undefined => {
@@ -241,7 +253,16 @@ export function pickXI(squad: Player[], user: Player | undefined, userStarts: bo
     xi.push({ id: p.id, name: shortName(p), num: NUM[s], slot: s, a: engineAttrs(p) });
   }
   xi.sort((a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot));
-  return { xi, userSlot };
+  // bangku cadangan: 1 kiper, 2 bek, 2 gelandang, 2 penyerang (yang terbaik dari sisa skuad)
+  const bench: EP[] = [];
+  const rest = others.filter((q) => !xi.some((e) => e.id === q.id));
+  for (const [group, n] of [['GK', 1], ['DEF', 2], ['MID', 2], ['ATT', 2]] as const) {
+    for (const p of rest.filter((q) => GROUP_OF[q.mainPosition] === group).slice(0, n)) {
+      const slot = (PREF[p.mainPosition] ?? GROUP_SLOTS[group])[0] as Slot;
+      bench.push({ id: p.id, name: shortName(p), num: 12 + bench.length, slot, a: engineAttrs(p) });
+    }
+  }
+  return { xi, userSlot, bench };
 }
 
 /** Slot untuk pemain kita saat masuk dari bangku (sesuai posisinya) */
@@ -275,13 +296,15 @@ export interface PStats {
   takeOns: number;
   /** umpan terobosan ke ruang di belakang garis pertahanan */
   throughBalls: number;
+  /** 1 kalau cedera di laga ini */
+  injured: number;
   on: number; // detik permainan mulai main
   off?: number;
 }
 
 export type EventKind =
   | 'goal' | 'shot' | 'save' | 'miss' | 'block' | 'half' | 'full' | 'sub' | 'kickoff' | 'penalty' | 'corner'
-  | 'freekick' | 'offside' | 'yellow' | 'red';
+  | 'freekick' | 'offside' | 'yellow' | 'red' | 'injury';
 export interface MatchEvent {
   t: number;
   min: number;
@@ -315,6 +338,7 @@ export interface Body {
   sprint: boolean;
   energy: number;
   dive: number; // kiper: sisa waktu terjun
+  hurt: number; // detik permainan saat cedera (-1 = sehat); pemain cedera terkapar sampai diganti
 }
 
 export interface Ball {
@@ -400,6 +424,10 @@ export class Match {
   events: MatchEvent[] = [];
   bodies: Body[] = [];
   bench: Body[] = [];
+  /** pemain cadangan untuk menggantikan pemain cedera */
+  reserves: Body[] = [];
+  /** jumlah pergantian tiap tim (maksimal MAX_SUBS) */
+  subs: [number, number] = [0, 0];
   ball: Ball = { x: 52.5, y: 34, z: 0, vx: 0, vy: 0, vz: 0 };
   owner: Body | null = null;
   lastTouch: Body | null = null;
@@ -446,6 +474,12 @@ export class Match {
         this.bench.push(sub);
         list.push(sub);
       }
+      for (const p of team.bench ?? []) {
+        if (team.sub && p.id === team.sub.player.id) continue;
+        const r = this.makeBody(p, side, false);
+        this.reserves.push(r);
+        list.push(r);
+      }
       const tf = form.normal(0, TUNE.formTeam) + (side === 0 && !input.neutral ? TUNE.home : 0);
       for (const b of list) {
         const d = tf + form.normal(0, TUNE.formPlayer);
@@ -462,13 +496,13 @@ export class Match {
     const st: PStats = {
       passes: 0, passesOk: 0, keyPasses: 0, shots: 0, onTarget: 0, goals: 0, assists: 0, tackles: 0,
       interceptions: 0, dribbles: 0, lost: 0, saves: 0, conceded: 0, offsides: 0, longGoals: 0, setGoals: 0, headGoals: 0,
-      fouls: 0, yellow: 0, red: 0, takeOns: 0, throughBalls: 0, on: on ? 0 : -1,
+      fouls: 0, yellow: 0, red: 0, takeOns: 0, throughBalls: 0, injured: 0, on: on ? 0 : -1,
     };
     // salinan atribut: input tidak pernah diubah (aman untuk ditonton ulang)
     const ep: EP = { ...p, a: fullAttrs(p.a) };
     return {
       p: ep, side, x: 52.5, y: 34, vx: 0, vy: 0, tx: 52.5, ty: 34, on, st, cool: 0, run: 0,
-      think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, dive: 0,
+      think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, dive: 0, hurt: -1,
     };
   }
 
@@ -493,7 +527,8 @@ export class Match {
 
   private onPitch: [Body[], Body[], Body[]] = [[], [], []];
   private refresh() {
-    const all = this.bodies.filter((b) => b.on);
+    // pemain cedera yang terkapar tidak ikut bermain sampai diganti
+    const all = this.bodies.filter((b) => b.on && b.hurt < 0);
     this.onPitch = [all.filter((b) => b.side === 0), all.filter((b) => b.side === 1), all];
   }
   private active() {
@@ -2133,11 +2168,15 @@ export class Match {
         c.cool = 0.8;
         if (this.rng.chance(0.45 + da.tec * 0.01)) this.gain(d);
         else this.deflect(d, 6);
+        this.knock(c, 1);
         return;
       }
-      const foul = TUNE.foul * (0.6 + da.agg / 25) * (1.3 - da.tck / 40);
+      // pemain yang sudah kena kartu kuning lebih berhati-hati
+      const foul = TUNE.foul * (0.6 + da.agg / 25) * (1.3 - da.tck / 40) * (d.st.yellow ? 0.6 : 1);
       if (this.rng.chance(foul)) {
         this.foul(d, c);
+        // pelanggaran keras (agresif) lebih sering mencederai
+        this.knock(c, 2 + (da.agg - 10) * 0.1);
         return;
       }
       // dilewati: pembela butuh waktu untuk berbalik
@@ -2165,9 +2204,58 @@ export class Match {
     let card: 'yellow' | 'red' | null = null;
     if (clear && !box && this.rng.chance(0.2)) card = 'red';
     else if (this.rng.chance(0.0015 + Math.max(0, a.agg - 12) * 0.001)) card = 'red';
-    else if (this.rng.chance(TUNE.card * (0.6 + a.agg / 25) * (1.25 - a.cmp / 40) + (clear ? 0.45 : fx > 60 && c.run > 0 ? 0.2 : 0))) card = 'yellow';
+    else if (this.rng.chance((TUNE.card * (0.6 + a.agg / 25) * (1.25 - a.cmp / 40) + (clear ? 0.45 : fx > 60 && c.run > 0 ? 0.2 : 0)) * (d.st.yellow ? 0.6 : 1))) {
+      card = 'yellow';
+    }
     this.toDead('free', att, c.x, c.y, card ? 1.6 : 0.8);
     if (card) this.book(d, card);
+  }
+
+  /** Benturan bisa membuat pemain cedera: pemain rawan cedera dan yang kelelahan lebih sering */
+  private knock(b: Body, k: number) {
+    if (!b.on || b.hurt >= 0) return;
+    // kiper hanya bisa cedera kalau ada kiper cadangan yang bisa masuk
+    if (b.p.slot === 'GK' && !this.reserveFor(b)) return;
+    if (!this.rng.chance(TUNE.injury * k * b.p.a.inj * (b.energy < 0.6 ? 1.5 : 1))) return;
+    b.hurt = this.t;
+    b.st.injured = 1;
+    b.vx = b.vy = 0;
+    if (this.owner === b) this.owner = null;
+    this.log('injury', b.side, b.p.name);
+    this.refresh();
+  }
+
+  /** Cadangan yang masuk menggantikan pemain ini: seposisi dulu, kiper hanya diganti kiper */
+  private reserveFor(out: Body): Body | undefined {
+    if (this.subs[out.side] >= MAX_SUBS) return undefined;
+    const pool = this.reserves.filter((r) => r.side === out.side && r.st.on < 0);
+    const group = SLOT_GROUP[out.p.slot];
+    const same = pool.find((r) => SLOT_GROUP[r.p.slot] === group);
+    if (out.p.slot === 'GK') return same;
+    return same ?? pool.find((r) => r.p.slot !== 'GK');
+  }
+
+  /** Pemain cedera diganti saat bola mati (atau setelah beberapa detik kalau bola terus hidup) */
+  private replaceHurt() {
+    for (const out of [...this.bodies]) {
+      if (!out.on || out.hurt < 0) continue;
+      if (!this.dead && !this.restart && this.t - out.hurt < 8) continue;
+      out.on = false;
+      out.st.off = this.t;
+      const sub = this.reserveFor(out);
+      if (sub) {
+        sub.on = true;
+        sub.st.on = this.t;
+        // masuk dari pinggir lapangan
+        sub.x = clamp(out.x, 35, 70);
+        sub.y = out.y < PITCH_H / 2 ? -1 : PITCH_H + 1;
+        sub.p = { ...sub.p, slot: out.p.slot };
+        this.bodies.push(sub);
+        this.subs[out.side]++;
+        this.log('sub', out.side, sub.p.name, out.p.name);
+      }
+      this.refresh();
+    }
   }
 
   private book(b: Body, card: 'yellow' | 'red') {
@@ -2232,9 +2320,11 @@ export class Match {
       this.bodies.push(sub);
       if (this.owner === out) this.owner = sub;
       if (this.lastTouch === out) this.lastTouch = sub;
+      this.subs[sub.side]++;
       this.refresh();
       this.log('sub', sub.side, sub.p.name, out.p.name);
     }
+    this.replaceHurt();
 
     if (this.t >= HALF && this.half === 1) {
       this.half = 2;

@@ -397,6 +397,8 @@ input { font: inherit; }
 .mv-team li { display: grid; grid-template-columns: 28px 1fr auto; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .mv-team li:last-child { border-bottom: 0; }
 .mv-team li.me { color: var(--star); font-weight: 700; }
+.mv-bench { margin: 8px 0 0; }
+.mv-bench .me { color: var(--star); font-weight: 700; }
 .mv-n { color: var(--muted); text-align: right; }
 .mv-kit { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .5); flex: none; }
 .mv-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 8px; }

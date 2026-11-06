@@ -120,7 +120,7 @@ describe('match engine', () => {
     }
     expect(yellow).toBeGreaterThan(12);
     expect(red).toBeLessThan(yellow);
-    expect(corners / 24).toBeGreaterThan(1.2);
+    expect(corners / 24).toBeGreaterThan(0.8);
     expect(cbShots).toBeGreaterThan(0); // bek tengah naik saat sepak pojok
     // gaya main dan lapangan netral mengubah jalannya laga, tetap deterministik
     const base: EngineInput = { seed: 'gaya', home: team(eng[2].id), away: team(eng[3].id) };

@@ -91,6 +91,8 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
       return `🟨 Kartu kuning: ${e.name} (${team})`;
     case 'red':
       return e.second ? `🟨🟥 Kartu kuning kedua, ${e.name} diusir! (${team})` : `🟥 Kartu merah langsung: ${e.name} (${team})`;
+    case 'injury':
+      return `🚑 ${e.name} cedera dan harus ditarik keluar (${team})`;
     case 'half':
       return 'Turun minum';
     case 'full':
@@ -100,7 +102,7 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
   }
 }
 
-const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red']);
+const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red', 'injury']);
 
 const RESTART_TEXT: Record<string, string> = {
   throw: 'Lemparan ke dalam',
@@ -131,9 +133,13 @@ function MatchViewer({ input }: { input: EngineInput }) {
   const kit = useMemo(() => kits(input), [input]);
   const colors = kit.shirt;
   const sides = [input.home, input.away];
-  const mySide: 0 | 1 = sides.findIndex((t) => t.xi.some((p) => p.user) || !!t.sub?.player.user) === 1 ? 1 : 0;
+  const mySide: 0 | 1 =
+    sides.findIndex((t) => t.xi.some((p) => p.user) || !!t.sub?.player.user || !!t.bench?.some((p) => p.user)) === 1 ? 1 : 0;
   const userStarts = sides.some((t) => t.xi.some((p) => p.user));
-  const me = [...input.home.xi, ...input.away.xi].find((p) => p.user) ?? (input.home.sub ?? input.away.sub)?.player;
+  const me =
+    [...input.home.xi, ...input.away.xi].find((p) => p.user) ??
+    (input.home.sub ?? input.away.sub)?.player ??
+    [...(input.home.bench ?? []), ...(input.away.bench ?? [])].find((p) => p.user);
 
   const skip = () => {
     while (!match.done) match.step();
@@ -267,6 +273,17 @@ function Lineup({
                 </li>
               ))}
             </ol>
+            {(!!t.bench?.length || !!t.sub) && (
+              <p className="small muted mv-bench">
+                Cadangan:{' '}
+                {[...(t.sub ? [t.sub.player] : []), ...(t.bench ?? [])].map((p, i) => (
+                  <span key={p.id} className={p.user ? 'me' : ''}>
+                    {i > 0 && ', '}
+                    {p.name}
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -465,6 +482,9 @@ function Live({
         const p0 = prev.get(b) ?? b;
         const [x, y] = P(p0.x + (b.x - p0.x) * alpha, p0.y + (b.y - p0.y) * alpha);
         const fill = b.p.slot === 'GK' ? keepers[b.side] : colors[b.side];
+        // pemain cedera terkapar: digambar pudar dengan tanda palang merah
+        const hurt = b.hurt >= 0;
+        ctx.globalAlpha = hurt ? 0.55 : 1;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = fill;
@@ -474,6 +494,17 @@ function Live({
         ctx.stroke();
         ctx.fillStyle = lum(fill) > 0.6 ? '#111' : '#fff';
         ctx.fillText(String(b.p.num), x, y + 0.5);
+        ctx.globalAlpha = 1;
+        if (hurt) {
+          const k = r * 0.9;
+          const cx = x + r * 0.9;
+          const cy = y - r * 0.9;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(cx - k / 2, cy - k / 2, k, k);
+          ctx.fillStyle = '#e5484d';
+          ctx.fillRect(cx - k * 0.12, cy - k * 0.38, k * 0.24, k * 0.76);
+          ctx.fillRect(cx - k * 0.38, cy - k * 0.12, k * 0.76, k * 0.24);
+        }
         if (b.p.user) user = [x, y, b.p.name];
       }
       if (user) {
@@ -739,6 +770,7 @@ function Summary({
                 {st.tackles > 0 && ` · tekel ${st.tackles}`}
                 {st.saves > 0 && ` · penyelamatan ${st.saves}`}
                 {st.red > 0 ? ' · 🟥 kartu merah' : st.yellow > 0 ? ' · 🟨 kartu kuning' : ''}
+                {st.injured > 0 && ' · 🚑 cedera'}
               </span>
               {result.motm === meId && <span className="pill ok">Man of the Match</span>}
             </div>

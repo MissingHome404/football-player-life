@@ -14,6 +14,7 @@ import { MAX_AGE, retire } from './retire';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
+import { injure } from './discipline';
 import { nationalWeek } from './national';
 import { ledgerWeek, seasonAwards, tallyNational, worldAwardDay, worldAwards } from './awards';
 import { newBadges } from './badges';
@@ -112,16 +113,6 @@ export function migrateCareer(c: Partial<Career> & Pick<Career, 'teamLabel' | 'c
 export const pendingChoices = (career: Career) =>
   career.inbox.filter((m) => m.choices?.length && m.chosen === undefined);
 
-const INJURIES: [name: string, min: number, max: number, weight: number][] = [
-  ['Memar di paha', 1, 2, 5],
-  ['Keseleo pergelangan kaki', 2, 4, 4],
-  ['Cedera hamstring', 3, 6, 3],
-  ['Cedera otot betis', 2, 5, 3],
-  ['Cedera lutut ringan', 4, 8, 2],
-  ['Patah tulang kaki', 12, 20, 0.3],
-  ['Robek ligamen lutut (ACL)', 24, 36, 0.25],
-];
-
 /** Ganti pemain kita di dunia dengan salinan yang sudah diubah */
 const withPlayer = replacePlayer;
 
@@ -166,21 +157,6 @@ export function stressTarget(career: Career, player: Player, clubCountry?: strin
   else if (player.personality.Pressure >= 16) parts.push(['Tahan tekanan', -5]);
   const target = clamp(parts.reduce((s, [, v]) => s + v, 0), 0, 100);
   return { target, parts };
-}
-
-function injure(career: Career, rng: Rng, notes: string[], where: 'latihan' | 'pertandingan') {
-  const [name, min, max] = rng.weighted(INJURIES.map((x) => [x, x[3]] as const));
-  const weeks = rng.int(min, max);
-  career.injury = { name, weeksLeft: weeks };
-  career.fitness = clamp(career.fitness - 15, 0, 100);
-  notes.push(`Kamu cedera saat ${where}: ${name.toLowerCase()}, perkiraan absen ${weeks} minggu.`);
-  career.inbox.unshift({
-    id: `w${career.week}-injury-${where}`,
-    date: addDays(career.currentDate, 7),
-    from: 'Tim medis',
-    title: `Cedera: ${name}`,
-    body: `Kamu mengalami ${name.toLowerCase()} saat ${where} dan harus absen sekitar ${weeks} minggu. Selama cedera kamu tidak bisa berlatih atau bermain.`,
-  });
 }
 
 export interface WeekResult {
@@ -270,7 +246,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       (career.fitness < 20 ? 1.5 : 1) *
       (plan.coaches.fisik ? 0.7 : 1) *
       lifeInjuryFactor(career);
-    if (rng.chance(chance)) injure(career, rng, notes, 'latihan');
+    if (rng.chance(chance)) injure(career, rng, 'latihan', notes);
   }
   const abroad = !!club && club.countryId !== player.nationalityId;
   lifeWeek(career, abroad, () => rng.chance(0.4));
@@ -279,10 +255,10 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   const weekEnd = addDays(career.currentDate, 7);
   const week = playWeek(world, career.currentDate, weekEnd, new Rng(`${world.seed}:${weekEnd}`));
   let w: World = { ...world, seasons: week.seasons };
-  const played = userMatch(w, career, player, week, rng.fork('match'));
+  const played = userMatch(w, career, player, week, rng.fork('match'), notes);
   const match = played?.rec ?? null;
   // Timnas: panggilan, kualifikasi, turnamen
-  const intl = nationalWeek(w, career, player, career.currentDate, weekEnd);
+  const intl = nationalWeek(w, career, player, career.currentDate, weekEnd, notes);
   w = intl.world;
   // Statistik musim semua pemain & rekor dunia game
   w = ledgerWeek(w, week, career, player, weekEnd, played?.engine);
@@ -310,8 +286,11 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
         const lrep = world.leagues.find((l) => l.id === club.leagueId)!.reputation;
         if (rng.chance(lrep / 250)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
       }
+      // laga match engine: cedera terjadi di dalam laga (lihat discipline.ts); laga simulasi cepat diundi di sini
       const proneness = Math.max(0.15, 1 + (player.hidden['Injury Proneness'] - 10) / 10);
-      if (!career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness * lifeInjuryFactor(career))) injure(career, rng, notes, 'pertandingan');
+      if (!played?.sim && !career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness * lifeInjuryFactor(career))) {
+        injure(career, rng, 'pertandingan', notes);
+      }
     }
   }
 

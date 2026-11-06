@@ -24,6 +24,7 @@ import { addDays, yearOf } from '../date';
 import { ageOn } from '../gen/player';
 import { simScore, topEleven } from './season';
 import { addStats, engineGame, groupOf, recentForm } from './match';
+import { afterGame, serveBan } from './discipline';
 import { nationStyle, type EngineInput } from './engine';
 import type { NatPlayed } from './awards';
 
@@ -343,6 +344,7 @@ export interface IntlGame {
 /** Status di laga timnas: bersaing dengan pemain seposisi di skuad */
 function natStatus(rng: Rng, p: Player, squad: Player[], career: Career): MatchStatus {
   if (career.injury) return 'Cedera';
+  if (serveBan(career, 'nat')) return 'Skorsing';
   const g = groupOf(p.mainPosition);
   let mine = natScore(p, career) + rng.normal(0, 5);
   if (career.fitness < 55) mine -= (55 - career.fitness) / 2;
@@ -379,6 +381,7 @@ export function nationalWeek(
   p: Player,
   from: string,
   to: string,
+  notes?: string[],
 ): { world: World; games: IntlGame[]; played: NatPlayed[] } {
   const intl: IntlState = world.intl ? structuredClone(world.intl) : initIntl(from);
   const nc = (career.intl ??= emptyNational());
@@ -454,7 +457,7 @@ export function nationalWeek(
       ...g.extra,
     };
     if (knockout && g.score[0] === g.score[1]) rec.pens = penalties(rng, country, opp, world);
-    addStats(career, rec);
+    afterGame(career, rec, rng, 'nat', addStats(career, rec), notes);
     if (rec.minutes > 0) {
       if (team === 'senior') {
         nc.caps++;

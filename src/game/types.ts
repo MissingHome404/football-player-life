@@ -253,7 +253,7 @@ export interface Honour {
 }
 
 export type Competition = 'Liga' | 'U19' | 'Amatir' | 'Timnas' | 'Timnas U20';
-export type MatchStatus = 'Inti' | 'Cadangan' | 'Tidak masuk skuad' | 'Cedera';
+export type MatchStatus = 'Inti' | 'Cadangan' | 'Tidak masuk skuad' | 'Cedera' | 'Skorsing';
 
 /** Satu pertandingan pemain kita */
 export interface MatchRecord {
@@ -279,6 +279,10 @@ export interface MatchRecord {
   /** laga timnas: babak/kompetisi, mis. "Kualifikasi Piala Asia 2028" atau "Piala Dunia 2030 · Grup B" */
   stage?: string;
   pens?: [number, number];
+  /** kartu: kuning, merah langsung, atau merah karena dua kuning */
+  card?: 'Y' | 'R' | 'YR';
+  /** cedera di laga ini */
+  injured?: boolean;
 }
 
 /** Statistik pemain kita per musim, tim, dan kompetisi */
@@ -295,6 +299,9 @@ export interface SeasonStat {
   cleanSheets: number;
   ratingSum: number;
   motm: number;
+  /** kartu kuning (tidak termasuk kuning kedua yang jadi merah) dan kartu merah */
+  yellow?: number;
+  red?: number;
 }
 
 /** Karier pemain kita (data yang nanti disimpan di save) */
@@ -316,6 +323,8 @@ export interface Career {
   week: number; // jumlah minggu yang sudah dijalani
   fitness: number; // kebugaran 0-100
   injury: Injury | null;
+  /** sisa laga skorsing: klub (liga/U19/amatir) dan timnas */
+  ban?: { club: number; nat: number };
   plan: WeekPlan;
   progress: Record<string, number>; // akumulasi latihan per atribut (naik 1 saat >= 1)
   inbox: Message[];

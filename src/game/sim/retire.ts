@@ -249,23 +249,23 @@ export function careerCsv(world: World, career: Career, p: Player, o: CsvOptions
   blank();
 
   row('RIWAYAT PER MUSIM');
-  row('Musim', 'Tim', 'Kompetisi', 'Main', 'Inti', 'Menit', 'Gol', 'Assist', 'Clean sheet', 'Rating rata-rata', 'Man of the Match');
+  row('Musim', 'Tim', 'Kompetisi', 'Main', 'Inti', 'Menit', 'Gol', 'Assist', 'Clean sheet', 'Rating rata-rata', 'Man of the Match', 'Kartu kuning', 'Kartu merah');
   const stats = [...career.stats].sort((a, b) => a.season.localeCompare(b.season));
   for (const s of stats) {
     if (!s.apps) continue;
-    row(s.season, s.team, s.comp, s.apps, s.starts, s.minutes, s.goals, s.assists, s.cleanSheets, num(s.ratingSum / s.apps), s.motm);
+    row(s.season, s.team, s.comp, s.apps, s.starts, s.minutes, s.goals, s.assists, s.cleanSheets, num(s.ratingSum / s.apps), s.motm, s.yellow ?? 0, s.red ?? 0);
   }
   blank();
 
   row('TOTAL KARIER');
-  row('Kompetisi', 'Main', 'Gol', 'Assist', 'Clean sheet', 'Rating rata-rata');
+  row('Kompetisi', 'Main', 'Gol', 'Assist', 'Clean sheet', 'Rating rata-rata', 'Kartu kuning', 'Kartu merah');
   const comps = [...new Set(career.stats.map((s) => s.comp))];
   for (const c of comps) {
     const list = career.stats.filter((s) => s.comp === c);
     const apps = list.reduce((a, s) => a + s.apps, 0);
     if (!apps) continue;
-    const g = (k: 'goals' | 'assists' | 'cleanSheets' | 'ratingSum') => list.reduce((a, s) => a + s[k], 0);
-    row(c, apps, g('goals'), g('assists'), g('cleanSheets'), num(g('ratingSum') / apps));
+    const g = (k: 'goals' | 'assists' | 'cleanSheets' | 'ratingSum' | 'yellow' | 'red') => list.reduce((a, s) => a + (s[k] ?? 0), 0);
+    row(c, apps, g('goals'), g('assists'), g('cleanSheets'), num(g('ratingSum') / apps), g('yellow'), g('red'));
   }
   row('Caps timnas senior', t.caps, 'Gol timnas', t.natGoals);
   blank();

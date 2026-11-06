@@ -104,6 +104,8 @@ export function CareerHome({ children }: { children: ReactNode }) {
             ) : (
               `${career.fitness} / 100 · ${fitLabel(career.fitness)}`
             )}
+            {(career.ban?.club ?? 0) > 0 && <span className="loss"> · Skorsing klub {career.ban!.club} laga</span>}
+            {(career.ban?.nat ?? 0) > 0 && <span className="loss"> · Skorsing timnas {career.ban!.nat} laga</span>}
           </span>
         </div>
         <div className="life-item">
@@ -546,6 +548,10 @@ function LastMatch({ m }: { m: MatchRecord }) {
               {m.goals > 0 && ` · ⚽ ${m.goals > 1 ? `×${m.goals}` : ''}`}
               {m.assists > 0 && ` · 🅰️ ${m.assists > 1 ? `×${m.assists}` : ''}`}
               {m.cleanSheet && ' · clean sheet'}
+              {m.card === 'Y' && ' · 🟨'}
+              {m.card === 'YR' && ' · 🟨🟥 diusir'}
+              {m.card === 'R' && ' · 🟥 diusir'}
+              {m.injured && ' · 🚑 cedera'}
             </span>
             {m.motm && <span className="pill ok">Man of the Match</span>}
             {reactions && (
@@ -563,7 +569,9 @@ function LastMatch({ m }: { m: MatchRecord }) {
           <span className="small muted">
             {m.status === 'Cedera'
               ? 'Kamu absen karena cedera.'
-              : m.status === 'Cadangan'
+              : m.status === 'Skorsing'
+                ? 'Kamu absen karena skorsing.'
+                : m.status === 'Cadangan'
                 ? 'Kamu duduk di bangku cadangan dan tidak dimainkan.'
                 : 'Kamu tidak masuk skuad pertandingan.'}
           </span>
@@ -633,6 +641,8 @@ function MatchPanel() {
                   <th>Gol</th>
                   <th>Ast</th>
                   {p.mainPosition === 'GK' || ['DC', 'DR', 'DL', 'WBR', 'WBL'].includes(p.mainPosition) ? <th>CS</th> : null}
+                  <th title="Kartu kuning">🟨</th>
+                  <th title="Kartu merah">🟥</th>
                   <th>Rating</th>
                 </tr>
               </thead>
@@ -653,12 +663,14 @@ function MatchPanel() {
                     {p.mainPosition === 'GK' || ['DC', 'DR', 'DL', 'WBR', 'WBL'].includes(p.mainPosition) ? (
                       <td className="num">{s.cleanSheets}</td>
                     ) : null}
+                    <td className="num">{s.yellow ?? 0}</td>
+                    <td className="num">{s.red ?? 0}</td>
                     <td className="num">{avg(s)}</td>
                   </tr>
                 ))}
                 {!rows.length && (
                   <tr>
-                    <td colSpan={6} className="left muted small">
+                    <td colSpan={8} className="left muted small">
                       Belum main musim ini.
                     </td>
                   </tr>
