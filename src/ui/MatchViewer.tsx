@@ -328,6 +328,8 @@ function Live({
     let last = performance.now();
     let acc = 0;
     let holdUntil = 0; // jeda turun minum / gol (waktu nyata)
+    // langkah simulasi tersisa sebelum layar berhenti sejenak setelah gol (jam laga berhenti saat selebrasi)
+    let goalHoldAt: number | null = null;
     let seenEvents = match.events.length;
     let half = match.half;
     let ended = false;
@@ -523,21 +525,28 @@ function Live({
             const goal = fresh.find((e) => e.kind === 'goal');
             if (goal) {
               setBanner(goal.og ? `GOL! (bunuh diri ${goal.name})` : `GOL! ${goal.name}`);
-              holdUntil = now + 1600;
-              acc = 0;
-              break;
+              // biarkan bola terlihat masuk ke jaring dulu, baru layar berhenti sejenak
+              goalHoldAt = 5;
             }
+          }
+          if (goalHoldAt !== null && --goalHoldAt <= 0) {
+            goalHoldAt = null;
+            holdUntil = now + 1400;
+            snapshot(); // gambar posisi sekarang (bola di dalam jaring), bukan posisi sebelum gol
+            acc = 0;
+            break;
           }
           if (match.half !== half) {
             half = match.half;
             setBanner('Turun minum');
             holdUntil = now + 1800;
+            snapshot();
             acc = 0;
             break;
           }
         }
       }
-      if (now >= holdUntil) setBanner((b) => (b ? null : b));
+      if (now >= holdUntil && goalHoldAt === null) setBanner((b) => (b ? null : b));
       drawPitch();
       drawPlayers(Math.min(1, acc / DT));
       setHud((h) => {
