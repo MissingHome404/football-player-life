@@ -17,6 +17,7 @@ import { pendingChoices, stressTarget } from '../game/sim/week';
 import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
 import { nextFixture, shortDate } from './LeagueSeason';
 import { nextCupTie } from '../game/sim/cup';
+import { nextContGame } from '../game/sim/continental';
 import { roundDate } from '../game/sim/season';
 import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
@@ -606,6 +607,8 @@ function MatchPanel() {
   const cupNext = club && !p.isYouth ? nextCupTie(world, club.id) : null;
   const cupOppId = cupNext?.tie ? (cupNext.tie.home === club!.id ? cupNext.tie.away : cupNext.tie.home) : undefined;
   const cupOpp = cupOppId ? idx.clubById.get(cupOppId) : undefined;
+  const contNext = club && !p.isYouth ? nextContGame(world, club.id) : null;
+  const contOpp = contNext ? idx.clubById.get(contNext.opp) : undefined;
   // jadwal U19/amatir ikut pekan liga
   const nextRoundDate = season
     ? (season.rounds.map((_, r) => roundDate(season, r)).find((d) => d > career.currentDate) ?? null)
@@ -645,6 +648,15 @@ function MatchPanel() {
           ) : (
             <span>langsung lolos ke babak berikutnya ({shortDate(cupNext.round.date)})</span>
           )}
+        </div>
+      )}
+      {contNext && contOpp && (
+        <div className="next-match small">
+          <span className="muted">{contNext.comp.name}: </span>
+          <span className="nm">
+            {shortDate(contNext.date)} · {contNext.stage} · {contNext.home || contNext.stage === 'Final' ? 'vs' : 'di kandang'} <Badge club={contOpp} size={16} />{' '}
+            <b>{contOpp.name}</b>
+          </span>
         </div>
       )}
       {(rows.length > 0 || career.stats.length > 0) && (

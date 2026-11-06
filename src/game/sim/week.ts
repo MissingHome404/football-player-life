@@ -16,6 +16,7 @@ import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
 import { injure } from './discipline';
 import { cupWeek } from './cup';
+import { continentalWeek } from './continental';
 import { nationalWeek } from './national';
 import { ledgerWeek, seasonAwards, tallyNational, worldAwardDay, worldAwards } from './awards';
 import { newBadges } from './badges';
@@ -261,13 +262,16 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   // Piala domestik (laga tengah pekan)
   const cup = cupWeek(w, career, player, career.currentDate, weekEnd, rng.fork('cup'), notes);
   w = cup.world;
+  // Kompetisi antarklub benua (Selasa/Kamis)
+  const cont = continentalWeek(w, career, player, career.currentDate, weekEnd, rng.fork('cont'), notes);
+  w = cont.world;
   // Timnas: panggilan, kualifikasi, turnamen
   const intl = nationalWeek(w, career, player, career.currentDate, weekEnd, notes);
   w = intl.world;
   // Statistik musim semua pemain & rekor dunia game
   w = ledgerWeek(w, week, career, player, weekEnd, played?.engine);
   w = tallyNational(w, intl.played, career, player, weekEnd);
-  const games = [...(played ? [played] : []), ...cup.games, ...intl.games];
+  const games = [...(played ? [played] : []), ...cup.games, ...cont.games, ...intl.games];
   const watchable = games.filter((g) => g.sim).sort((a, b) => b.rec.date.localeCompare(a.rec.date))[0];
   const sim = watchable?.sim;
   if (watchable && sim) career.lastSim = { date: watchable.rec.date, input: sim, v: ENGINE_VERSION };
@@ -275,7 +279,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     career.matches.unshift(m);
     if (m.minutes > 0) {
       career.fitness = clamp(Math.round(career.fitness - m.minutes / 9), 0, 100);
-      if (m.comp === 'Timnas' && (m.rating ?? 0) >= 7.3 && rng.chance(0.5)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
+      const intlRep = m.comp === 'Timnas' ? 0.5 : m.comp === 'Kontinental' ? 0.3 : 0;
+      if (intlRep > 0 && (m.rating ?? 0) >= 7.3 && rng.chance(intlRep)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
     }
   }
   career.matches.sort((a, b) => b.date.localeCompare(a.date));
@@ -283,7 +288,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   if (match) {
     if (match.minutes > 0) {
       const good = (match.rating ?? 0) >= 7.5;
-      const repChance = { Liga: 0.5, Piala: 0.4, U19: 0.2, Amatir: 0.1, Timnas: 0.6, 'Timnas U20': 0.25 }[match.comp];
+      const repChance = { Liga: 0.5, Piala: 0.4, Kontinental: 0.6, U19: 0.2, Amatir: 0.1, Timnas: 0.6, 'Timnas U20': 0.25 }[match.comp];
       if (good && rng.chance(repChance)) player.reputation.home = clamp(player.reputation.home + 1, 1, 100);
       if (match.motm && match.comp === 'Liga') player.reputation.home = clamp(player.reputation.home + 1, 1, 100);
       if (good && match.comp === 'Liga' && club) {

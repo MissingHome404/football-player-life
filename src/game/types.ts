@@ -134,6 +134,12 @@ export interface World {
   cups?: Record<string, Cup>;
   /** juara piala domestik tiap musim */
   cupHonours?: CupHonour[];
+  /** klasemen akhir musim terakhir yang selesai per liga (urutan id klub), untuk jatah kompetisi benua */
+  finalTables?: Record<string, { season: string; order: string[] }>;
+  /** kompetisi antarklub benua edisi berjalan, per id kompetisi */
+  continental?: Record<string, ContComp>;
+  /** juara kompetisi antarklub benua */
+  contHonours?: CupHonour[];
   /** statistik musim berjalan semua pemain per liga (untuk penghargaan & rekor) */
   ledger?: Record<string, SeasonLedger>;
   records?: WorldRecords;
@@ -273,6 +279,38 @@ export interface Cup {
   winner?: string;
   runnerUp?: string;
 }
+/** Satu grup kompetisi benua: 4 klub, 6 matchday (kandang-tandang) */
+export interface ContGroup {
+  name: string;
+  clubs: string[];
+  /** per matchday: laga [kandang, tandang] dengan skor */
+  fixtures: CupTie[][];
+}
+/** Laga gugur: dua leg (leg 1 di kandang `home`), final satu laga. Skor tiap leg [home, away]. */
+export interface ContTie {
+  home: string;
+  away: string;
+  legs: ([number, number] | null)[];
+  pens?: [number, number];
+}
+export interface ContRound {
+  name: string;
+  dates: string[];
+  ties: ContTie[];
+}
+/** Satu edisi kompetisi antarklub benua */
+export interface ContComp {
+  id: string;
+  comp: string;
+  name: string;
+  season: string;
+  year: number;
+  groupDates: string[];
+  groups: ContGroup[];
+  ko: ContRound[];
+  winner?: string;
+  runnerUp?: string;
+}
 export interface CupHonour {
   leagueId: string;
   name: string;
@@ -288,7 +326,7 @@ export interface Honour {
   runnerUpId: string;
 }
 
-export type Competition = 'Liga' | 'Piala' | 'U19' | 'Amatir' | 'Timnas' | 'Timnas U20';
+export type Competition = 'Liga' | 'Piala' | 'Kontinental' | 'U19' | 'Amatir' | 'Timnas' | 'Timnas U20';
 export type MatchStatus = 'Inti' | 'Cadangan' | 'Tidak masuk skuad' | 'Cedera' | 'Skorsing';
 
 /** Satu pertandingan pemain kita */

@@ -5,6 +5,7 @@ import { ROLES } from '../game/data/roles';
 import { SaveControls } from './SavePanel';
 import { CareerHome } from './CareerHome';
 import { LifeView } from './LifeView';
+import { ContinentalView } from './ContinentalView';
 import { ClubFixtures, CupPanel, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { marketValue } from '../game/sim/transfer';
@@ -67,6 +68,18 @@ export function WorldBrowser() {
     </button>
   );
 
+  const contLink = (confed: 'UEFA' | 'AFC') => (
+    <button
+      className={`side-item cont ${view.kind === 'continent' && view.confed === confed ? 'sel' : ''}`}
+      onClick={() => {
+        go({ kind: 'continent', confed });
+        setMenuOpen(false);
+      }}
+    >
+      🏆 Kompetisi {confed === 'UEFA' ? 'Eropa' : 'Asia'}
+    </button>
+  );
+
   return (
     <div className="app">
       <header className="topbar">
@@ -115,8 +128,10 @@ export function WorldBrowser() {
             </button>
           )}
           <div className="side-title">Eropa</div>
+          {contLink('UEFA')}
           {europe.map(leagueLink)}
           <div className="side-title">Asia</div>
+          {contLink('AFC')}
           {asia.map(leagueLink)}
         </nav>
         <main className="main">
@@ -125,6 +140,7 @@ export function WorldBrowser() {
           {view.kind === 'player' && <PlayerView key={view.playerId} playerId={view.playerId} />}
           {view.kind === 'me' && career && <MyCareerView />}
           {view.kind === 'life' && career && <LifeView />}
+          {view.kind === 'continent' && <ContinentalView key={view.confed} confed={view.confed} />}
         </main>
       </div>
     </div>

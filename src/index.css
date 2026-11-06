@@ -265,6 +265,18 @@ input { font: inherit; }
 .fx-team.strong .fx-name { font-weight: 700; }
 .cup-earlier { margin-top: 10px; }
 .cup-earlier summary { cursor: pointer; color: var(--muted); }
+.ct-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px 18px; margin-top: 8px; }
+.ct-group { min-width: 0; }
+.ct-group h3 { margin: 4px 0; }
+.ct-group .tbl { width: 100%; table-layout: fixed; }
+.ct-group th:nth-child(1) { width: 24px; }
+.ct-group th:nth-child(2) { width: 28px; }
+.ct-group th:nth-child(n + 4) { width: 42px; }
+.ct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl tr.ct-through td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.ct-honours { list-style: none; margin: 0; padding: 0; }
+.ct-honours li { padding: 4px 0; border-bottom: 1px solid #252938; }
+.side-item.cont { font-weight: 600; }
 .cf-list { list-style: none; margin: 0; padding: 0; }
 .cf-row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-bottom: 1px solid #252938; font-size: 13px; }
 .cf-row .badge { margin: 0; }

@@ -498,10 +498,12 @@ export function rolloverLeagues(world: World, leagueIds: string[], date: string,
   // Juara dan musim berikutnya
   const honours: Honour[] = [];
   const seasons = { ...world.seasons };
+  const finalTables = { ...(world.finalTables ?? {}) };
   for (const id of leagueIds) {
     const s = world.seasons[id];
     const table = standings(s);
     honours.push({ leagueId: id, season: s.label, championId: table[0].clubId, runnerUpId: table[1].clubId });
+    finalTables[id] = { season: s.label, order: table.map((r) => r.clubId) };
     const league = world.leagues.find((l) => l.id === id)!;
     const clubIds = world.clubs.filter((c) => c.leagueId === id).map((c) => c.id);
     let next = newSeason(league, clubIds, s.year + 1, rng.fork(`${id}:${s.year + 1}`));
@@ -515,6 +517,7 @@ export function rolloverLeagues(world: World, leagueIds: string[], date: string,
       players: kept.filter((p) => !removed.has(p.id)),
       seasons,
       honours: [...world.honours, ...honours],
+      finalTables,
     },
     honours,
   };

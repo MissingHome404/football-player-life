@@ -1,7 +1,7 @@
 // Kartu, skorsing, dan cedera pemain kita setelah pertandingan.
 // Skorsing klub (liga, U19, amatir) dan skorsing timnas dihitung terpisah.
 
-import type { Career, MatchRecord, SeasonStat } from '../types';
+import type { Career, Competition, MatchRecord, SeasonStat } from '../types';
 import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 
@@ -17,6 +17,8 @@ export const INJURIES: [name: string, min: number, max: number, weight: number][
 
 /** Kartu kuning yang terkumpul di satu musim liga sebelum skorsing 1 laga */
 export const YELLOW_LIMIT = 5;
+/** Kompetisi liga: hanya kartu kuning di sini yang dihitung untuk akumulasi */
+const LEAGUE_COMPS = new Set<Competition>(['Liga', 'U19', 'Amatir']);
 
 export function injure(career: Career, rng: Rng, where: 'latihan' | 'pertandingan', notes?: string[]) {
   const [name, min, max] = rng.weighted(INJURIES.map((x) => [x, x[3]] as const));
@@ -75,7 +77,7 @@ export function afterGame(career: Career, rec: MatchRecord, rng: Rng, scope: Ban
     } else if (rec.card === 'YR') {
       games = 1;
       why = 'dua kartu kuning';
-    } else if (scope === 'club' && rec.comp !== 'Piala' && row && (row.yellow ?? 0) % YELLOW_LIMIT === 0) {
+    } else if (scope === 'club' && LEAGUE_COMPS.has(rec.comp) && row && (row.yellow ?? 0) % YELLOW_LIMIT === 0) {
       games = 1;
       why = `akumulasi ${row.yellow} kartu kuning musim ini`;
     }

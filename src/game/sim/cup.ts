@@ -2,7 +2,7 @@
 // Laga tengah pekan (Rabu), final hari Minggu di tempat netral, adu penalti kalau imbang.
 // Undian tiap babak dilakukan setelah babak sebelumnya selesai.
 
-import type { Career, Cup, CupHonour, CupRound, CupTie, League, LeagueSeason, MatchRecord, MatchStatus, Player, World } from '../types';
+import type { Career, Competition, Cup, CupHonour, CupRound, CupTie, League, LeagueSeason, MatchRecord, MatchStatus, Player, World } from '../types';
 import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { COUNTRY_BY_ID } from '../data/countries';
@@ -62,7 +62,7 @@ export const tieWinner = (t: CupTie): string | undefined => {
 };
 
 /** Adu penalti: tim yang lebih kuat sedikit diunggulkan */
-function shootout(rng: Rng, edge: number): [number, number] {
+export function shootout(rng: Rng, edge: number): [number, number] {
   const homeWins = rng.chance(0.5 + clamp(edge / 200, -0.15, 0.15));
   const lose = rng.int(2, 4);
   const win = Math.min(5, lose + rng.int(1, 2));
@@ -177,7 +177,81 @@ export function cupWeek(
   return { world: { ...world, cups, cupHonours: honours }, games };
 }
 
-/** Laga piala klubmu: skuad dipilih pelatih (rotasi di babak awal), dimainkan match engine */
+/**
+ * Laga klubmu di luar liga (piala, kompetisi benua): skuad dipilih pelatih, dimainkan match engine
+ * kalau kamu masuk skuad. Skor dari sudut pandang klubmu. Setelah adu penalti (kalau ada), panggil
+ * recordClubGame untuk mencatat statistik, kartu, dan cedera.
+ */
+export function playClubGame(o: {
+  world: World;
+  career: Career;
+  p: Player;
+  oppId: string;
+  home: boolean;
+  neutral: boolean;
+  date: string;
+  comp: Competition;
+  season: string;
+  stage: string;
+  /** skor simulasi cepat (sudut pandang klubmu), dipakai kalau kamu tidak bermain */
+  quick: [number, number];
+  /** bonus peluang dipilih (rotasi pelatih) */
+  bonus: number;
+  rng: Rng;
+  tag: string;
+}): CupGame {
+  const { world, career, p, rng } = o;
+  const clubId = p.contract!.clubId;
+  const club = world.clubs.find((c) => c.id === clubId)!;
+  const opp = world.clubs.find((c) => c.id === o.oppId)!;
+  const seniors = squadOf(world, clubId).filter((q) => !q.isUser && !q.isYouth);
+  const theirs = squadOf(world, o.oppId).filter((q) => !q.isUser && !q.isYouth);
+  const status: MatchStatus = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, seniors, career, o.bonus);
+  let score = o.quick;
+  let perf: Partial<MatchRecord> = {};
+  let sim: EngineInput | undefined;
+  if ((status === 'Inti' || status === 'Cadangan') && seniors.length >= 11 && theirs.length >= 11) {
+    const g = engineGame({
+      p,
+      career,
+      status,
+      rng,
+      ours: { id: club.id, name: club.name, colors: club.colors, squad: seniors, style: club.playingStyle },
+      theirs: { id: opp.id, name: opp.name, colors: opp.colors, squad: theirs, style: opp.playingStyle },
+      home: o.home,
+      neutral: o.neutral,
+      seed: `${career.characterSeed}:${o.date}:${club.id}:${o.tag}`,
+      feats: true,
+    });
+    score = g.score;
+    perf = { ...g.perf, ...g.extra };
+    sim = g.sim;
+  }
+  const rec: MatchRecord = {
+    date: o.date,
+    comp: o.comp,
+    season: o.season,
+    team: club.name,
+    opponent: opp.name,
+    opponentId: opp.id,
+    home: o.home,
+    score,
+    status,
+    stage: o.stage,
+    minutes: 0,
+    goals: 0,
+    assists: 0,
+    ...perf,
+  };
+  return { rec, sim };
+}
+
+/** Catat laga klubmu ke statistik musim, lalu kartu dan cedera */
+export function recordClubGame(career: Career, rec: MatchRecord, clubId: string, rng: Rng, notes?: string[]) {
+  afterGame(career, rec, rng, 'club', addStats(career, rec, clubId), notes);
+}
+
+/** Laga piala klubmu (rotasi pelatih di babak awal) */
 function userTie(
   world: World,
   career: Career,
@@ -190,61 +264,35 @@ function userTie(
   edge: number,
   rng: Rng,
   notes?: string[],
-): CupGame | null {
+): CupGame {
   const clubId = p.contract!.clubId;
-  const club = world.clubs.find((c) => c.id === clubId)!;
   const home = tie.home === clubId;
-  const oppId = home ? tie.away : tie.home;
-  const opp = world.clubs.find((c) => c.id === oppId)!;
-  const seniors = squadOf(world, clubId).filter((q) => !q.isUser && !q.isYouth);
-  const theirs = squadOf(world, oppId).filter((q) => !q.isUser && !q.isYouth);
-  // pelatih merotasi skuad di babak awal: pemain pelapis lebih sering dapat kesempatan
   const early = cup.rounds.indexOf(round) < cup.rounds.length - 2;
-  const status: MatchStatus = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, seniors, career, early ? 5 : 0);
-  let score: [number, number] = home ? tie.score! : [tie.score![1], tie.score![0]];
-  let perf: Partial<MatchRecord> = { minutes: 0, goals: 0, assists: 0 };
-  let sim: EngineInput | undefined;
-  if ((status === 'Inti' || status === 'Cadangan') && seniors.length >= 11 && theirs.length >= 11) {
-    const g = engineGame({
-      p,
-      career,
-      status,
-      rng,
-      ours: { id: club.id, name: club.name, colors: club.colors, squad: seniors, style: club.playingStyle },
-      theirs: { id: opp.id, name: opp.name, colors: opp.colors, squad: theirs, style: opp.playingStyle },
-      home,
-      neutral: final,
-      seed: `${career.characterSeed}:${round.date}:${club.id}:cup`,
-      feats: true,
-    });
-    score = g.score;
-    perf = { ...g.perf, ...g.extra };
-    sim = g.sim;
-    tie.score = home ? score : [score[1], score[0]];
-  }
-  const rec: MatchRecord = {
+  const g = playClubGame({
+    world,
+    career,
+    p,
+    oppId: home ? tie.away : tie.home,
+    home,
+    neutral: final,
     date: round.date,
     comp: 'Piala',
     season: cup.season,
-    team: club.name,
-    opponent: opp.name,
-    opponentId: opp.id,
-    home,
-    score,
-    status,
     stage: `${cup.name} · ${round.name}`,
-    minutes: 0,
-    goals: 0,
-    assists: 0,
-    ...perf,
-  };
+    quick: home ? tie.score! : [tie.score![1], tie.score![0]],
+    bonus: early ? 5 : 0,
+    rng,
+    tag: 'cup',
+  });
+  const score = g.rec.score;
+  tie.score = home ? score : [score[1], score[0]];
   if (score[0] === score[1]) {
     const pens = shootout(rng, edge);
     tie.pens = pens;
-    rec.pens = home ? pens : [pens[1], pens[0]];
+    g.rec.pens = home ? pens : [pens[1], pens[0]];
   }
-  afterGame(career, rec, rng, 'club', addStats(career, rec, clubId), notes);
-  return { rec, sim };
+  recordClubGame(career, g.rec, clubId, rng, notes);
+  return g;
 }
 
 /** Final piala selesai: trofi kalau klubmu juara dan kamu ikut bermain di piala ini */

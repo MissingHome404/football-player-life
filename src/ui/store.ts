@@ -28,7 +28,8 @@ export type View =
   | { kind: 'club'; clubId: string }
   | { kind: 'player'; playerId: string }
   | { kind: 'me' }
-  | { kind: 'life' };
+  | { kind: 'life' }
+  | { kind: 'continent'; confed: 'UEFA' | 'AFC' };
 
 interface Indexes {
   clubById: Map<string, Club>;

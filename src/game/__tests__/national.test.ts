@@ -49,6 +49,8 @@ describe('timnas & turnamen', () => {
   it('karier: dipanggil di jeda internasional, caps = statistik timnas', () => {
     const roll = rollCharacter(w0, { countryId: 'IDN', position: 'ST' }, 'NAT-IDN');
     roll.player.ca = Math.max(roll.player.ca, 140);
+    // tanpa cedera panjang supaya hasilnya tidak bergantung pada nasib di jeda internasional
+    roll.player.hidden['Injury Proneness'] = 1;
     let world: World = { ...w0, players: [...w0.players, roll.player] };
     let career: Career = newCareer(roll, 0, 'test', w0.startDate);
     career.rel = initRelations(world, career, roll.player);
