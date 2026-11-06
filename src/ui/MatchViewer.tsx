@@ -342,7 +342,8 @@ function Live({
     function layout() {
       const w = wrap.clientWidth;
       const vertical = w < 560;
-      const maxH = Math.max(260, window.innerHeight * (vertical ? 0.58 : 0.62));
+      // lapangan dibuat sebesar mungkin supaya jarak antarpemain terasa seperti lapangan 105×68 m sungguhan
+      const maxH = Math.max(300, window.innerHeight * (vertical ? 0.72 : 0.8));
       const pad = 6;
       const long = PITCH_W + 2 * EDGE; // ruang untuk gawang & bola yang keluar lapangan
       const short = PITCH_H + 2 * EDGE;
@@ -453,8 +454,9 @@ function Live({
 
     function drawPlayers(alpha: number) {
       const { s } = geo;
-      const r = Math.max(7, s * 1.15);
-      ctx.font = `700 ${Math.round(r * 1.05)}px 'Barlow Condensed', system-ui, sans-serif`;
+      // titik pemain kira-kira selebar 1,6 m: cukup untuk nomor punggung tanpa membuat lapangan terlihat sempit
+      const r = Math.max(5.5, s * 0.8);
+      ctx.font = `700 ${Math.max(8, Math.round(r * 1.15))}px 'Barlow Condensed', system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       let user: [number, number, string] | null = null;
@@ -731,6 +733,9 @@ function Summary({
                 {st.assists > 0 && ` · 🅰️ ${st.assists}`}
                 {` · umpan ${st.passesOk}/${st.passes}`}
                 {st.shots > 0 && ` · tembakan ${st.onTarget}/${st.shots} tepat sasaran`}
+                {st.keyPasses > 0 && ` · umpan kunci ${st.keyPasses}`}
+                {st.throughBalls > 0 && ` · umpan terobosan ${st.throughBalls}`}
+                {st.dribbles > 0 && ` · melewati lawan ${st.dribbles}×`}
                 {st.tackles > 0 && ` · tekel ${st.tackles}`}
                 {st.saves > 0 && ` · penyelamatan ${st.saves}`}
                 {st.red > 0 ? ' · 🟥 kartu merah' : st.yellow > 0 ? ' · 🟨 kartu kuning' : ''}

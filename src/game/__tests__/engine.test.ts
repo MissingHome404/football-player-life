@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { BAR, ENGINE_VERSION, FULL, GOAL_HALF, Match, PITCH_W, pickXI, playEngine, type EngineInput, type ETeam } from '../sim/engine';
+import { BAR, DT, ENGINE_VERSION, FULL, GOAL_HALF, Match, PITCH_W, pickXI, playEngine, sprintStep, startAccel, topSpeed, type EAttrs, type EngineInput, type ETeam } from '../sim/engine';
 import { rollCharacter } from '../gen/character';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../sim/week';
 import { initRelations } from '../sim/relations';
@@ -131,6 +131,79 @@ describe('match engine', () => {
     expect(neutral.events).not.toEqual(a.events);
     expect(playEngine({ ...base, neutral: true })).toEqual(neutral);
   });
+
+  it('versi 5: acceleration unggul di awal lari, pace menyusul di lari panjang', () => {
+    const race = (acc: number, pace: number) => {
+      const a = startAccel(acc, 10);
+      const vmax = topSpeed(pace);
+      const at: Record<number, number> = {};
+      let v = 0;
+      let x = 0;
+      for (let t = DT; t < 10; t += DT) {
+        v = sprintStep(v, a, vmax);
+        x += v * DT;
+        for (const d of [10, 50]) if (x >= d && at[d] === undefined) at[d] = t;
+      }
+      return at;
+    };
+    const quick = race(20, 10);
+    const fast = race(10, 20);
+    expect(quick[10]).toBeLessThan(fast[10]);
+    expect(fast[50]).toBeLessThan(quick[50]);
+  });
+
+  it('versi 5: atribut menentukan gaya main (dribel winger, umpan terobosan gelandang)', () => {
+    const tweak = (t: ETeam, slots: string[], keys: (keyof EAttrs)[], v: number): ETeam => ({
+      ...t,
+      xi: t.xi.map((p) => (slots.includes(p.slot) ? { ...p, a: { ...p.a, ...Object.fromEntries(keys.map((k) => [k, v])) } } : p)),
+    });
+    const wingers = ['LW', 'RW'];
+    const mids = ['LCM', 'CM', 'RCM'];
+    const flair: (keyof EAttrs)[] = ['dri', 'fla', 'bra', 'tec'];
+    const vision: (keyof EAttrs)[] = ['vis', 'pas', 'dec'];
+    const count = (v: number) => {
+      let takeOns = 0;
+      let through = 0;
+      for (let i = 0; i < 8; i++) {
+        let home = tweak(team(eng[i % 10].id), wingers, flair, v);
+        home = tweak(home, mids, vision, v);
+        const m = new Match({ seed: `v5-${i}`, home, away: team(eng[10 + (i % 10)].id) });
+        m.run();
+        for (const b of m.bodies) {
+          if (b.side !== 0) continue;
+          if (wingers.includes(b.p.slot)) takeOns += b.st.takeOns;
+          if (mids.includes(b.p.slot)) through += b.st.throughBalls;
+        }
+      }
+      return { takeOns, through };
+    };
+    const hi = count(18);
+    const lo = count(6);
+    expect(hi.takeOns).toBeGreaterThan(lo.takeOns * 3 + 4);
+    expect(hi.through).toBeGreaterThan(lo.through * 3 + 4);
+  }, 30_000);
+
+  it('versi 5: kiper dengan Positioning tinggi lebih sering berada di posisi idealnya', () => {
+    // median jarak kiper dari titik idealnya saat lawan menguasai bola di dekat gawang
+    const off = (v: number) => {
+      const ds: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        const home = team(eng[i].id);
+        home.xi = home.xi.map((p) => (p.slot === 'GK' ? { ...p, a: { ...p.a, pos: v, con: v, ant: v } } : p));
+        const m = new Match({ seed: `gk-${i}`, home, away: team(eng[10 + i].id) });
+        const gk = m.bodies.find((b) => b.side === 0 && b.p.slot === 'GK')!;
+        while (!m.done) {
+          m.step();
+          if (m.poss !== 1 || !m.owner || Math.hypot(m.fx(0, m.ball.x), m.fy(0, m.ball.y) - 34) > 38) continue;
+          const [ix, iy] = m.gkSpot(gk, 0);
+          ds.push(Math.hypot(m.fx(0, gk.x) - ix, m.fy(0, gk.y) - iy));
+        }
+      }
+      ds.sort((a, b) => a - b);
+      return ds[Math.floor(ds.length / 2)];
+    };
+    expect(off(20)).toBeLessThan(off(4) * 0.6);
+  }, 30_000);
 
   it('pemain cadangan masuk di menit yang ditentukan', () => {
     const home = team(eng[2].id);

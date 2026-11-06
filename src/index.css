@@ -386,7 +386,7 @@ input { font: inherit; }
 
 /* layar pertandingan 2D */
 .mv { position: fixed; inset: 0; z-index: 60; background: var(--bg); overflow-y: auto; padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); }
-.mv-inner { max-width: 1040px; margin: 0 auto; position: relative; }
+.mv-inner { max-width: 1200px; margin: 0 auto; position: relative; }
 .mv-close { position: absolute; top: 0; right: 0; z-index: 2; background: var(--panel); }
 .mv-lineup h2 { margin: 4px 44px 6px 0; }
 .mv-coach { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--star); border-radius: 8px; padding: 10px 12px; margin: 0 0 14px; }
