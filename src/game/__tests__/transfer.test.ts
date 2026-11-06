@@ -80,6 +80,32 @@ describe('transfer dan kontrak', () => {
     expect(world.players.find((x) => x.id === p.id)!.contract!.clubId).not.toBe(o.clubId);
   });
 
+  it('janji peran inti: laga saat cedera atau diskors tidak dihitung sebagai janji dilanggar', () => {
+    const { world, career, p } = setup();
+    const club = world.clubs.find((c) => c.id === p.contract!.clubId)!;
+    career.joined = '2020-01-01';
+    const game = (i: number, status: 'Cedera' | 'Tidak masuk skuad') => ({
+      date: addDays(career.currentDate, -7 * (i + 1)),
+      comp: 'Liga' as const,
+      season: '2026/27',
+      team: club.name,
+      opponent: 'Lawan',
+      home: true,
+      score: [0, 0] as [number, number],
+      status,
+      minutes: 0,
+      goals: 0,
+      assists: 0,
+    });
+    career.matches = Array.from({ length: 10 }, (_, i) => game(i, 'Cedera'));
+    contractWeek(world, career, p, new Rng('promise'));
+    expect(career.inbox.some((m) => m.eventId === 'promise_broken')).toBe(false);
+    // benar-benar tidak dimainkan padahal fit: pesan muncul
+    career.matches = Array.from({ length: 10 }, (_, i) => game(i, 'Tidak masuk skuad'));
+    contractWeek(world, career, p, new Rng('promise'));
+    expect(career.inbox.some((m) => m.eventId === 'promise_broken')).toBe(true);
+  });
+
   it('pinjaman selesai: kembali ke klub asal', () => {
     const { world, career, p } = setup();
     const parent = p.contract!;

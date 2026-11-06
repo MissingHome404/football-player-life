@@ -523,13 +523,14 @@ function Live({
       });
       let user: [number, number, string] | null = null;
       for (const b of match.bodies) {
-        if (!b.on) continue;
+        // pemain yang diganti masih digambar saat berjalan keluar lapangan
+        if (!b.on && !b.leaving) continue;
         const p0 = prev.get(b) ?? b;
         const [x, y] = P(p0.x + (b.x - p0.x) * alpha, p0.y + (b.y - p0.y) * alpha);
         const fill = b.p.slot === 'GK' ? keepers[b.side] : colors[b.side];
         // pemain cedera terkapar: digambar pudar dengan tanda palang merah
         const hurt = b.hurt >= 0;
-        ctx.globalAlpha = hurt ? 0.55 : 1;
+        ctx.globalAlpha = hurt ? 0.55 : b.leaving ? 0.7 : 1;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = fill;

@@ -426,7 +426,8 @@ describe('match engine versi 10', () => {
       let n = 0;
       while (!m.done) {
         m.step();
-        if (m.restart || m.dead || (m.poss === side) !== inPoss) continue;
+        // selebrasi gol (jeda) tidak dihitung
+        if (m.restart || m.dead || m.pause > 0 || (m.poss === side) !== inPoss) continue;
         const b = m.bodies.find((x) => x.on && x.side === side && x.p.slot === slot);
         if (!b) continue;
         sum += m.fx(side, b.x);

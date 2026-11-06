@@ -146,7 +146,8 @@ export function stressTarget(career: Career, player: Player, clubCountry?: strin
   if (career.money < 0) parts.push(['Uang minus', 20]);
   // menit bermain dan performa 6 minggu terakhir
   const since = addDays(career.currentDate, -42);
-  const recent = career.matches.filter((m) => m.date >= since && m.comp !== 'Amatir');
+  // laga saat cedera/diskors tidak dihitung sebagai "jarang dimainkan"
+  const recent = career.matches.filter((m) => m.date >= since && m.comp !== 'Amatir' && m.status !== 'Cedera' && m.status !== 'Skorsing');
   if (player.contract && recent.length >= 3) {
     const starts = recent.filter((m) => m.status === 'Inti').length;
     if (starts === 0) parts.push(['Jarang dimainkan', 12]);

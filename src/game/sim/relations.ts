@@ -338,7 +338,7 @@ function interviewKind(c: EventCtx): Kind | null {
   if (!m || c.age < 17) return null;
   if (m.minutes > 0 && (m.goals > 0 || m.motm || (m.rating ?? 0) >= 7.6)) return 'good';
   if (m.minutes > 0 && (m.rating ?? 7) <= 5.7) return 'bad';
-  const benched = c.career.matches.slice(0, 3).filter((x) => x.comp === 'Liga' && x.minutes === 0 && x.status !== 'Cedera');
+  const benched = c.career.matches.slice(0, 3).filter((x) => x.comp === 'Liga' && x.minutes === 0 && x.status !== 'Cedera' && x.status !== 'Skorsing');
   if (benched.length === 3) return 'bench';
   return null;
 }

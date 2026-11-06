@@ -150,7 +150,7 @@ function add(rk: RoleK, d: Partial<RoleK>): RoleK {
 export function playStyle(role: string | undefined, duty: Duty | undefined, traitK: Partial<RoleK>[] = [], fam = 1): RoleK {
   let rk = rolePlay(role);
   if (duty) rk = add(rk, DUTY_K[duty]);
-  const s = 0.45 + 0.55 * Math.max(0, Math.min(1, fam));
+  const s = 0.6 + 0.4 * Math.max(0, Math.min(1, fam));
   if (s < 1) {
     const scaled = { ...N };
     for (const key of Object.keys(N) as (keyof RoleK)[]) {

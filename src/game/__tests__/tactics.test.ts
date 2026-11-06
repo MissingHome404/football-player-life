@@ -154,3 +154,95 @@ describe('pemahaman taktik', () => {
     expect(intensityDrain(0.9, weak)).toBeGreaterThan(intensityDrain(0.9, fit));
   });
 });
+
+describe('match engine versi 12', () => {
+  type View = {
+    restart: { kind: string; side: 0 | 1; runup?: number } | null;
+    pause: number;
+    t: number;
+    entering: number;
+    shot: { diveY?: number } | null;
+  };
+
+  it('pergantian hanya saat bola mati; jam berhenti sampai pemain pengganti di posisinya', { timeout: 60_000 }, () => {
+    let subs = 0;
+    for (let i = 0; i < 3; i++) {
+      const home = side(eng[6 + i].id, clubTactic(eng[6 + i]));
+      const m = new Match({ seed: `subs-${i}`, home, away: side(eng[12 + i].id, clubTactic(eng[12 + i])) });
+      const v = m as unknown as View;
+      let seen = 0;
+      while (!m.done) {
+        const t0 = v.t;
+        const walking = v.entering > 0 && !!v.restart;
+        m.step();
+        const ev = m.result().events.filter((e) => e.kind === 'sub');
+        if (ev.length > seen) {
+          seen = ev.length;
+          subs++;
+          // pergantian dilakukan saat bola mati
+          expect(v.restart).not.toBeNull();
+        }
+        if (walking) expect(v.t).toBe(t0);
+      }
+    }
+    expect(subs).toBeGreaterThan(6);
+  });
+
+  it('selebrasi: pencetak gol lari ke bendera sudut, kiper merayakan di dekat gawangnya', { timeout: 60_000 }, () => {
+    let checked = 0;
+    for (let i = 0; i < 6 && checked < 3; i++) {
+      const m = new Match({ seed: `celeb-${i}`, home: side(eng[i].id), away: side(eng[10 + i].id) });
+      const v = m as unknown as View & { celeb: { side: 0 | 1; scorer: { x: number; y: number; side: 0 | 1 } | null } | null };
+      while (!m.done) {
+        m.step();
+        if (v.pause > 0 && v.pause < 2.6 && v.pause > 2.4 && v.celeb?.scorer) {
+          const sc = v.celeb.scorer;
+          const fx = m.fx(sc.side, sc.x);
+          const fy = m.fy(sc.side, sc.y);
+          expect(fx).toBeGreaterThan(90);
+          expect(Math.min(fy, 68 - fy)).toBeLessThan(14);
+          const gk = m.bodies.find((b) => b.on && b.side === v.celeb!.side && b.p.slot === 'GK')!;
+          expect(m.fx(gk.side, gk.x)).toBeLessThan(8);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('penalti: penendang mengambil ancang-ancang, kiper sudah memilih arah saat bola ditendang', { timeout: 60_000 }, () => {
+    let pens = 0;
+    for (let i = 0; i < 20 && pens < 2; i++) {
+      const m = new Match({ seed: `probe-${i}`, home: side(eng[0].id, clubTactic(eng[0])), away: side(eng[1].id, clubTactic(eng[1])) });
+      const v = m as unknown as View;
+      let run = -1;
+      while (!m.done) {
+        const r = v.restart;
+        m.step();
+        if (r?.kind === 'penalty' && r.runup !== undefined) run = Math.max(run, r.runup);
+        if (r?.kind === 'penalty' && !v.restart) {
+          pens++;
+          // berlari dari ancang-ancang beberapa langkah, bukan langsung menendang
+          expect(run).toBeGreaterThan(0.3);
+          expect(v.shot?.diveY).toBeDefined();
+          run = -1;
+        }
+      }
+    }
+    expect(pens).toBeGreaterThan(0);
+  });
+
+  it('striker tidak turun ke kotak sendiri saat tendangan gawang timnya', { timeout: 60_000 }, () => {
+    const m = new Match({ seed: 'gk-st', home: side(eng[2].id, clubTactic(eng[2])), away: side(eng[3].id, clubTactic(eng[3])) });
+    const v = m as unknown as View;
+    const xs: number[] = [];
+    while (!m.done) {
+      m.step();
+      const r = v.restart;
+      if (r?.kind !== 'goalkick') continue;
+      for (const b of m.bodies) if (b.on && b.side === r.side && (b.p.slot === 'ST' || b.p.slot === 'LS' || b.p.slot === 'RS')) xs.push(m.fx(b.side, b.x));
+    }
+    expect(xs.length).toBeGreaterThan(10);
+    expect(xs.reduce((s, x) => s + x, 0) / xs.length).toBeGreaterThan(38);
+  });
+});

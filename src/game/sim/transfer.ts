@@ -328,7 +328,9 @@ export function contractWeek(world: World, career: Career, p: Player, rng: Rng) 
 
   // Manajer menyarankan pinjaman kalau pemain muda jarang dimainkan
   const since = addDays(date, -56);
-  const recentLeague = career.matches.filter((m) => m.comp === 'Liga' && m.date >= since);
+  // laga saat kamu cedera atau diskors tidak dihitung: pelatih memang tidak bisa memainkanmu
+  const available = (m: { status: string }) => m.status !== 'Cedera' && m.status !== 'Skorsing';
+  const recentLeague = career.matches.filter((m) => m.comp === 'Liga' && m.date >= since && available(m));
   if (
     club &&
     !p.isYouth &&
@@ -345,8 +347,8 @@ export function contractWeek(world: World, career: Career, p: Player, rng: Rng) 
   }
 
   // Janji menit bermain dilanggar
-  if (club && p.contract && !p.isYouth && (p.contract.role === 'Inti' || p.contract.role === 'Rotasi')) {
-    const here = career.matches.filter((m) => m.comp === 'Liga' && m.team === club.name && m.date >= career.joined);
+  if (club && p.contract && !p.isYouth && !career.injury && (p.contract.role === 'Inti' || p.contract.role === 'Rotasi')) {
+    const here = career.matches.filter((m) => m.comp === 'Liga' && m.team === club.name && m.date >= career.joined && available(m));
     const last = here.slice(0, 10);
     const ready = career.cooldowns.promise_broken === undefined || career.week - career.cooldowns.promise_broken >= 12;
     if (last.length >= 8 && ready) {
