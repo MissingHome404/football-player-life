@@ -67,6 +67,8 @@ describe('cedera di dalam laga', () => {
           // nama singkat bisa kembar: cari berdasarkan waktu
           const out = m.bodies.find((b) => b.p.name === e.name && b.side === e.side && b.st.injured)!;
           expect(out.st.injured).toBe(1);
+          // cedera di detik-detik terakhir: laga keburu selesai sebelum ia ditandu keluar
+          if (out.on && m.t - e.t < 8) continue;
           expect(out.on).toBe(false);
           expect(out.st.off).toBeGreaterThanOrEqual(e.t);
           const sub = r.events.find((x) => x.kind === 'sub' && x.assist === e.name && x.side === e.side);

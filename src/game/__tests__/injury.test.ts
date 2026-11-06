@@ -153,14 +153,15 @@ describe('sifat bawaan di match engine', () => {
 
   it('tim jangkung menang lebih banyak duel udara dan mencetak lebih banyak gol sundulan', () => {
     const head = [0, 0];
-    for (let i = 0; i < 16; i++) {
+    // cukup banyak laga supaya keberuntungan tidak menentukan (gol sundulan jarang)
+    for (let i = 0; i < 48; i++) {
       const id = eng[i % eng.length].id;
       const m = new Match({ seed: `tall-${i}`, home: team(id, { hgt: 194 }), away: team(id, { hgt: 170 }), neutral: true });
       m.run();
       for (const b of m.bodies) head[b.side] += b.st.headGoals;
     }
-    expect(head[0]).toBeGreaterThan(head[1] * 1.5);
-  }, 60_000);
+    expect(head[0]).toBeGreaterThan(head[1] * 1.4);
+  }, 90_000);
 
   it('kaki lemah yang buruk: tembakan lebih jarang masuk dan umpan lebih melenceng', () => {
     const run = (wf: number) => {

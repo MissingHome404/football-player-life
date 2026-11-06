@@ -7,8 +7,9 @@ import { CareerHome } from './CareerHome';
 import { LifeView } from './LifeView';
 import { ContinentalView } from './ContinentalView';
 import { NamesView, RenameButton } from './NamesView';
-import { ClubFormation } from './FormationView';
-import { clubFormation } from '../game/sim/formation';
+import { ClubTactic } from './FormationView';
+import { STYLE_LABEL, clubTactic } from '../game/sim/tactics';
+import { PLAY_TRAITS, playTraits } from '../game/sim/traits';
 import { ClubFixtures, CupPanel, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { marketValue } from '../game/sim/transfer';
@@ -383,7 +384,7 @@ function ClubView({ clubId }: { clubId: string }) {
         <InfoCard label="Manajer">
           <Flag id={manager.nationalityId} /> {fullName(manager)}
           <div className="muted small">
-            Gaya: {manager.preferredStyle} · Formasi {clubFormation(club)}
+            Taktik: {clubTactic(club).name} · {STYLE_LABEL[club.playingStyle]} · {clubTactic(club).formation}
             {devMode && ` · MM ${manager.manManagement} · Youth ${manager.workingWithYoungsters} · Tak ${manager.tacticalKnowledge}`}
           </div>
         </InfoCard>
@@ -394,7 +395,7 @@ function ClubView({ clubId }: { clubId: string }) {
 
       <ClubFixtures clubId={clubId} />
 
-      <ClubFormation club={club} squad={idx.squadByClub.get(clubId) ?? []} />
+      <ClubTactic club={club} squad={idx.squadByClub.get(clubId) ?? []} />
 
       <section className="panel">
         <div className="tabs">
@@ -535,6 +536,19 @@ function PlayerView({ playerId }: { playerId: string }) {
             + {info.good}
             <br />− {info.risk}
           </div>
+        </InfoCard>
+        <InfoCard label="Kebiasaan bermain">
+          {playTraits(p).length ? (
+            <div className="traits">
+              {playTraits(p).map((id) => (
+                <span key={id} className="trait" title={PLAY_TRAITS[id].desc}>
+                  {PLAY_TRAITS[id].name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="muted small">Tidak ada kebiasaan khusus: bermain persis sesuai peran.</span>
+          )}
         </InfoCard>
         <InfoCard label="Fisik">
           {p.heightCm} cm · {p.weightKg} kg

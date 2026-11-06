@@ -361,6 +361,8 @@ export interface MatchRecord {
   card?: 'Y' | 'R' | 'YR';
   /** cedera di laga ini */
   injured?: boolean;
+  /** intensitas taktik tim kita di laga ini (0..1) */
+  intensity?: number;
 }
 
 /** Statistik pemain kita per musim, tim, dan kompetisi */
@@ -441,6 +443,8 @@ export interface Career {
   feats?: { long: number; set: number; head: number };
   /** CA tertinggi sepanjang karier */
   peakCA?: number;
+  /** pemahaman taktik pelatih 0..1 per "klub:pelatih" atau "nat:negara" (lihat understanding.ts) */
+  tacticFam?: Record<string, number>;
   /** karier sudah selesai */
   retired?: Retirement;
 }
@@ -581,7 +585,7 @@ export interface ClubSpell {
   kind: 'Amatir' | 'Akademi' | 'Senior' | 'Pinjaman';
 }
 
-export type TrainingFocus = 'seimbang' | 'teknik' | 'mental' | 'fisik' | 'peran' | 'istirahat';
+export type TrainingFocus = 'seimbang' | 'teknik' | 'mental' | 'fisik' | 'peran' | 'taktik' | 'istirahat';
 export type Intensity = 'ringan' | 'normal' | 'berat';
 export type Activity = 'rumah' | 'keluarga' | 'nongkrong' | 'kencan' | 'pesta' | 'video' | 'kerja';
 export type CoachKind = 'teknik' | 'fisik' | 'mental' | 'psikolog';

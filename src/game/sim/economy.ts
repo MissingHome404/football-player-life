@@ -13,6 +13,10 @@ export const FOCUS_INFO: Record<TrainingFocus, { label: string; desc: string }> 
   mental: { label: 'Mental', desc: 'Fokus keputusan, posisi, dan ketenangan.' },
   fisik: { label: 'Fisik', desc: 'Fokus kecepatan, stamina, dan kekuatan. Lebih melelahkan.' },
   peran: { label: 'Peran', desc: 'Fokus atribut kunci peran favoritmu.' },
+  taktik: {
+    label: 'Taktik',
+    desc: 'Pelajari taktik pelatih: pemahaman taktik naik jauh lebih cepat, atribut membaca permainan (Decisions, Teamwork, Anticipation, Positioning) ikut berkembang.',
+  },
   istirahat: { label: 'Istirahat', desc: 'Tidak berlatih. Kebugaran dan stres pulih, atribut tidak naik.' },
 };
 

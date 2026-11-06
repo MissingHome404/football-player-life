@@ -595,3 +595,18 @@ input { font: inherit; }
   .names-head.with-badge { grid-template-columns: auto 1fr auto; }
   .names-info { grid-column: 1 / -1; text-align: left; order: 3; }
 }
+
+/* taktik pelatih */
+.fm-role { font-size: 2.6px; font-weight: 700; text-anchor: middle; fill: #fff; paint-order: stroke; stroke: rgba(0, 0, 0, .7); stroke-width: .6px; }
+.fm-De .fm-dot { fill: #8fb8ff; }
+.fm-Su .fm-dot { fill: #9fe0b6; }
+.fm-At .fm-dot { fill: #ffb27a; }
+.fm-me .fm-dot { fill: var(--star, #f5c542); }
+.duty-De { color: #8fb8ff; font-weight: 600; }
+.duty-Su { color: #9fe0b6; font-weight: 600; }
+.duty-At { color: #ffb27a; font-weight: 600; }
+.tac-group { margin: 10px 0 0; }
+.tac-group h3 { margin-bottom: 4px; }
+.tac-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.tac-mine { margin: 4px 0 8px; grid-column: 1 / -1; }
+.tac-mine p { margin: 4px 0; }

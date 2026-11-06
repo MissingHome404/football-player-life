@@ -2,6 +2,8 @@
 // simulasi mingguan, jadi skor dan statistik di layar identik dengan yang tercatat.
 
 import { SLOT_LABEL } from '../game/sim/formation';
+import { ROLES } from '../game/data/roles';
+import { DUTY_LABEL, mentalityLabel } from '../game/sim/tactics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from './store';
 import {
@@ -244,6 +246,9 @@ function Lineup({
 }) {
   const startRef = useRef<HTMLButtonElement>(null);
   useEffect(() => startRef.current?.focus(), []);
+  const mine = [input.home, input.away].flatMap((t) => [...t.xi, ...(t.bench ?? []), ...(t.sub ? [t.sub.player] : [])]).find((p) => p.user);
+  const roleText = (p: { role?: string; duty?: keyof typeof DUTY_LABEL }) =>
+    p.role ? `${ROLES[p.role]?.name ?? p.role}${p.duty ? ` (${DUTY_LABEL[p.duty]})` : ''}` : '';
   return (
     <div className="mv-lineup">
       <h2>Susunan pemain</h2>
@@ -253,6 +258,13 @@ function Lineup({
           : hasMe
             ? 'Kamu mulai dari bangku cadangan. Tetap siap, pelatih bisa memanggilmu kapan saja.'
             : 'Kamu mulai dari bangku cadangan hari ini.'}
+        {mine?.role && (
+          <>
+            {' '}
+            Instruksi pelatih: main sebagai <b>{roleText(mine)}</b>
+            {mine.fam !== undefined && <span className="muted"> · pemahaman taktikmu {Math.round(mine.fam * 100)}%</span>}.
+          </>
+        )}
       </p>
       <div className="mv-teams">
         {[input.home, input.away].map((t, side) => (
@@ -261,13 +273,17 @@ function Lineup({
               <span className="mv-kit" style={{ background: colors[side] }} aria-hidden />
               {t.name} <span className="muted">{side === 0 ? '(kandang)' : '(tandang)'}</span>
               {t.formation && <span className="muted small"> · {t.formation}</span>}
+              {t.tactic && <span className="muted small"> · {mentalityLabel(t.tactic.mentality).toLowerCase()}</span>}
             </h3>
             <ol>
               {t.xi.map((p) => (
                 <li key={p.id} className={p.user ? 'me' : ''}>
                   <span className="num mv-n">{p.num}</span>
                   <span>{p.name}</span>
-                  <span className="muted small">{SLOT_LABEL[p.slot] ?? p.slot}</span>
+                  <span className="muted small" title={roleText(p)}>
+                    {SLOT_LABEL[p.slot] ?? p.slot}
+                    {p.role && ` · ${ROLES[p.role]?.short ?? p.role}${p.duty ? `-${p.duty}` : ''}`}
+                  </span>
                 </li>
               ))}
             </ol>

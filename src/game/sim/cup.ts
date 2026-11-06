@@ -8,7 +8,7 @@ import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { COUNTRY_BY_ID } from '../data/countries';
 import { clubStrengths, roundDate, seasonForm, simScore, squadOf } from './season';
-import { addStats, engineGame, selection } from './match';
+import { addStats, clubSide, engineGame, selection } from './match';
 import type { EngineInput } from './engine';
 import { afterGame, serveBan } from './discipline';
 
@@ -225,8 +225,8 @@ export function playClubGame(o: {
       career,
       status,
       rng,
-      ours: { id: club.id, name: club.name, colors: club.colors, squad: seniors, style: club.playingStyle, formation: clubFormation(club) },
-      theirs: { id: opp.id, name: opp.name, colors: opp.colors, squad: theirs, style: opp.playingStyle, formation: clubFormation(opp) },
+      ours: clubSide(club, seniors),
+      theirs: clubSide(opp, theirs),
       home: o.home,
       neutral: o.neutral,
       seed: `${career.characterSeed}:${o.date}:${club.id}:${o.tag}`,

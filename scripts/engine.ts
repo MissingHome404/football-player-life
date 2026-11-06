@@ -4,6 +4,7 @@ import { generateWorld } from '../src/game/gen/world';
 import { squadOf } from '../src/game/sim/season';
 import { Match, TUNE, pickXI, type ETeam } from '../src/game/sim/engine';
 import { SLOT_LABEL, clubFormation, type FormationId } from '../src/game/sim/formation';
+import { clubTactic, tacticK } from '../src/game/sim/tactics';
 // formasi bisa dipaksa untuk semua tim: F=4-4-2 npx tsx scripts/engine.ts
 const FORCE = process.env.F as FormationId | undefined;
 const N = Number(process.argv[2] ?? 200);
@@ -14,11 +15,14 @@ for (const arg of process.argv.slice(3)) {
 }
 const w = generateWorld({ seed: 'CAL' });
 const clubs = w.clubs.filter((c) => c.leagueId === 'ENG1' || c.leagueId === 'IDN1');
+// NOTACT=1: tanpa taktik pelatih (gaya main lama) untuk perbandingan
+const NOTACT = !!process.env.NOTACT;
 const team = (id: string): ETeam => {
   const c = w.clubs.find((x) => x.id === id)!;
-  const formation = FORCE ?? clubFormation(c);
-  const { xi, bench } = pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false, formation);
-  return { id, name: c.name, color: c.colors[0], color2: c.colors[1], style: c.playingStyle, formation, xi, bench };
+  const tactic = NOTACT || FORCE ? undefined : clubTactic(c);
+  const formation = FORCE ?? tactic?.formation ?? clubFormation(c);
+  const { xi, bench } = pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false, formation, tactic);
+  return { id, name: c.name, color: c.colors[0], color2: c.colors[1], style: c.playingStyle, formation, xi, bench, ...(tactic ? { tactic: tacticK(tactic) } : {}) };
 };
 let played = 0;
 const kinds: number[][] = [];

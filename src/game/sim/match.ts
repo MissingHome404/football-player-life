@@ -11,6 +11,9 @@ import { shortName } from '../gen/names';
 import { applyBadges } from './badges';
 import { afterGame, cardOf, serveBan } from './discipline';
 import { assignXI, clubFormation, type FormationId } from './formation';
+import { clubTactic, tacticIntensity, tacticK, type Tactic } from './tactics';
+import { playTraits } from './traits';
+import { clubKey, tacticFam } from './understanding';
 
 type Group = 'GK' | 'DEF' | 'MID' | 'ATT';
 const GROUP: Record<Position, Group> = {
@@ -150,6 +153,16 @@ export interface GameSide {
   /** gaya main pelatih (klub) atau gaya tetap tim nasional */
   style?: PlayingStyle;
   formation?: FormationId;
+  /** taktik pelatih: peran & tugas tiap tempat dan instruksi tim */
+  tactic?: Tactic;
+  /** kunci pemahaman taktik pemain kita (lihat understanding.ts) */
+  famKey?: string;
+}
+
+/** Sisi laga untuk sebuah klub, lengkap dengan taktik pelatihnya */
+export function clubSide(club: Club, squad: Player[], name = club.name): GameSide {
+  const tactic = clubTactic(club);
+  return { id: club.id, name, colors: club.colors, squad, style: club.playingStyle, formation: tactic.formation, tactic, famKey: clubKey(club) };
 }
 
 /**
@@ -172,7 +185,9 @@ export function engineGame(o: {
 }): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord>; result: EngineResult } {
   const { p, career, status, rng, home } = o;
   const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
-  const xiOurs = pickXI(o.ours.squad, p, status === 'Inti', o.ours.formation);
+  // pemahaman taktikmu menentukan seberapa baik kamu memainkan peran yang diminta pelatih
+  const userFam = o.ours.famKey ? tacticFam(career, o.ours.famKey, p) : undefined;
+  const xiOurs = pickXI(o.ours.squad, p, status === 'Inti', o.ours.formation, o.ours.tactic, (q) => (q.id === p.id ? userFam : undefined));
   const user = xiOurs.xi.find((e) => e.user);
   if (user) {
     applyBadges(user.a, career.badges);
@@ -186,7 +201,8 @@ export function engineGame(o: {
     xi: xiOurs.xi,
     bench: xiOurs.bench,
     style: o.ours.style,
-    formation: o.ours.formation,
+    formation: o.ours.tactic?.formation ?? o.ours.formation,
+    ...(o.ours.tactic ? { tactic: tacticK(o.ours.tactic) } : {}),
   };
   // risiko cedera pemain kita juga dipengaruhi gaya hidup (ahli gizi, fisio, dll.)
   if (user) user.a.inj = injuryRisk(p) * injuryFactor(career);
@@ -195,8 +211,10 @@ export function engineGame(o: {
     applyBadges(a, career.badges);
     for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
     a.inj = injuryRisk(p) * injuryFactor(career);
-    const slot = slotFor(p, o.ours.formation);
-    const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a, role: roleFor(p, o.ours.formation) };
+    const formation = o.ours.tactic?.formation ?? o.ours.formation;
+    const slot = slotFor(p, formation);
+    const rd = roleFor(p, formation, o.ours.tactic);
+    const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a, role: rd.role, duty: rd.duty, traits: playTraits(p), fam: userFam };
     if (rng.chance(0.45)) {
       const mins = rng.int(5, 35);
       ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: me, slot };
@@ -205,7 +223,7 @@ export function engineGame(o: {
       ourTeam.bench = [me, ...xiOurs.bench.filter((b) => b.id !== p.id)].map((b, i) => ({ ...b, num: 12 + i }));
     }
   }
-  const xiTheirs = pickXI(o.theirs.squad, undefined, false, o.theirs.formation);
+  const xiTheirs = pickXI(o.theirs.squad, undefined, false, o.theirs.formation, o.theirs.tactic);
   const oppTeam: ETeam = {
     id: o.theirs.id,
     name: o.theirs.name,
@@ -214,7 +232,8 @@ export function engineGame(o: {
     xi: xiTheirs.xi,
     bench: xiTheirs.bench,
     style: o.theirs.style,
-    formation: o.theirs.formation,
+    formation: o.theirs.tactic?.formation ?? o.theirs.formation,
+    ...(o.theirs.tactic ? { tactic: tacticK(o.theirs.tactic) } : {}),
   };
   const sim: EngineInput = { seed: o.seed, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
   if (o.neutral) sim.neutral = true;
@@ -246,6 +265,7 @@ export function engineGame(o: {
     scorers: r.events.filter((e) => e.kind === 'goal').map((e) => [e.min, e.side === us ? 0 : 1, e.og ? `${e.name ?? ''} (bd)` : (e.name ?? '')] as [number, 0 | 1, string]),
     shots: [r.shots[us], r.shots[1 - us]],
     possession: [r.possession[us], r.possession[1 - us]],
+    ...(o.ours.tactic ? { intensity: Math.round(tacticIntensity(o.ours.tactic) * 100) / 100 } : {}),
   };
   return { score, perf, sim, extra, result: r };
 }
@@ -359,15 +379,8 @@ export function userMatch(
       career,
       status,
       rng,
-      ours: { id: club.id, name: comp === 'U19' ? `${club.name} U19` : club.name, colors: club.colors, squad: ours, style: club.playingStyle, formation: clubFormation(club) },
-      theirs: {
-        id: oppClub.id,
-        name: comp === 'U19' ? `${oppClub.name} U19` : oppClub.name,
-        colors: oppClub.colors,
-        squad: oppSquad,
-        style: oppClub.playingStyle,
-        formation: clubFormation(oppClub),
-      },
+      ours: clubSide(club, ours, comp === 'U19' ? `${club.name} U19` : club.name),
+      theirs: clubSide(oppClub, oppSquad, comp === 'U19' ? `${oppClub.name} U19` : oppClub.name),
       home,
       seed: `${career.characterSeed}:${date}:${club.id}`,
       feats: comp === 'Liga',

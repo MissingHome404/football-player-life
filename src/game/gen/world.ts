@@ -157,7 +157,8 @@ export function generateWorld(opts: GenerateOptions): World {
           wageBudget: 0, // diisi setelah gaji pemain dihitung
         },
         fanBase: roundNice(Math.round(Math.pow(rep / 10, 3.2) * 2000 * rng.float(0.6, 1.5))),
-        playingStyle: rng.pick(STYLES),
+        // gaya main klub = gaya pelatihnya (undian lama tetap dijalankan supaya sisa dunia tidak berubah)
+        playingStyle: (rng.pick(STYLES), staff[staff.length - 1].preferredStyle),
         managerId,
       };
 

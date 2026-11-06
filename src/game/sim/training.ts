@@ -10,6 +10,9 @@ import { INTENSITY_INFO } from './economy';
 import { familiarity } from './formation';
 import { clamp, type Rng } from '../rng';
 
+/** atribut membaca permainan: dilatih lewat fokus latihan "Taktik" */
+const TACTIC_ATTRS = new Set(['Decisions', 'Teamwork', 'Anticipation', 'Positioning', 'Off the Ball']);
+
 const GROUP_OF: Record<string, 'technical' | 'mental' | 'physical' | 'goalkeeping'> = {};
 for (const a of TECHNICAL) GROUP_OF[a] = 'technical';
 for (const a of MENTAL) GROUP_OF[a] = 'mental';
@@ -105,6 +108,8 @@ export function trainWeek(
         return g === 'physical';
       case 'peran':
         return roleKey.has(a) || rolePref.has(a);
+      case 'taktik':
+        return TACTIC_ATTRS.has(a);
       default:
         return false;
     }

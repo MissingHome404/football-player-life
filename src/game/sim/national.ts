@@ -3,7 +3,8 @@
 // di antaranya (2028, 2032, ...). Laga timnasmu saat kamu dipanggil dimainkan match engine 2D,
 // laga negara lain disimulasikan cepat dari kekuatan skuadnya.
 
-import { nationFormation } from './formation';
+import { nationTactic } from './tactics';
+import { natKey } from './understanding';
 import type {
   Career,
   Confederation,
@@ -24,7 +25,7 @@ import { Rng, clamp } from '../rng';
 import { addDays, yearOf } from '../date';
 import { ageOn } from '../gen/player';
 import { simScore, topEleven } from './season';
-import { addStats, engineGame, groupOf, recentForm } from './match';
+import { addStats, engineGame, groupOf, recentForm, type GameSide } from './match';
 import { afterGame, serveBan } from './discipline';
 import { nationStyle, type EngineInput } from './engine';
 import type { NatPlayed } from './awards';
@@ -48,6 +49,13 @@ const KITS: Record<string, [string, string]> = {
   SUI: ['#d52b1e', '#ffffff'], AUT: ['#ed2939', '#ffffff'], SCO: ['#1b2a5c', '#ffffff'], USA: ['#ffffff', '#1b2a5c'],
 };
 export const kitOf = (id: string): [string, string] => KITS[id] ?? ['#dddddd', '#222222'];
+
+/** Sisi laga tim nasional, lengkap dengan taktik pelatihnya */
+export function natSide(country: string, squad: Player[], name: string): GameSide {
+  const style = nationStyle(country);
+  const tactic = nationTactic(country, style);
+  return { id: country, name, colors: kitOf(country), squad, style, formation: tactic.formation, tactic };
+}
 export const countryName = (id: string) => COUNTRY_BY_ID[id]?.name ?? id;
 
 const CONFS: Confederation[] = ['UEFA', 'AFC', 'CONMEBOL', 'CAF', 'CONCACAF'];
@@ -436,8 +444,8 @@ export function nationalWeek(
       career,
       status,
       rng,
-      ours: { id: country, name: `${cname}${suffix}`, colors: kitOf(country), squad, style: nationStyle(country), formation: nationFormation(country, nationStyle(country)) },
-      theirs: { id: opp, name: `${countryName(opp)}${suffix}`, colors: kitOf(opp), squad: theirs, style: nationStyle(opp), formation: nationFormation(opp, nationStyle(opp)) },
+      ours: { ...natSide(country, squad, `${cname}${suffix}`), famKey: natKey(country) },
+      theirs: natSide(opp, theirs, `${countryName(opp)}${suffix}`),
       home,
       neutral,
       seed: `${career.characterSeed}:${f.date}:${country}:${team}`,

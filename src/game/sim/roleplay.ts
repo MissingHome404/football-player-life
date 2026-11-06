@@ -46,11 +46,17 @@ export interface RoleK {
   cutIn: number;
   /** 0..1: target bola atas (rekan mencarinya dengan umpan panjang, ia menahan bola) */
   target: number;
+  /** 0..1: kebebasan berpindah posisi mencari ruang (free role) */
+  roam: number;
+  /** suka umpan satu-dua: mengoper lalu langsung lari meminta bola kembali */
+  oneTwo: number;
+  /** keras dalam duel (tekel lebih berani, lebih sering pelanggaran) */
+  tackle: number;
 }
 
 const N: RoleK = {
   up: 0, wide: 0, drop: 0, box: 0, runs: 1, press: 1, back: 1, hold: 1, carry: 0, takeOn: 0, shoot: 0, long: 0,
-  cross: 0, create: 0, safe: 0, direct: 0, clear: 0, cutIn: 0, target: 0,
+  cross: 0, create: 0, safe: 0, direct: 0, clear: 0, cutIn: 0, target: 0, roam: 0, oneTwo: 0, tackle: 0,
 };
 const k = (o: Partial<RoleK>): RoleK => ({ ...N, ...o });
 
@@ -77,37 +83,37 @@ export const ROLE_PLAY: Record<string, RoleK> = {
   dm: k({ safe: 0.08 }),
   a: k({ up: -5, runs: 0, press: 0.7, safe: 0.15, create: -0.12, carry: -0.08, back: 1.15 }),
   dlp: k({ up: -3, hold: 1.3, safe: 0.08, create: 0.12, direct: 0.12, runs: 0.2 }),
-  bwm: k({ press: 1.7, safe: 0.12, create: -0.05, runs: 0.5 }),
-  reg: k({ hold: 1.35, create: 0.22, direct: 0.15, carry: 0.06, runs: 0.4, long: 0.05 }),
+  bwm: k({ tackle: 0.6, press: 1.7, safe: 0.12, create: -0.05, runs: 0.5 }),
+  reg: k({ roam: 0.4, hold: 1.35, create: 0.22, direct: 0.15, carry: 0.06, runs: 0.4, long: 0.05 }),
   hb: k({ up: -12, wide: -1, safe: 0.18, runs: 0, press: 0.8, create: -0.05 }),
   // gelandang tengah
   cm: N,
   b2b: k({ up: 4, runs: 1.6, press: 1.25, box: 0.35, shoot: 0.08, long: 0.04 }),
-  ap: k({ up: 3, hold: 1.25, create: 0.22, carry: 0.06, drop: 0, runs: 0.6 }),
-  mez: k({ up: 6, wide: 0.5, carry: 0.12, runs: 1.4, shoot: 0.08, box: 0.25 }),
+  ap: k({ roam: 0.4, up: 3, hold: 1.25, create: 0.22, carry: 0.06, drop: 0, runs: 0.6 }),
+  mez: k({ roam: 0.25, up: 6, wide: 0.5, carry: 0.12, runs: 1.4, shoot: 0.08, box: 0.25 }),
   car: k({ up: -2, press: 1.2, safe: 0.15, runs: 0.4, create: -0.05 }),
-  rpm: k({ up: 6, runs: 1.4, create: 0.15, carry: 0.12, hold: 1.1, box: 0.2 }),
+  rpm: k({ roam: 0.55, up: 6, runs: 1.4, create: 0.15, carry: 0.12, hold: 1.1, box: 0.2 }),
   // gelandang sayap
   wm: k({ cross: 0.05, back: 1.1 }),
   w: k({ wide: 0.5, cross: 0.15, takeOn: 0.12, carry: 0.1, cutIn: 0.1, shoot: -0.08 }),
-  wp: k({ wide: -0.45, hold: 1.25, create: 0.18, carry: 0.04, cutIn: 0.4, cross: -0.05 }),
+  wp: k({ roam: 0.35, wide: -0.45, hold: 1.25, create: 0.18, carry: 0.04, cutIn: 0.4, cross: -0.05 }),
   dw: k({ up: -4, back: 1.35, press: 1.35, cross: 0.05, takeOn: -0.05, runs: 0.6 }),
   // pemain sayap depan
   if: k({ wide: -0.1, cutIn: 0.85, shoot: 0.15, takeOn: 0.1, carry: 0.1, runs: 1.3, box: 0.3, cross: -0.12, long: 0.04 }),
-  iw: k({ cutIn: 0.7, create: 0.15, hold: 1.1, cross: -0.05, carry: 0.06 }),
+  iw: k({ roam: 0.25, cutIn: 0.7, create: 0.15, hold: 1.1, cross: -0.05, carry: 0.06 }),
   rmd: k({ wide: -0.3, runs: 1.7, box: 0.8, shoot: 0.15, carry: -0.05, press: 0.75, back: 0.8 }),
   wtf: k({ target: 0.8, cross: 0.04, takeOn: -0.08, hold: 1.2, box: 0.4 }),
   // gelandang serang
   am: k({ shoot: 0.05, create: 0.06 }),
-  ss: k({ up: 6, runs: 1.7, box: 0.6, shoot: 0.15, back: 0.8, press: 0.9 }),
-  eng: k({ hold: 1.45, create: 0.26, press: 0.4, back: 0.55, runs: 0.2, carry: -0.04 }),
-  t: k({ hold: 1.25, create: 0.2, takeOn: 0.12, carry: 0.12, press: 0.45, back: 0.6, shoot: 0.05 }),
+  ss: k({ roam: 0.3, up: 6, runs: 1.7, box: 0.6, shoot: 0.15, back: 0.8, press: 0.9 }),
+  eng: k({ roam: 0.3, hold: 1.45, create: 0.26, press: 0.4, back: 0.55, runs: 0.2, carry: -0.04 }),
+  t: k({ roam: 0.8, hold: 1.25, create: 0.2, takeOn: 0.12, carry: 0.12, press: 0.45, back: 0.6, shoot: 0.05 }),
   // penyerang
   af: k({ up: 2, runs: 1.9, carry: 0.1, shoot: 0.1, press: 1.05 }),
   p: k({ box: 1, runs: 1.4, shoot: 0.22, press: 0.5, back: 0.55, hold: 0.7, carry: -0.12, create: -0.1, long: -0.1 }),
-  cf: k({ drop: 3, carry: 0.1, shoot: 0.1, long: 0.1, create: 0.1, takeOn: 0.05, target: 0.4, runs: 1.1 }),
-  f9: k({ drop: 13, create: 0.2, carry: 0.12, hold: 1.3, runs: 0.3, box: -0.4, shoot: -0.02 }),
-  dlf: k({ drop: 9, safe: 0.1, hold: 1.35, create: 0.1, runs: 0.4, target: 0.45 }),
+  cf: k({ roam: 0.5, drop: 3, carry: 0.1, shoot: 0.1, long: 0.1, create: 0.1, takeOn: 0.05, target: 0.4, runs: 1.1 }),
+  f9: k({ roam: 0.55, drop: 13, create: 0.2, carry: 0.12, hold: 1.3, runs: 0.3, box: -0.4, shoot: -0.02 }),
+  dlf: k({ roam: 0.2, drop: 9, safe: 0.1, hold: 1.35, create: 0.1, runs: 0.4, target: 0.45 }),
   tf: k({ drop: 1, target: 1, hold: 1.25, runs: 0.35, carry: -0.12, takeOn: -0.12, box: 0.5 }),
   // pressing forward tetap tinggi untuk menekan bek lawan, bukan turun
   pf: k({ press: 2.4, back: 0.85, runs: 1.05, carry: 0.02 }),
@@ -115,6 +121,45 @@ export const ROLE_PLAY: Record<string, RoleK> = {
 
 export function rolePlay(role: string | undefined): RoleK {
   return (role && ROLE_PLAY[role]) || N;
+}
+
+export type Duty = 'De' | 'Su' | 'At';
+
+/** Tugas mengubah seberapa sering pemain ikut menyerang / tetap di belakang */
+const DUTY_K: Record<Duty, Partial<RoleK>> = {
+  De: { up: -5, runs: 0.4, box: -0.25, back: 1.15, safe: 0.05 },
+  Su: {},
+  At: { up: 4, runs: 1.35, box: 0.15, back: 0.85, shoot: 0.04, cross: 0.03 },
+};
+const MULT = new Set<keyof RoleK>(['runs', 'hold', 'back', 'press']);
+
+function add(rk: RoleK, d: Partial<RoleK>): RoleK {
+  const out = { ...rk };
+  for (const [key, v] of Object.entries(d) as [keyof RoleK, number][]) {
+    if (MULT.has(key)) out[key] *= v;
+    else out[key] += v;
+  }
+  return out;
+}
+
+/**
+ * Gaya main lengkap seorang pemain di lapangan: peran + tugas dari pelatih, ditambah kebiasaan pribadinya.
+ * `fam` (pemahaman taktik 0..1): pemain yang belum paham taktik memainkan perannya setengah hati,
+ * jadi gaya perannya lebih samar (kebiasaan pribadinya tetap).
+ */
+export function playStyle(role: string | undefined, duty: Duty | undefined, traitK: Partial<RoleK>[] = [], fam = 1): RoleK {
+  let rk = rolePlay(role);
+  if (duty) rk = add(rk, DUTY_K[duty]);
+  const s = 0.45 + 0.55 * Math.max(0, Math.min(1, fam));
+  if (s < 1) {
+    const scaled = { ...N };
+    for (const key of Object.keys(N) as (keyof RoleK)[]) {
+      scaled[key] = MULT.has(key) ? 1 + (rk[key] - 1) * s : N[key] + (rk[key] - N[key]) * s;
+    }
+    rk = scaled;
+  }
+  for (const t of traitK) rk = add(rk, t);
+  return rk;
 }
 
 /** Atribut pemain dalam satu rekaman nama -> nilai (untuk roleRating) */

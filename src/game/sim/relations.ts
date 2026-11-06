@@ -148,7 +148,7 @@ function sackManager(world: World, career: Career, club: Club, rng: Rng): World 
   return {
     ...world,
     staff: [...world.staff.map((s) => (s.id === club.managerId ? { ...s, clubId: null } : s)), fresh],
-    clubs: world.clubs.map((c) => (c.id === club.id ? { ...c, managerId: fresh.id } : c)),
+    clubs: world.clubs.map((c) => (c.id === club.id ? { ...c, managerId: fresh.id, playingStyle: fresh.preferredStyle } : c)),
   };
 }
 

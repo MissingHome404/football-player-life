@@ -24,6 +24,8 @@ import { newBadges } from './badges';
 import { TRANSFER_EVENTS, contractWeek } from './transfer';
 import { defaultLife, lifeFitness, lifeStress, lifeWeek } from './life';
 import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, relationsWeek } from './relations';
+import { clubKey, intensityDrain, learnTactic, natKey, understandWeek } from './understanding';
+import { tacticalIQ } from './tactics';
 
 const ALL_EVENTS = [...EVENTS, ...RELATION_EVENTS];
 
@@ -75,6 +77,8 @@ export function newCareer(roll: CharacterRoll, rerolls: number, saveId: string, 
     matches: [],
     stats: [],
     ...careerDefaults(base.teamLabel, roll.clubId ?? undefined, !!roll.clubId, startDate),
+    // karier baru: pemahaman taktik dimulai dari nol (save lama dianggap sudah paham, lihat understanding.ts)
+    tacticFam: {},
     rel: emptyRelations(), // diisi initRelations saat karier dimulai (butuh data dunia)
     life: defaultLife(ageOn(roll.player.birthDate, startDate), startDate),
   };
@@ -221,6 +225,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   if (plan.learnPos && plan.learnPos !== player.mainPosition) extra *= 0.85;
   const training = trainWeek(career, player, club, extra);
   learnPositionWeek(career, player, notes);
+  // memahami taktik pelatih lewat latihan bersama tim
+  understandWeek(career, player, club, notes);
   career.peakCA = Math.max(career.peakCA ?? 0, player.ca);
 
   // 3. Kebugaran
@@ -276,8 +282,17 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   if (watchable && sim) career.lastSim = { date: watchable.rec.date, input: sim, v: ENGINE_VERSION };
   for (const { rec: m } of games) {
     career.matches.unshift(m);
+    const nat = m.comp === 'Timnas' || m.comp === 'Timnas U20';
+    // tiap laga (bahkan dari bangku cadangan) menambah pemahaman taktik, apalagi di timnas yang jarang latihan bersama
+    if (m.status === 'Inti' || m.status === 'Cadangan') {
+      const key = nat ? natKey(player.nationalityId) : club && m.comp !== 'Amatir' ? clubKey(club) : null;
+      const amount = (nat ? 0.05 : 0.012) * (m.minutes > 0 ? 1 : 0.5) * (0.6 + 0.8 * tacticalIQ(player));
+      const msg = key ? learnTactic(career, key, player, amount) : null;
+      if (msg) notes.push(nat ? msg.replace('pelatih', 'pelatih timnas') : msg);
+    }
     if (m.minutes > 0) {
-      career.fitness = clamp(Math.round(career.fitness - m.minutes / 9), 0, 100);
+      // taktik yang intens (pressing tinggi, tempo cepat) lebih menguras kebugaran
+      career.fitness = clamp(Math.round(career.fitness - (m.minutes / 9) * intensityDrain(m.intensity, player)), 0, 100);
       const intlRep = m.comp === 'Timnas' ? 0.5 : m.comp === 'Kontinental' ? 0.3 : 0;
       if (intlRep > 0 && (m.rating ?? 0) >= 7.3 && rng.chance(intlRep)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
     }
