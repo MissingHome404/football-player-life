@@ -484,20 +484,19 @@ function Live({
         ctx.fillText(name, x, ly);
       }
       // bola
-      // bayangan di tanah, bola digambar naik sesuai ketinggiannya (z)
+      // bola digambar di posisi aslinya (dilihat dari atas); makin tinggi makin besar dan
+      // bayangannya makin jauh, jadi bola yang lewat di atas mistar tidak terlihat masuk gawang
       const bx = prevBall.x + (match.ball.x - prevBall.x) * alpha;
       const by = prevBall.y + (match.ball.y - prevBall.y) * alpha;
       const bz = Math.max(0, prevBall.z + (match.ball.z - prevBall.z) * alpha);
-      const [gx, gy] = P(bx, by);
+      const [px, py] = P(bx, by);
       const base = Math.max(3, s * 0.55);
-      const br = base * (1 + Math.min(bz, 12) * 0.05);
-      const lift = Math.min(bz, 15) * s * 0.55;
-      ctx.fillStyle = `rgba(0,0,0,${Math.max(0.15, 0.4 - bz * 0.02)})`;
+      const br = base * (1 + Math.min(bz, 12) * 0.07);
+      const off = 1 + Math.min(bz, 15) * s * 0.35;
+      ctx.fillStyle = `rgba(0,0,0,${Math.max(0.12, 0.4 - bz * 0.025)})`;
       ctx.beginPath();
-      ctx.ellipse(gx + 1, gy + 1, base, base * 0.8, 0, 0, Math.PI * 2);
+      ctx.ellipse(px + off, py + off, base, base * 0.8, 0, 0, Math.PI * 2);
       ctx.fill();
-      const px = gx + lift * 0.35;
-      const py = gy - lift;
       ctx.fillStyle = '#fff';
       ctx.beginPath();
       ctx.arc(px, py, br, 0, Math.PI * 2);

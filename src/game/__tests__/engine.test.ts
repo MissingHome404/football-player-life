@@ -59,6 +59,9 @@ describe('match engine', () => {
         m.step();
         const b = m.ball;
         expect(Number.isFinite(b.x + b.y + b.z)).toBe(true);
+        // bola yang bukan gol tidak pernah berada di dalam gawang (jaring samping/atap menahannya)
+        const depth = b.x < 0 ? -b.x : b.x - PITCH_W;
+        if (!m.inNet && !m.dead) expect(depth > 0.05 && Math.abs(b.y - 34) < GOAL_HALF - 0.05 && b.z < BAR - 0.05).toBe(false);
         if (m.restart && m.restart !== lastRestart) {
           restarts[m.restart.kind] = (restarts[m.restart.kind] ?? 0) + 1;
           if (missOpen) afterMiss[m.restart.kind] = (afterMiss[m.restart.kind] ?? 0) + 1;
@@ -86,6 +89,8 @@ describe('match engine', () => {
     expect(offside).toBeGreaterThan(0);
     expect(restarts.throw).toBeGreaterThan(0);
     expect(restarts.goalkick).toBeGreaterThan(0);
+    // tembakan melenceng biasanya jadi tendangan gawang (sepak pojok hanya kalau terbelokkan bek)
+    expect(afterMiss.goalkick ?? 0).toBeGreaterThan((afterMiss.corner ?? 0) * 3);
     // tembakan melenceng = tendangan gawang / sudut, bukan bola kembali ke tengah
     expect((afterMiss.goalkick ?? 0) + (afterMiss.corner ?? 0)).toBeGreaterThanOrEqual(Object.values(afterMiss).reduce((a, b) => a + b, 0) - 1);
   }, 30_000);

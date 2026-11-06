@@ -17,7 +17,7 @@ import { Rng, clamp } from '../rng';
 import { shortName } from '../gen/names';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 2;
+export const ENGINE_VERSION = 3;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -28,13 +28,13 @@ export const GOAL_HALF = 3.66;
 export const BAR = 2.44;
 export const NET_DEPTH = 1.8;
 const G = 9.8;
-const ROLL = 1.3; // perlambatan bola menggelinding (m/s²)
+const ROLL = 2.6; // perlambatan bola menggelinding di rumput (m/s²)
 const BOX_X = 16.5;
 const BOX_Y = 20.16;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 7, shootW: 22, progW: 30, xgPassW: 4, foul: 0.1, dribZone: 0.15, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 5, shootW: 22, progW: 30, xgPassW: 4, foul: 0.1, dribZone: 0.15, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.2, risk: 1.0, openShot: 0.35, cross: 0.1, tackle: 0.05, speed: 1.15, onT: 0.38,
 };
 
@@ -248,6 +248,8 @@ interface Shot {
   /** x kiper saat tembakan dilepas (bidang penyelamatan) */
   gkX: number;
   passed: boolean;
+  /** pemain lawan yang sudah dilewati bola (dibelokkan sekali saja) */
+  near?: Body[];
 }
 
 interface Pass {
@@ -1021,8 +1023,9 @@ export class Match {
       b.vy = dy * h;
       b.vz = (G * T) / 2;
     } else {
-      const vEnd = 14 + c.p.a.pas * 0.25;
-      const v0 = Math.min(28, Math.sqrt(vEnd * vEnd + 2 * ROLL * len));
+      // bola sampai di kaki penerima dengan kecepatan yang masih bisa dikontrol
+      const vEnd = 8 + c.p.a.pas * 0.2;
+      const v0 = Math.min(24, Math.sqrt(vEnd * vEnd + 2 * ROLL * len));
       b.vx = dx * v0;
       b.vy = dy * v0;
       b.vz = 0;
@@ -1036,10 +1039,13 @@ export class Match {
     const a = c.p.a;
     const d = Math.hypot(m.x - c.x, m.y - c.y);
     // perkiraan waktu bola sampai, lalu umpan diarahkan ke depan larinya penerima
-    const T = air ? clamp(0.8 + d * 0.032 + lob, 0.7, 2.6) : d / (15 + a.pas * 0.25);
+    const vEnd = 8 + a.pas * 0.2;
+    const T = air ? clamp(0.8 + d * 0.032 + lob, 0.7, 2.6) : (2 * d) / (Math.min(24, Math.sqrt(vEnd * vEnd + 2 * ROLL * d)) + vEnd);
     const lead = m.run > 0 ? 1.1 : 0.7;
-    const tx = clamp(m.x + m.vx * T * lead, 1, PITCH_W - 1);
-    const ty = clamp(m.y + m.vy * T * lead, 1, PITCH_H - 1);
+    // jangan mengarahkan bola ke garis: umpan panjang jatuh agak ke dalam lapangan
+    const margin = air ? (d > 25 ? 6 : 4) : 2.5;
+    const tx = clamp(m.x + m.vx * T * lead, margin, PITCH_W - margin);
+    const ty = clamp(m.y + m.vy * T * lead, margin, PITCH_H - margin);
     const [, pd] = this.nearest(this.opponents(c.side), c.x, c.y);
     const err = ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.03 : 0)) * (air ? 1.25 : 1);
     // offside dinilai saat bola dimainkan
@@ -1075,7 +1081,7 @@ export class Match {
     const side = c.side;
     const fx = this.fx(side, c.x);
     const fy = this.fy(side, c.y);
-    const cutIn = (c.p.slot === 'RW' || c.p.slot === 'LW') && fx > 62 ? 0.25 + c.p.a.dri * 0.02 : 0.25;
+    const cutIn = (c.p.slot === 'RW' || c.p.slot === 'LW') && fx > 62 ? 0.15 + c.p.a.dri * 0.012 : 0.25;
     let ty = fy + (34 - fy) * cutIn + this.rng.normal(0, 3);
     // menghindari lawan terdekat
     const [o, od] = this.nearest(this.opponents(side), c.x, c.y);
@@ -1175,6 +1181,10 @@ export class Match {
     const py = ball.y;
     const pz = ball.z;
     [ball.x, ball.y, ball.z, ball.vx, ball.vy, ball.vz] = stepBall(ball.x, ball.y, ball.z, ball.vx, ball.vy, ball.vz);
+    const rx = ball.x;
+    const ry = ball.y;
+    const rz = ball.z;
+    if (!this.inNet) this.goalFrame(px, py, pz);
 
     // bola di jaring: berhenti di dalam gawang
     if (this.inNet) {
@@ -1199,6 +1209,16 @@ export class Match {
         this.deflect(s.blocker, 7);
         return;
       }
+      // tembakan melenceng yang lewat tepat di dekat kaki bek bisa terbelokkan (jadi sepak pojok kalau keluar)
+      if (s.outcome === 'miss' && ball.z < 1.9) {
+        for (const o of this.opponents(s.by.side)) {
+          if (o.p.slot === 'GK' || o === s.blocker || s.near?.includes(o)) continue;
+          if (segDist(px, py, ball.x, ball.y, o.x, o.y) > 1.2) continue;
+          (s.near ??= []).push(o);
+          if (this.rng.chance(0.6)) this.nick(o);
+          break;
+        }
+      }
       // kiper menepis / menangkap di posisinya
       const gk = this.keeper((1 - s.by.side) as 0 | 1);
       const crossedGk = (px - s.gkX) * (ball.x - s.gkX) <= 0 || Math.abs(ball.x - (gk?.x ?? s.gkX)) < 0.6;
@@ -1211,10 +1231,10 @@ export class Match {
 
     // melewati garis gawang
     for (const gx of [0, PITCH_W]) {
-      if ((px - gx) * (ball.x - gx) > 0 || px === gx) continue;
-      const f = (gx - px) / (ball.x - px || 1);
-      const yc = py + (ball.y - py) * f;
-      const zc = pz + (ball.z - pz) * f;
+      if ((px - gx) * (rx - gx) > 0 || px === gx) continue;
+      const f = (gx - px) / (rx - px || 1);
+      const yc = py + (ry - py) * f;
+      const zc = pz + (rz - pz) * f;
       const attacking: 0 | 1 = this.dir(0) > 0 === (gx === PITCH_W) ? 0 : 1;
       if (live && Math.abs(yc - 34) < GOAL_HALF && zc < BAR) {
         this.goal(attacking);
@@ -1222,9 +1242,6 @@ export class Match {
       }
       if (this.shot) {
         this.log('miss', this.shot.by.side, this.shot.by.p.name);
-        // sebagian tembakan melenceng sempat menyentuh bek: sepak pojok
-        const [defb, dd] = this.nearest(this.opponents(this.shot.by.side), this.shot.by.x, this.shot.by.y);
-        if (defb && defb.p.slot !== 'GK' && dd < 5 && this.rng.chance(0.4)) this.lastTouch = defb;
       }
       this.shot = null;
       if (live) {
@@ -1261,6 +1278,9 @@ export class Match {
     this.shot = null;
     ball.x = gk.x + (ball.x - gk.x) * 0.3;
     ball.y = clamp(ball.y, gk.y - 2, gk.y + 2);
+    // bola ditepis selalu di depan garis gawang (kalau sudah lewat garis, itu gol)
+    if (this.fx(gk.side, ball.x) < 0.4) ball.x = this.wx(gk.side, 0.4);
+    ball.z = Math.min(ball.z, BAR - 0.3);
     const power = Math.hypot(ball.vx, ball.vy);
     const hold = clamp(0.25 + gk.p.a.han * 0.03 - (power - 22) * 0.02, 0.1, 0.85);
     if (this.rng.chance(hold)) {
@@ -1272,17 +1292,22 @@ export class Match {
       return;
     }
     this.lastTouch = gk;
+    gk.cool = 1.6; // kiper masih terjatuh setelah menepis (~0,6 detik tidak bisa meraih bola)
     const side = gk.side;
     const away = -this.dir((1 - side) as 0 | 1); // arah keluar dari gawang
     if (this.rng.chance(0.45)) {
-      // ditepis melewati tiang: sepak pojok
+      // ditepis melewati tiang: bola keluar garis gawang di luar tiang -> sepak pojok
       const sy = ball.y >= 34 ? 1 : -1;
-      const tgx = this.wx(side, -1.5);
-      const tgy = 34 + sy * 9;
+      const cy = 34 + sy * (GOAL_HALF + this.rng.float(1, 3));
+      const bfx = this.fx(side, ball.x);
+      // titik di garis gawang di luar tiang, lalu bola terus bergerak ke arah yang sama
+      const tgx = this.wx(side, -1.2);
+      const tgy = cy + (cy - ball.y) * (1.2 / Math.max(bfx, 0.4));
       const d = Math.hypot(tgx - ball.x, tgy - ball.y) || 1;
-      ball.vx = ((tgx - ball.x) / d) * 9;
-      ball.vy = ((tgy - ball.y) / d) * 9;
-      ball.vz = 2.5;
+      const v = this.rng.float(10, 14);
+      ball.vx = ((tgx - ball.x) / d) * v;
+      ball.vy = ((tgy - ball.y) / d) * v;
+      ball.vz = this.rng.float(0.3, 1.2);
     } else {
       // ditepis ke depan: bola muntah
       ball.vx = away * this.rng.float(4, 9);
@@ -1334,7 +1359,7 @@ export class Match {
     let bd = Infinity;
     for (const b of this.active()) {
       if (pass && b === pass.from && sp > 3) continue;
-      if (b.cool > 0.5 && b.p.slot !== 'GK') continue; // baru saja dilewati
+      if (b.cool > (b.p.slot === 'GK' ? 1 : 0.5)) continue; // baru saja dilewati / kiper masih terjatuh
       const hands = b.p.slot === 'GK' && this.inBox(b.side, b.x, b.y);
       const reach = hands ? 1.5 + b.p.a.aer * 0.02 : 1.0 + b.p.a.agi * 0.01;
       const zMax = hands ? 2.4 + b.p.a.aer * 0.03 : 1.3 + (b.p.a.hea + b.p.a.jmp) * 0.025;
@@ -1439,6 +1464,79 @@ export class Match {
     this.kick(b, tx, ty, true, 0.18 + (20 - b.p.a.hea) * 0.012, -0.2);
     this.ball.z = 1.8;
     b.cool = 0.4;
+  }
+
+  /** Tembakan sedikit terbelokkan kaki bek: arah berubah menjauhi gawang, bola melambat */
+  private nick(o: Body) {
+    const ball = this.ball;
+    this.lastTouch = o;
+    const goalX = ball.vx > 0 ? PITCH_W : 0;
+    const ang = this.rng.float(0.08, 0.25);
+    let best: [number, number] = [ball.vx, ball.vy];
+    let far = -1;
+    for (const a of [ang, -ang]) {
+      const vx = (ball.vx * Math.cos(a) - ball.vy * Math.sin(a)) * 0.8;
+      const vy = (ball.vx * Math.sin(a) + ball.vy * Math.cos(a)) * 0.8;
+      const tLine = (goalX - ball.x) / (vx || 1e-6);
+      const yc = tLine > 0 ? Math.abs(ball.y + vy * tLine - 34) : 99;
+      if (yc > far) {
+        far = yc;
+        best = [vx, vy];
+      }
+    }
+    [ball.vx, ball.vy] = best;
+    ball.vz *= 0.7;
+  }
+
+  /**
+   * Rangka gawang untuk bola yang bukan gol: jaring samping, atap, dan jaring belakang menahan bola,
+   * jadi bola melenceng tidak terlihat "masuk" ke dalam gawang.
+   */
+  private goalFrame(px: number, py: number, pz: number) {
+    const ball = this.ball;
+    const gx = ball.x < PITCH_W / 2 ? 0 : PITCH_W;
+    const out = gx === 0 ? -1 : 1;
+    const inGoal = (x: number, y: number, z: number) => {
+      const depth = (x - gx) * out;
+      return depth > 0 && depth <= NET_DEPTH && Math.abs(y - 34) < GOAL_HALF && z < BAR;
+    };
+    const was = inGoal(px, py, pz);
+    const now = inGoal(ball.x, ball.y, ball.z);
+    if (was === now) return;
+    const pDepth = (px - gx) * out;
+    if (now) {
+      // masuk lewat mulut gawang: urusan cek gol
+      if (pDepth <= 0) {
+        const f = (gx - px) / (ball.x - px || 1);
+        if (Math.abs(py + (ball.y - py) * f - 34) < GOAL_HALF && pz + (ball.z - pz) * f < BAR) return;
+      }
+      if (pz >= BAR) {
+        // jatuh di atap jaring lalu menggelinding ke belakang
+        ball.z = BAR + 0.02;
+        ball.vz = Math.abs(ball.vz) * 0.2;
+        ball.vx = out * Math.max(Math.abs(ball.vx) * 0.5, 2);
+        ball.vy *= 0.5;
+      } else if (Math.abs(py - 34) >= GOAL_HALF) {
+        // kena jaring samping dari luar
+        const sy = Math.sign(py - 34);
+        ball.y = 34 + sy * (GOAL_HALF + 0.12);
+        ball.vy = sy * Math.abs(ball.vy) * 0.15;
+        ball.vx *= 0.35;
+      } else {
+        // kena jaring belakang dari luar
+        ball.x = gx + out * (NET_DEPTH + 0.12);
+        ball.vx = out * Math.abs(ball.vx) * 0.15;
+        ball.vy *= 0.4;
+      }
+    } else if (was && (ball.x - gx) * out > 0) {
+      // bola mati yang sudah di dalam gawang tertahan jaring
+      ball.x = gx + out * clamp((ball.x - gx) * out, 0.2, NET_DEPTH - 0.15);
+      ball.y = clamp(ball.y, 34 - GOAL_HALF + 0.15, 34 + GOAL_HALF - 0.15);
+      ball.z = Math.min(ball.z, BAR - 0.15);
+      ball.vx *= -0.2;
+      ball.vy *= 0.3;
+      ball.vz = Math.min(ball.vz, 0);
+    }
   }
 
   private deflect(b: Body, speed: number) {
@@ -1798,9 +1896,10 @@ function stepBall(x: number, y: number, z: number, vx: number, vy: number, vz: n
     if (z <= 0) {
       z = 0;
       if (vz < -2) {
-        vz = -vz * 0.45;
-        vx *= 0.8;
-        vy *= 0.8;
+        // memantul: kehilangan banyak kecepatan di rumput
+        vz = -vz * 0.4;
+        vx *= 0.62;
+        vy *= 0.62;
       } else vz = 0;
     }
   } else {
