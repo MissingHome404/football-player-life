@@ -87,6 +87,10 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
       return `Tembakan ${e.name} melenceng`;
     case 'sub':
       return `🔁 ${e.name} masuk menggantikan ${e.assist} (${team})`;
+    case 'yellow':
+      return `🟨 Kartu kuning: ${e.name} (${team})`;
+    case 'red':
+      return e.second ? `🟨🟥 Kartu kuning kedua, ${e.name} diusir! (${team})` : `🟥 Kartu merah langsung: ${e.name} (${team})`;
     case 'half':
       return 'Turun minum';
     case 'full':
@@ -96,7 +100,7 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
   }
 }
 
-const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full']);
+const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red']);
 
 const RESTART_TEXT: Record<string, string> = {
   throw: 'Lemparan ke dalam',
@@ -688,6 +692,11 @@ function Summary({
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => closeRef.current?.focus(), []);
   const goals = result.events.filter((e) => e.kind === 'goal');
+  const cards = (side: 0 | 1) => {
+    const y = result.events.filter((e) => e.side === side && e.kind === 'yellow').length;
+    const r = result.events.filter((e) => e.side === side && e.kind === 'red').length;
+    return `🟨 ${y}${r ? ` 🟥 ${r}` : ''}`;
+  };
   const st = meId ? result.stats[meId] : undefined;
   const rating = meId ? result.ratings[meId] : undefined;
   const mins = st ? Math.max(1, Math.round((((st.off ?? FULL) - st.on) / FULL) * 90)) : 0;
@@ -724,6 +733,7 @@ function Summary({
                 {st.shots > 0 && ` · tembakan ${st.onTarget}/${st.shots} tepat sasaran`}
                 {st.tackles > 0 && ` · tekel ${st.tackles}`}
                 {st.saves > 0 && ` · penyelamatan ${st.saves}`}
+                {st.red > 0 ? ' · 🟥 kartu merah' : st.yellow > 0 ? ' · 🟨 kartu kuning' : ''}
               </span>
               {result.motm === meId && <span className="pill ok">Man of the Match</span>}
             </div>
@@ -749,6 +759,25 @@ function Summary({
                 <td className="num">{result.onTarget[0]}</td>
                 <th>Tepat sasaran</th>
                 <td className="num">{result.onTarget[1]}</td>
+              </tr>
+              {result.corners && (
+                <tr>
+                  <td className="num">{result.corners[0]}</td>
+                  <th>Sepak pojok</th>
+                  <td className="num">{result.corners[1]}</td>
+                </tr>
+              )}
+              {result.fouls && (
+                <tr>
+                  <td className="num">{result.fouls[0]}</td>
+                  <th>Pelanggaran</th>
+                  <td className="num">{result.fouls[1]}</td>
+                </tr>
+              )}
+              <tr>
+                <td className="num">{cards(0)}</td>
+                <th>Kartu</th>
+                <td className="num">{cards(1)}</td>
               </tr>
             </tbody>
           </table>

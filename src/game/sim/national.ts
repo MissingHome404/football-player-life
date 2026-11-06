@@ -24,7 +24,7 @@ import { addDays, yearOf } from '../date';
 import { ageOn } from '../gen/player';
 import { simScore, topEleven } from './season';
 import { addStats, engineGame, groupOf, recentForm } from './match';
-import type { EngineInput } from './engine';
+import { nationStyle, type EngineInput } from './engine';
 import type { NatPlayed } from './awards';
 
 export const SQUAD_SIZE = 23;
@@ -420,7 +420,7 @@ export function nationalWeek(
     }
   };
 
-  const playUser = (f: IntlFixture, team: NatTeam, stage: string, knockout: boolean): [number, number] => {
+  const playUser = (f: IntlFixture, team: NatTeam, stage: string, knockout: boolean, neutral = false): [number, number] => {
     const home = f.home === country;
     const opp = home ? f.away : f.home;
     const squad = nationalSquad(world, country, team, f.date, p, career).filter((q) => !q.isUser);
@@ -432,9 +432,10 @@ export function nationalWeek(
       career,
       status,
       rng,
-      ours: { id: country, name: `${cname}${suffix}`, colors: kitOf(country), squad },
-      theirs: { id: opp, name: `${countryName(opp)}${suffix}`, colors: kitOf(opp), squad: theirs },
+      ours: { id: country, name: `${cname}${suffix}`, colors: kitOf(country), squad, style: nationStyle(country) },
+      theirs: { id: opp, name: `${countryName(opp)}${suffix}`, colors: kitOf(opp), squad: theirs, style: nationStyle(opp) },
       home,
+      neutral,
       seed: `${career.characterSeed}:${f.date}:${country}:${team}`,
       feats: team === 'senior',
     });
@@ -540,7 +541,7 @@ export function nationalWeek(
         const mine = f.home === country || f.away === country;
         const stage = `${t.name} · ${ko ? STAGE_NAME[f.stage] : `Grup ${f.stage}`}`;
         lastEngine = undefined;
-        if (mine && nc.called === 'senior' && nc.calledFor === t.id && !career.injury) f.score = playUser(f, 'senior', stage, ko);
+        if (mine && nc.called === 'senior' && nc.calledFor === t.id && !career.injury) f.score = playUser(f, 'senior', stage, ko, true);
         else {
           f.score = quickScore(world, f);
           if (ko && f.score[0] === f.score[1]) f.pens = penalties(new Rng(`${world.seed}:pens:${f.date}:${f.home}`), f.home, f.away, world);

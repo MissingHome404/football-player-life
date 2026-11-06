@@ -2,7 +2,7 @@
 // dipilih pelatih atau tidak, berapa menit, rating, gol, dan assist.
 
 import type { Position } from '../data/attributes';
-import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, SeasonStat, World } from '../types';
+import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, PlayingStyle, SeasonStat, World } from '../types';
 import { Rng, clamp } from '../rng';
 import { simScore, squadOf, topEleven, type WeekMatches } from './season';
 import { FULL, engineAttrs, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type ETeam } from './engine';
@@ -132,6 +132,8 @@ export interface GameSide {
   name: string;
   colors: readonly [string, string] | string[];
   squad: Player[];
+  /** gaya main pelatih (klub) atau gaya tetap tim nasional */
+  style?: PlayingStyle;
 }
 
 /**
@@ -149,6 +151,8 @@ export function engineGame(o: {
   seed: string;
   /** hitung jenis gol untuk syarat lencana (hanya laga senior) */
   feats?: boolean;
+  /** lapangan netral (turnamen): tanpa keunggulan kandang */
+  neutral?: boolean;
 }): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord>; result: EngineResult } {
   const { p, career, status, rng, home } = o;
   const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
@@ -158,7 +162,7 @@ export function engineGame(o: {
     applyBadges(user.a, career.badges);
     for (const k of ['pace', 'acc', 'sta'] as const) user.a[k] *= fit;
   }
-  const ourTeam: ETeam = { id: o.ours.id, name: o.ours.name, color: o.ours.colors[0], color2: o.ours.colors[1], xi: xiOurs.xi };
+  const ourTeam: ETeam = { id: o.ours.id, name: o.ours.name, color: o.ours.colors[0], color2: o.ours.colors[1], xi: xiOurs.xi, style: o.ours.style };
   if (status === 'Cadangan' && rng.chance(0.45)) {
     const mins = rng.int(5, 35);
     const a = engineAttrs(p);
@@ -173,8 +177,10 @@ export function engineGame(o: {
     color: o.theirs.colors[0],
     color2: o.theirs.colors[1],
     xi: pickXI(o.theirs.squad, undefined, false).xi,
+    style: o.theirs.style,
   };
   const sim: EngineInput = { seed: o.seed, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
+  if (o.neutral) sim.neutral = true;
   const r = playEngine(sim);
   const us = home ? 0 : 1;
   const score: [number, number] = [r.score[us], r.score[1 - us]];
@@ -312,8 +318,14 @@ export function userMatch(
       career,
       status,
       rng,
-      ours: { id: club.id, name: comp === 'U19' ? `${club.name} U19` : club.name, colors: club.colors, squad: ours },
-      theirs: { id: oppClub.id, name: comp === 'U19' ? `${oppClub.name} U19` : oppClub.name, colors: oppClub.colors, squad: oppSquad },
+      ours: { id: club.id, name: comp === 'U19' ? `${club.name} U19` : club.name, colors: club.colors, squad: ours, style: club.playingStyle },
+      theirs: {
+        id: oppClub.id,
+        name: comp === 'U19' ? `${oppClub.name} U19` : oppClub.name,
+        colors: oppClub.colors,
+        squad: oppSquad,
+        style: oppClub.playingStyle,
+      },
       home,
       seed: `${career.characterSeed}:${date}:${club.id}`,
       feats: comp === 'Liga',

@@ -95,6 +95,43 @@ describe('match engine', () => {
     expect((afterMiss.goalkick ?? 0) + (afterMiss.corner ?? 0)).toBeGreaterThanOrEqual(Object.values(afterMiss).reduce((a, b) => a + b, 0) - 1);
   }, 30_000);
 
+  it('versi 4: kartu, sepak pojok, gaya main, dan lapangan netral', () => {
+    let yellow = 0;
+    let red = 0;
+    let corners = 0;
+    let cbShots = 0;
+    for (let i = 0; i < 24; i++) {
+      const home = { ...team(eng[i % 10].id), style: 'Wing Play' as const };
+      const away = { ...team(eng[10 + (i % 10)].id), style: 'Defensive' as const };
+      const m = new Match({ seed: `v4-${i}`, home, away });
+      const r = m.run();
+      corners += r.corners[0] + r.corners[1];
+      for (const e of r.events) {
+        if (e.kind === 'yellow') yellow++;
+        if (e.kind !== 'red') continue;
+        red++;
+        // pemain yang diusir keluar lapangan dan tidak kembali
+        const b = m.bodies.find((q) => q.p.name === e.name && q.side === e.side)!;
+        expect(b.on).toBe(false);
+        expect(b.st.off).toBeCloseTo(e.t, 5);
+        expect(r.ratings[b.p.id]).toBeLessThanOrEqual(6);
+      }
+      for (const b of m.bodies) if (b.p.slot.endsWith('CB')) cbShots += b.st.shots;
+    }
+    expect(yellow).toBeGreaterThan(12);
+    expect(red).toBeLessThan(yellow);
+    expect(corners / 24).toBeGreaterThan(1.2);
+    expect(cbShots).toBeGreaterThan(0); // bek tengah naik saat sepak pojok
+    // gaya main dan lapangan netral mengubah jalannya laga, tetap deterministik
+    const base: EngineInput = { seed: 'gaya', home: team(eng[2].id), away: team(eng[3].id) };
+    const a = playEngine(base);
+    const styled = playEngine({ ...base, home: { ...base.home, style: 'Possession' } });
+    const neutral = playEngine({ ...base, neutral: true });
+    expect(styled.events).not.toEqual(a.events);
+    expect(neutral.events).not.toEqual(a.events);
+    expect(playEngine({ ...base, neutral: true })).toEqual(neutral);
+  });
+
   it('pemain cadangan masuk di menit yang ditentukan', () => {
     const home = team(eng[2].id);
     const benchP = squadOf(w, eng[2].id).find((p) => !p.isYouth && !home.xi.some((e) => e.id === p.id))!;
