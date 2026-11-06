@@ -11,6 +11,9 @@ import { groupOf } from '../game/sim/match';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import { downloadCareerCsv } from './csv';
 import type { HofEntry, RetireReason } from '../game/types';
+import { POSITIONS, POSITION_LABEL, type Position } from '../game/data/attributes';
+import { heirGap, heirKind, heirWealth } from '../game/sim/dynasty';
+import { FAMILY_INFO } from '../game/gen/character';
 
 const REASON_LABEL: Record<RetireReason, string> = {
   pilihan: 'pilihan sendiri',
@@ -133,6 +136,8 @@ export function RetirementView() {
         </div>
       </div>
 
+      <NextGeneration />
+
       <div className="rt-actions">
         <button className="primary" onClick={() => downloadCareerCsv(world, career, p)}>
           Unduh statistik untuk FM (CSV)
@@ -146,6 +151,52 @@ export function RetirementView() {
         dengan layar FM), personality, dan hidden attributes, jadi bisa langsung diketik ke save Football Manager.
       </p>
     </section>
+  );
+}
+
+/** Lanjutkan sebagai anak atau keponakan di dunia beberapa tahun kemudian */
+function NextGeneration() {
+  const career = useGame((s) => s.career)!;
+  const idx = useGame((s) => s.idx)!;
+  const start = useGame((s) => s.startNextGen);
+  const [pos, setPos] = useState<Position | ''>('');
+  const p = idx.playerById.get(career.playerId)!;
+  const kind = heirKind(career);
+  const gap = heirGap(career);
+  const year = Number(career.retired!.date.slice(0, 4)) + gap;
+  const gen = (career.dynasty?.generation ?? 1) + 1;
+  const who = kind === 'anak' ? 'anakmu' : 'keponakanmu';
+  return (
+    <div className="rt-nextgen">
+      <h3>Generasi berikutnya</h3>
+      <p className="small">
+        Lanjutkan kisah keluarga {p.lastName} sebagai <b>{who}</b> (generasi ke-{gen}). Dunia maju {gap} tahun ke musim {year}/
+        {String(year + 1).slice(2)}: klubnya sama, pemainnya generasi baru, dan sejarah juara tetap tercatat.
+      </p>
+      <p className="muted small">
+        {kind === 'anak'
+          ? 'Anakmu mewarisi nama keluarga, sebagian bakat dari puncak kemampuanmu, tinggi badan, kaki terkuat, dan sebagian watak (determination, profesionalisme, ambisi).'
+          : 'Kamu belum menikah, jadi yang meneruskan adalah keponakanmu: warisan bakat dan watak lebih kecil dari seorang anak.'}{' '}
+        Keluarga mulai dengan status {FAMILY_INFO[heirWealth(career)].label.toLowerCase()} dari uang dan tabunganmu, dan nama besarmu membawa
+        sedikit reputasi serta pengikut media sosial.
+      </p>
+      <div className="rt-nextgen-row">
+        <label className="small">
+          Posisi:{' '}
+          <select value={pos} onChange={(e) => setPos(e.target.value as Position | '')}>
+            <option value="">Acak</option>
+            {POSITIONS.map((x) => (
+              <option key={x} value={x}>
+                {POSITION_LABEL[x]} ({x})
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="primary" onClick={() => void start(pos || undefined)}>
+          Mulai karier {who}
+        </button>
+      </div>
+    </div>
   );
 }
 

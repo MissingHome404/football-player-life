@@ -66,10 +66,16 @@ export interface GenerateOptions {
   seed: string;
   /** id liga yang aktif (disimulasikan penuh). Kosong = semua aktif. */
   activeLeagues?: string[];
+  /** tanggal mulai dunia (default 1 Juli 2026); generasi berikutnya dimulai bertahun-tahun kemudian */
+  startDate?: string;
+  /** generasi ke-n: klub sama, tapi pemain dan staf generasi baru (nama baru) */
+  era?: number;
 }
 
 export function generateWorld(opts: GenerateOptions): World {
   const root = new Rng(opts.seed);
+  const start = opts.startDate ?? START_DATE;
+  const year = Number(start.slice(0, 4));
   const active = new Set(opts.activeLeagues ?? LEAGUES.map((l) => l.id));
   const leagues: League[] = [];
   const clubs: Club[] = [];
@@ -119,7 +125,7 @@ export function generateWorld(opts: GenerateOptions): World {
         id: managerId,
         ...mgrName,
         nationalityId: mgrCountry,
-        birthDate: `${2026 - mgrAge}-${String(rng.int(1, 12)).padStart(2, '0')}-${String(rng.int(1, 28)).padStart(2, '0')}`,
+        birthDate: `${year - mgrAge}-${String(rng.int(1, 12)).padStart(2, '0')}-${String(rng.int(1, 28)).padStart(2, '0')}`,
         role: 'Manager',
         clubId,
         reputation: clamp(Math.round(rep * 0.8 + rng.normal(0, 6)), 1, 100),
@@ -173,7 +179,7 @@ export function generateWorld(opts: GenerateOptions): World {
               position: pos,
               age,
               targetCA: age <= 21 ? ca - rng.int(0, 15) : ca,
-              refDate: START_DATE,
+              refDate: start,
             }),
           );
         }
@@ -189,7 +195,7 @@ export function generateWorld(opts: GenerateOptions): World {
           position: pos,
           age,
           targetCA: ca,
-          refDate: START_DATE,
+          refDate: start,
           isYouth: true,
         });
         // Akademi bagus = peluang talenta besar
@@ -201,20 +207,20 @@ export function generateWorld(opts: GenerateOptions): World {
       const seniors = squad.filter((p) => !p.isYouth).sort((a, b) => b.ca - a.ca);
       let wageTotal = 0;
       seniors.forEach((p, rank) => {
-        const age = 2026 - Number(p.birthDate.slice(0, 4));
+        const age = year - Number(p.birthDate.slice(0, 4));
         const role = rank < 11 ? 'Inti' : rank < 18 ? 'Rotasi' : age <= 21 ? 'Pemain muda' : 'Pelapis';
         const wage = wageFor(p.ca, league, rep);
         wageTotal += wage;
         p.contract = {
           clubId,
           wagePerWeek: wage,
-          expires: `${2027 + rng.int(0, 4)}-06-30`,
+          expires: `${year + 1 + rng.int(0, 4)}-06-30`,
           role,
         };
       });
       for (const p of squad.filter((x) => x.isYouth)) {
         const wage = roundNice(Math.max(20, wageFor(p.ca, league, rep) * 0.3));
-        p.contract = { clubId, wagePerWeek: wage, expires: `${2027 + rng.int(0, 2)}-06-30`, role: 'Pemain muda' };
+        p.contract = { clubId, wagePerWeek: wage, expires: `${year + 1 + rng.int(0, 2)}-06-30`, role: 'Pemain muda' };
       }
       club.finances.wageBudget = roundNice(wageTotal * rng.float(1.02, 1.15));
 
@@ -236,7 +242,7 @@ export function generateWorld(opts: GenerateOptions): World {
   const world: World = {
     seed: opts.seed,
     version: WORLD_VERSION,
-    startDate: START_DATE,
+    startDate: start,
     countries: COUNTRIES,
     leagues,
     clubs,
@@ -246,6 +252,12 @@ export function generateWorld(opts: GenerateOptions): World {
     honours: [],
   };
   // Jadwal musim pertama; liga yang musimnya sudah berjalan langsung punya hasil pekan-pekan awal
-  world.seasons = createSeasons(world, START_DATE, root.fork('seasons'));
+  world.seasons = createSeasons(world, start, root.fork('seasons'));
+  if (opts.era) {
+    // generasi baru: orang-orangnya berbeda dari dunia generasi sebelumnya
+    const er = new Rng(`${opts.seed}:era${opts.era}`);
+    for (const p of world.players) Object.assign(p, generateName(er, p.nationalityId));
+    for (const st of world.staff) Object.assign(st, generateName(er, st.nationalityId));
+  }
   return world;
 }

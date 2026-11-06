@@ -138,6 +138,12 @@ export function CareerHome({ children }: { children: ReactNode }) {
             {ORIGIN_INFO[career.origin].label} · {FAMILY_INFO[career.family.wealth].label}
           </b>
           <div className="muted small">Dukungan keluarga {career.family.support}/20</div>
+          {career.dynasty && career.dynasty.ancestors.length > 0 && (
+            <div className="muted small" title={career.dynasty.ancestors.map((a) => `${a.name} (${a.years}, ${a.tier})`).join(' → ')}>
+              Generasi ke-{career.dynasty.generation} · {career.dynasty.ancestors[career.dynasty.ancestors.length - 1].relation === 'orang tua' ? 'anak' : 'keponakan'}{' '}
+              {career.dynasty.ancestors[career.dynasty.ancestors.length - 1].name}
+            </div>
+          )}
         </div>
       </section>
 

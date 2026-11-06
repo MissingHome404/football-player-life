@@ -559,3 +559,8 @@ input { font: inherit; }
 .social-deals li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .social-deals .num { margin-left: auto; }
 .social-posts li { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+
+/* generasi berikutnya */
+.rt-nextgen { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.rt-nextgen h3 { margin-top: 0; }
+.rt-nextgen-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }

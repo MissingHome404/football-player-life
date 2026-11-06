@@ -401,6 +401,8 @@ export interface Career {
   injuries?: InjuryRecord[];
   /** media sosial & sponsor (dibuat saat pertama dibutuhkan) */
   social?: Social;
+  /** generasi keluarga: 1 = pemain pertama; pendahulu dari yang tertua */
+  dynasty?: { generation: number; ancestors: DynastyMember[] };
   /** masa rawan setelah kembali dari cedera: sisa minggu, pengali risiko cedera, bagian tubuh */
   fragile?: { weeks: number; factor: number; part: InjuryPart };
   /** sisa laga skorsing: klub (liga/U19/amatir) dan timnas */
@@ -607,6 +609,16 @@ export interface SponsorDeal {
   until: string;
   /** 0 lokal, 1 nasional, 2 global */
   tier: number;
+}
+/** Pendahulu di keluarga (generasi berikutnya) */
+export interface DynastyMember {
+  name: string;
+  years: string;
+  legacy: number;
+  tier: string;
+  position: string;
+  relation: 'orang tua' | 'paman';
+  peakFollowers?: number;
 }
 /** Media sosial dan sponsor pemain kita */
 export interface Social {

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { World, Player, Club, Career, WeekPlan, AgentTier } from '../game/types';
+import type { Position } from '../game/data/attributes';
 import type { CharacterRoll } from '../game/gen/character';
 import type { GenerateOptions } from '../game/gen/world';
 import type { SaveSummary } from '../game/save/codec';
@@ -47,6 +48,8 @@ interface State {
   devMode: boolean;
   career: Career | null;
   startCareer: (roll: CharacterRoll, rerolls: number) => void;
+  /** setelah pensiun: lanjutkan sebagai anak/keponakan di dunia beberapa tahun kemudian */
+  startNextGen: (position?: Position) => Promise<void>;
   generate: (opts: GenerateOptions) => void;
   go: (v: View) => void;
   back: () => void;
@@ -153,6 +156,28 @@ export const useGame = create<State>((set, get) => ({
     });
     window.scrollTo(0, 0);
     void get().saveNow(); // simpan otomatis di awal karier
+  },
+  startNextGen: async (position) => {
+    const { world, career } = get();
+    if (!world || !career?.retired) return;
+    set({ busy: 'Menyiapkan generasi berikutnya…' });
+    try {
+      // dunia baru dibuat di thread utama (sekali saja); beri waktu layar menampilkan teks "memuat"
+      await new Promise((r) => setTimeout(r, 30));
+      const { nextGeneration, heirSocial } = await import('../game/sim/dynasty');
+      const parent = world.players.find((p) => p.id === career.playerId)!;
+      const r = nextGeneration(world, career, parent, position);
+      const w: World = { ...r.world, players: [...r.world.players, r.roll.player] };
+      const c = newCareer(r.roll, 0, newSaveId(), w.startDate);
+      c.rel = initRelations(w, c, r.roll.player);
+      c.dynasty = r.dynasty;
+      c.social = heirSocial(career, r.roll.player);
+      set({ world: w, idx: buildIndexes(w), career: c, view: { kind: 'me' }, history: [], watching: false, busy: null });
+      window.scrollTo(0, 0);
+      void get().saveNow();
+    } catch (e) {
+      set({ busy: null, message: `Gagal membuat generasi berikutnya: ${(e as Error).message}` });
+    }
   },
   generate: (opts) => {
     set({ generating: true });
