@@ -1,9 +1,15 @@
 import { useMemo, useState } from 'react';
-import { useGame, useToday } from './store';
+import { useGame, useToday, type LeagueTab, type View } from './store';
 import { Badge, Flag, Stars, AttrBlock, RolePanel, roleHighlight, caStars, money, num } from './components';
 import { ROLES } from '../game/data/roles';
 import { SaveControls } from './SavePanel';
-import { CareerHome } from './CareerHome';
+import { HomeView, InboxView, MatchesView, PlanView } from './CareerHome';
+import { TransferPanel } from './TransferPanel';
+import { RelationsPanel } from './RelationsPanel';
+import { AwardsPanel } from './AwardsPanel';
+import { NationalView } from './NationalView';
+import { LeagueHistory, LeagueStats, StatsView } from './StatsView';
+import { SearchView } from './SearchView';
 import { LifeView } from './LifeView';
 import { ContinentalView } from './ContinentalView';
 import { NamesView, RenameButton } from './NamesView';
@@ -30,134 +36,333 @@ import {
 import { ageOn } from '../game/gen/player';
 import { fullName, shortName } from '../game/gen/names';
 import { personalityLabel, PERSONALITY_INFO } from '../game/gen/personality';
-import type { Club, League, Player } from '../game/types';
+import type { Club, Player } from '../game/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const POS_ORDER = Object.fromEntries(POSITIONS.map((p, i) => [p, i])) as Record<Position, number>;
 
+type NavItem = { key: string; icon: string; label: string; to: View; on: boolean; count?: number; hide?: boolean };
+
+/** Kerangka game: topbar (judul halaman + tombol Lanjut), menu samping, dan menu bawah di HP. */
 export function WorldBrowser() {
   const world = useGame((s) => s.world)!;
   const view = useGame((s) => s.view)!;
   const go = useGame((s) => s.go);
   const back = useGame((s) => s.back);
   const history = useGame((s) => s.history);
-  const reset = useGame((s) => s.reset);
-  const devMode = useGame((s) => s.devMode);
-  const toggleDev = useGame((s) => s.toggleDev);
-  const genMs = useGame((s) => s.genMs);
   const career = useGame((s) => s.career);
-  const pending = career ? pendingChoices(career).length + career.offers.length : 0;
+  const idx = useGame((s) => s.idx)!;
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const currentLeague =
-    view.kind === 'league'
-      ? view.leagueId
-      : view.kind === 'club'
-        ? world.clubs.find((c) => c.id === view.clubId)?.leagueId
-        : undefined;
+  const user = career ? idx.playerById.get(career.playerId) : undefined;
+  const myClub = user?.contract ? idx.clubById.get(user.contract.clubId) : undefined;
+  const myLeague = myClub?.leagueId ?? world.leagues.find((l) => l.countryId === user?.nationalityId && l.division === 1)?.id;
+  const pending = career ? pendingChoices(career).length : 0;
+  const retired = !!career?.retired;
+  const k = view.kind;
 
-  const europe = world.leagues.filter((l) => COUNTRY_BY_ID[l.countryId].confederation === 'UEFA');
-  const asia = world.leagues.filter((l) => COUNTRY_BY_ID[l.countryId].confederation === 'AFC');
-
-  const leagueLink = (l: League) => (
-    <button
-      key={l.id}
-      className={`side-item ${currentLeague === l.id ? 'sel' : ''} ${l.active ? '' : 'inactive'}`}
-      onClick={() => {
-        go({ kind: 'league', leagueId: l.id });
-        setMenuOpen(false);
-      }}
-      title={l.active ? 'Liga aktif' : 'Liga versi ringan'}
-    >
-      <Flag id={l.countryId} /> {COUNTRY_BY_ID[l.countryId].name}
-    </button>
-  );
-
-  const contLink = (confed: 'UEFA' | 'AFC') => (
-    <button
-      className={`side-item cont ${view.kind === 'continent' && view.confed === confed ? 'sel' : ''}`}
-      onClick={() => {
-        go({ kind: 'continent', confed });
-        setMenuOpen(false);
-      }}
-    >
-      🏆 Kompetisi {confed === 'UEFA' ? 'Eropa' : 'Asia'}
-    </button>
-  );
+  const groups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Karier',
+      items: [
+        { key: 'me', icon: '🏠', label: 'Beranda', to: { kind: 'me' }, on: k === 'me' },
+        { key: 'inbox', icon: '✉️', label: 'Inbox', to: { kind: 'inbox' }, on: k === 'inbox', count: pending },
+        { key: 'plan', icon: '🏋️', label: 'Latihan & rencana', to: { kind: 'plan' }, on: k === 'plan', hide: retired },
+        { key: 'profile', icon: '👤', label: 'Profil saya', to: { kind: 'profile' }, on: k === 'profile' || (k === 'player' && view.playerId === user?.id) },
+        { key: 'matches', icon: '📅', label: 'Pertandingan', to: { kind: 'matches' }, on: k === 'matches' },
+        { key: 'transfer', icon: '✍️', label: 'Kontrak & transfer', to: { kind: 'transfer' }, on: k === 'transfer', count: career?.offers.length, hide: retired },
+        { key: 'relations', icon: '🤝', label: 'Hubungan', to: { kind: 'relations' }, on: k === 'relations', hide: retired },
+        { key: 'life', icon: '🛍️', label: 'Kehidupan & belanja', to: { kind: 'life' }, on: k === 'life', hide: retired },
+        { key: 'awards', icon: '🏅', label: 'Prestasi', to: { kind: 'awards' }, on: k === 'awards' },
+      ],
+    },
+    {
+      title: 'Sepak bola',
+      items: [
+        ...(myClub
+          ? [{ key: 'club', icon: '🛡️', label: 'Klub saya', to: { kind: 'club', clubId: myClub.id } as View, on: k === 'club' && view.clubId === myClub.id }]
+          : []),
+        ...(myLeague
+          ? [{ key: 'league', icon: '🏟️', label: 'Liga saya', to: { kind: 'league', leagueId: myLeague } as View, on: k === 'league' && view.leagueId === myLeague }]
+          : []),
+        { key: 'national', icon: '🌏', label: 'Timnas', to: { kind: 'national' }, on: k === 'national' },
+        { key: 'stats', icon: '📊', label: 'Statistik & top skor', to: { kind: 'stats' }, on: k === 'stats' },
+        {
+          key: 'comps',
+          icon: '🏆',
+          label: 'Liga & kompetisi',
+          to: { kind: 'comps' },
+          on: k === 'comps' || k === 'continent' || (k === 'league' && view.leagueId !== myLeague),
+        },
+        { key: 'search', icon: '🔎', label: 'Cari pemain', to: { kind: 'search' }, on: k === 'search' },
+      ],
+    },
+    {
+      title: 'Lainnya',
+      items: [
+        { key: 'names', icon: '✏️', label: 'Editor nama', to: { kind: 'names' }, on: k === 'names' },
+        { key: 'settings', icon: '⚙️', label: 'Simpan & pengaturan', to: { kind: 'settings' }, on: k === 'settings' },
+      ],
+    },
+  ];
+  const open = (to: View) => {
+    go(to);
+    setMenuOpen(false);
+  };
+  const bottom: NavItem[] = [
+    groups[0].items[0],
+    groups[0].items[1],
+    retired ? groups[0].items[3] : groups[0].items[2],
+    groups[0].items[4],
+  ];
 
   return (
     <div className="app">
       <header className="topbar">
-        <button className="icon menu-btn" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu">
-          ☰
-        </button>
-        <button className="icon" disabled={!history.length} onClick={back} aria-label="Kembali">
+        <button className="icon back-btn" disabled={!history.length} onClick={back} aria-label="Kembali" title="Kembali">
           ←
         </button>
-        <div className="brand">⚽ Football Player Life</div>
-        <div className="top-meta muted">
-          Seed <b>{world.seed}</b> · {num(world.players.length)} pemain · {world.clubs.length} klub
-          {genMs > 0 && ` · ${genMs} ms`}
+        <div className="top-title">
+          <div className="brand">⚽ Football Player Life</div>
+          {career && (
+            <div className="top-sub muted small">
+              {fullName(user!)} · {myClub?.name ?? career.teamLabel}
+            </div>
+          )}
         </div>
-        <SaveControls />
-        <label className="dev-toggle hide-sm" title="Tampilkan angka tersembunyi (CA, PA, personality, hidden)">
-          <input type="checkbox" checked={devMode} onChange={toggleDev} /> Mode developer
-        </label>
-        <button className="ghost" onClick={reset} title="Kembali ke layar awal (simpan dulu kalau perlu)">
-          Menu utama
-        </button>
+        {career && !retired && <TopStatus />}
+        <div className="save-slot hide-sm">
+          <SaveControls compact />
+        </div>
+        {career && !retired && <ContinueButton />}
       </header>
       <div className="layout">
-        <nav className={`sidebar ${menuOpen ? 'open' : ''}`}>
-          {career && (
-            <button
-              className={`side-item me ${view.kind === 'me' ? 'sel' : ''}`}
-              onClick={() => {
-                go({ kind: 'me' });
-                setMenuOpen(false);
-              }}
-            >
-              ⭐ Karier saya
-              {pending > 0 && <span className="count">{pending}</span>}
-            </button>
-          )}
-          {career && (
-            <button
-              className={`side-item me ${view.kind === 'life' ? 'sel' : ''}`}
-              onClick={() => {
-                go({ kind: 'life' });
-                setMenuOpen(false);
-              }}
-            >
-              🛍️ Kehidupan & belanja
-            </button>
-          )}
-          <button
-            className={`side-item me ${view.kind === 'names' ? 'sel' : ''}`}
-            onClick={() => {
-              go({ kind: 'names' });
-              setMenuOpen(false);
-            }}
-          >
-            ✏️ Editor nama
-          </button>
-          <div className="side-title">Eropa</div>
-          {contLink('UEFA')}
-          {europe.map(leagueLink)}
-          <div className="side-title">Asia</div>
-          {contLink('AFC')}
-          {asia.map(leagueLink)}
+        <nav className={`sidebar ${menuOpen ? 'open' : ''}`} aria-label="Menu utama">
+          {groups.map((g) => (
+            <div key={g.title} className="side-group">
+              <div className="side-title">{g.title}</div>
+              {g.items
+                .filter((it) => !it.hide)
+                .map((it) => (
+                  <button key={it.key} className={`side-item ${it.on ? 'sel' : ''}`} onClick={() => open(it.to)} aria-current={it.on ? 'page' : undefined}>
+                    <span className="side-icon" aria-hidden>
+                      {it.icon}
+                    </span>
+                    <span className="side-label">{it.label}</span>
+                    {!!it.count && <span className="count">{it.count}</span>}
+                  </button>
+                ))}
+            </div>
+          ))}
         </nav>
+        {menuOpen && <div className="scrim" onClick={() => setMenuOpen(false)} />}
         <main className="main">
-          {view.kind === 'league' && <LeagueView leagueId={view.leagueId} />}
-          {view.kind === 'club' && <ClubView clubId={view.clubId} />}
-          {view.kind === 'player' && <PlayerView key={view.playerId} playerId={view.playerId} />}
-          {view.kind === 'me' && career && <MyCareerView />}
-          {view.kind === 'life' && career && <LifeView />}
-          {view.kind === 'continent' && <ContinentalView key={view.confed} confed={view.confed} />}
-          {view.kind === 'names' && <NamesView key={view.edit ? `${view.edit.kind}:${view.edit.id}` : 'all'} edit={view.edit} />}
+          {k === 'me' && career && <HomeView />}
+          {k === 'inbox' && career && <InboxView key={view.id ?? 'inbox'} id={view.id} />}
+          {k === 'plan' && career && <PlanView />}
+          {k === 'profile' && career && <MyProfile />}
+          {k === 'matches' && career && <MatchesView />}
+          {k === 'transfer' && career && <TransferPanel />}
+          {k === 'relations' && career && <RelationsPanel />}
+          {k === 'awards' && career && <AwardsPanel />}
+          {k === 'life' && career && <LifeView />}
+          {k === 'national' && <NationalView key={view.countryId ?? 'mine'} countryId={view.countryId} />}
+          {k === 'stats' && <StatsView key={view.leagueId ?? 'mine'} leagueId={view.leagueId} />}
+          {k === 'search' && <SearchView />}
+          {k === 'comps' && <CompetitionsView myLeague={myLeague} />}
+          {k === 'settings' && <SettingsView />}
+          {k === 'league' && <LeagueView key={view.leagueId} leagueId={view.leagueId} tab={view.tab} />}
+          {k === 'club' && <ClubView key={view.clubId} clubId={view.clubId} />}
+          {k === 'player' && <PlayerView key={view.playerId} playerId={view.playerId} />}
+          {k === 'continent' && <ContinentalView key={view.confed} confed={view.confed} />}
+          {k === 'names' && <NamesView key={view.edit ? `${view.edit.kind}:${view.edit.id}` : 'all'} edit={view.edit} />}
         </main>
       </div>
+      <nav className="bottom-nav" aria-label="Menu cepat">
+        {bottom.map((it) => (
+          <button key={it.key} className={it.on ? 'sel' : ''} onClick={() => open(it.to)}>
+            <span aria-hidden>{it.icon}</span>
+            <span>{it.label.split(' ')[0]}</span>
+            {!!it.count && <span className="count">{it.count}</span>}
+          </button>
+        ))}
+        <button className={menuOpen ? 'sel' : ''} onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>
+          <span aria-hidden>☰</span>
+          <span>Menu</span>
+        </button>
+      </nav>
+    </div>
+  );
+}
+
+/** Tanggal + uang ringkas di topbar */
+function TopStatus() {
+  const career = useGame((s) => s.career)!;
+  const d = new Date(career.currentDate + 'T00:00:00Z');
+  return (
+    <div className="top-status">
+      <div className="ts-date">
+        <b>{d.toLocaleDateString('id-ID', { weekday: 'short', timeZone: 'UTC' })}</b>{' '}
+        {d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}
+      </div>
+      <div className={`ts-money small ${career.money < 0 ? 'loss' : 'muted'}`}>{money(career.money)}</div>
+    </div>
+  );
+}
+
+/** Tombol Lanjut seperti di game manajer: selalu terlihat. Kalau ada pesan wajib, membuka inbox. */
+function ContinueButton() {
+  const career = useGame((s) => s.career)!;
+  const nextWeek = useGame((s) => s.nextWeek);
+  const go = useGame((s) => s.go);
+  const busy = useGame((s) => s.busy);
+  const waiting = pendingChoices(career);
+  const pending = waiting.length;
+  if (pending > 0) {
+    return (
+      <button className="primary continue warn-btn" onClick={() => go({ kind: 'inbox', id: waiting[0].id })} title="Jawab dulu pesan yang perlu jawaban">
+        Jawab {pending} pesan
+      </button>
+    );
+  }
+  return (
+    <div className="continue-group">
+      <button className="primary continue" disabled={!!busy} onClick={() => nextWeek(1)} title="Lanjut 1 minggu">
+        Lanjut ▶
+      </button>
+      <button
+        className="primary continue more"
+        disabled={!!busy}
+        onClick={() => nextWeek(4)}
+        title="Lanjut 4 minggu (berhenti lebih awal kalau ada pesan penting atau kamu cedera)"
+        aria-label="Lanjut 4 minggu"
+      >
+        ⏩
+      </button>
+    </div>
+  );
+}
+
+function MyProfile() {
+  const career = useGame((s) => s.career)!;
+  return <PlayerView key={career.playerId} playerId={career.playerId} />;
+}
+
+/** Semua liga, kompetisi benua, dan turnamen antarnegara */
+function CompetitionsView({ myLeague }: { myLeague?: string }) {
+  const world = useGame((s) => s.world)!;
+  const go = useGame((s) => s.go);
+  const regions: { confed: 'UEFA' | 'AFC'; name: string }[] = [
+    { confed: 'UEFA', name: 'Eropa' },
+    { confed: 'AFC', name: 'Asia' },
+  ];
+  return (
+    <div>
+      <div className="page-title">
+        <div>
+          <h1>Semua liga & kompetisi</h1>
+          <div className="muted small">Pilih liga untuk melihat klasemen, piala, klub, pemain, dan statistik.</div>
+        </div>
+      </div>
+      {regions.map((r) => {
+        const leagues = world.leagues.filter((l) => COUNTRY_BY_ID[l.countryId].confederation === r.confed);
+        return (
+          <section key={r.confed} className="panel">
+            <div className="card-head">
+              <h2>{r.name}</h2>
+              <button className="ghost small" onClick={() => go({ kind: 'continent', confed: r.confed })}>
+                🏆 Kompetisi antarklub {r.name}
+              </button>
+            </div>
+            <div className="comp-grid">
+              {leagues.map((l) => (
+                <button
+                  key={l.id}
+                  className={`comp-card ${l.id === myLeague ? 'mine' : ''} ${l.active ? '' : 'inactive'}`}
+                  onClick={() => go({ kind: 'league', leagueId: l.id })}
+                >
+                  <span className="comp-flag" aria-hidden>
+                    <Flag id={l.countryId} />
+                  </span>
+                  <span className="comp-text">
+                    <b>{l.name}</b>
+                    <span className="muted small">
+                      {COUNTRY_BY_ID[l.countryId].name} · Divisi {l.division}
+                      {!l.active && ' · versi ringan'}
+                      {l.id === myLeague && ' · ligamu'}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+      <section className="panel">
+        <div className="card-head">
+          <h2>Antarnegara</h2>
+          <button className="ghost small" onClick={() => go({ kind: 'national' })}>
+            🌏 Timnas, kualifikasi & turnamen
+          </button>
+        </div>
+        <p className="muted small">
+          {world.intl?.tournament
+            ? `${world.intl.tournament.name}${world.intl.tournament.champion ? ' sudah selesai' : ' sedang berlangsung'}.`
+            : 'Kualifikasi Piala Dunia, Euro, dan Piala Asia berjalan di jeda internasional.'}
+        </p>
+      </section>
+    </div>
+  );
+}
+
+/** Simpan, ekspor, mode developer, dan info dunia */
+function SettingsView() {
+  const world = useGame((s) => s.world)!;
+  const reset = useGame((s) => s.reset);
+  const devMode = useGame((s) => s.devMode);
+  const toggleDev = useGame((s) => s.toggleDev);
+  const autoWatch = useGame((s) => s.autoWatch);
+  const setAutoWatch = useGame((s) => s.setAutoWatch);
+  const genMs = useGame((s) => s.genMs);
+  return (
+    <div>
+      <div className="page-title">
+        <div>
+          <h1>Simpan & pengaturan</h1>
+          <div className="muted small">Game tersimpan otomatis tiap minggu. Ekspor untuk memindahkan save ke perangkat lain.</div>
+        </div>
+      </div>
+      <section className="panel settings">
+        <h2>Save</h2>
+        <SaveControls />
+      </section>
+      <section className="panel settings">
+        <h2>Tampilan</h2>
+        <label className="set-row">
+          <input type="checkbox" checked={autoWatch} onChange={(e) => setAutoWatch(e.target.checked)} />
+          <span>
+            <b>Tonton laga otomatis</b>
+            <span className="muted small"> · buka layar pertandingan 2D setelah lanjut 1 minggu</span>
+          </span>
+        </label>
+        <label className="set-row">
+          <input type="checkbox" checked={devMode} onChange={toggleDev} />
+          <span>
+            <b>Mode developer</b>
+            <span className="muted small"> · tampilkan angka tersembunyi (CA, PA, personality, hidden)</span>
+          </span>
+        </label>
+      </section>
+      <section className="panel settings">
+        <h2>Dunia ini</h2>
+        <p className="small muted">
+          Seed <b>{world.seed}</b> · {num(world.players.length)} pemain · {world.clubs.length} klub · {world.leagues.length} liga
+          {genMs > 0 && ` · dibuat dalam ${genMs} ms`}
+        </p>
+        <button className="ghost" onClick={reset} title="Kembali ke layar awal (simpan dulu kalau perlu)">
+          Keluar ke menu utama
+        </button>
+      </section>
     </div>
   );
 }
@@ -171,7 +376,16 @@ function squadStrength(squad: Player[]): number {
   return top.reduce((a, b) => a + b, 0) / Math.max(1, top.length);
 }
 
-function LeagueView({ leagueId }: { leagueId: string }) {
+const LEAGUE_TABS: [LeagueTab, string][] = [
+  ['table', 'Klasemen & jadwal'],
+  ['cup', 'Piala'],
+  ['clubs', 'Klub'],
+  ['players', 'Pemain'],
+  ['stats', 'Statistik & sejarah'],
+];
+
+function LeagueView({ leagueId, tab: initial }: { leagueId: string; tab?: LeagueTab }) {
+  const [tab, setTab] = useState<LeagueTab>(initial ?? 'table');
   const world = useGame((s) => s.world)!;
   const today = useToday();
   const idx = useGame((s) => s.idx)!;
@@ -223,9 +437,17 @@ function LeagueView({ leagueId }: { leagueId: string }) {
         </div>
       </div>
 
-      <SeasonPanel leagueId={leagueId} />
-      <CupPanel leagueId={leagueId} />
+      <div className="tabs page-tabs" role="tablist">
+        {LEAGUE_TABS.map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'sel' : ''} onClick={() => setTab(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
 
+      {tab === 'table' && <SeasonPanel leagueId={leagueId} />}
+      {tab === 'cup' && (world.cups?.[leagueId] ? <CupPanel leagueId={leagueId} /> : <section className="panel muted small">Piala domestik musim ini belum dimulai.</section>)}
+      {tab === 'clubs' && (
       <section className="panel">
         <h2>Klub</h2>
         <div className="table-wrap">
@@ -278,7 +500,8 @@ function LeagueView({ leagueId }: { leagueId: string }) {
           </table>
         </div>
       </section>
-
+      )}
+      {tab === 'players' && (
       <div className="two-col">
         <section className="panel">
           <h2>Pemain terbaik</h2>
@@ -289,6 +512,16 @@ function LeagueView({ leagueId }: { leagueId: string }) {
           <PlayerList players={talents} showClub potential />
         </section>
       </div>
+      )}
+      {tab === 'stats' && (
+        <>
+          <section className="panel">
+            <h2>Statistik pemain</h2>
+            <LeagueStats leagueId={leagueId} />
+          </section>
+          <LeagueHistory leagueId={leagueId} />
+        </>
+      )}
     </div>
   );
 }
@@ -339,7 +572,9 @@ function ClubView({ clubId }: { clubId: string }) {
   const go = useGame((s) => s.go);
   const devMode = useGame((s) => s.devMode);
   const [tab, setTab] = useState<'senior' | 'youth'>('senior');
+  const [page, setPage] = useState<'overview' | 'squad' | 'tactic'>('overview');
   const club = idx.clubById.get(clubId)!;
+  const ledger = world.ledger?.[club.leagueId];
   const league = world.leagues.find((l) => l.id === club.leagueId)!;
   const manager = world.staff.find((s) => s.id === club.managerId)!;
   const squad = (idx.squadByClub.get(clubId) ?? [])
@@ -368,6 +603,22 @@ function ClubView({ clubId }: { clubId: string }) {
         </div>
       </div>
 
+      <div className="tabs page-tabs" role="tablist">
+        {(
+          [
+            ['overview', 'Ikhtisar'],
+            ['squad', 'Skuad'],
+            ['tactic', 'Taktik'],
+          ] as const
+        ).map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={page === k} className={page === k ? 'sel' : ''} onClick={() => setPage(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {page === 'overview' && (
+        <>
       <div className="cards">
         <InfoCard label="Reputasi">
           <Stars value={club.reputation / 20} />
@@ -394,9 +645,12 @@ function ClubView({ clubId }: { clubId: string }) {
       </div>
 
       <ClubFixtures clubId={clubId} />
+        </>
+      )}
 
-      <ClubTactic club={club} squad={idx.squadByClub.get(clubId) ?? []} />
+      {page === 'tactic' && <ClubTactic club={club} squad={idx.squadByClub.get(clubId) ?? []} />}
 
+      {page === 'squad' && (
       <section className="panel">
         <div className="tabs">
           <button className={tab === 'senior' ? 'sel' : ''} onClick={() => setTab('senior')}>
@@ -418,13 +672,20 @@ function ClubView({ clubId }: { clubId: string }) {
                 <th className="hide-sm">Status</th>
                 <th>Kemampuan</th>
                 <th>Potensi</th>
+                <th title="Main musim ini">Main</th>
+                <th title="Gol musim ini">Gol</th>
+                <th className="hide-sm" title="Assist musim ini">Ast</th>
+                <th className="hide-sm" title="Rating rata-rata musim ini">Rat</th>
                 <th className="hide-sm">Gaji/minggu</th>
                 <th className="hide-sm">Kontrak</th>
               </tr>
             </thead>
             <tbody>
-              {squad.map((p) => (
-                <tr key={p.id} className="click" onClick={() => go({ kind: 'player', playerId: p.id })}>
+              {squad.map((p) => {
+                const st = ledger?.rows[p.id];
+                const here = st && st[4] === clubId;
+                return (
+                <tr key={p.id} className={`click ${p.isUser ? 'mine' : ''}`} onClick={() => go({ kind: 'player', playerId: p.id })}>
                   <td>
                     <span className="pos">{p.mainPosition}</span>
                   </td>
@@ -445,14 +706,20 @@ function ClubView({ clubId }: { clubId: string }) {
                     <Stars value={caStars(p.pa)} />
                     {devMode && <span className="muted small"> {p.pa}</span>}
                   </td>
+                  <td className="num">{here ? st[0] : '-'}</td>
+                  <td className="num">{here ? st[1] : '-'}</td>
+                  <td className="hide-sm num">{here ? st[2] : '-'}</td>
+                  <td className="hide-sm num">{here && st[0] ? (st[3] / st[0]).toFixed(2) : '-'}</td>
                   <td className="hide-sm num">{money(p.contract?.wagePerWeek ?? 0)}</td>
                   <td className="hide-sm muted">{p.contract?.expires.slice(0, 4)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
       </section>
+      )}
     </div>
   );
 }
@@ -658,11 +925,3 @@ function PlayerView({ playerId }: { playerId: string }) {
   );
 }
 
-function MyCareerView() {
-  const career = useGame((s) => s.career)!;
-  return (
-    <CareerHome>
-      <PlayerView key={career.playerId} playerId={career.playerId} />
-    </CareerHome>
-  );
-}

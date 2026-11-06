@@ -42,13 +42,10 @@ export function NationalPanel() {
   const career = useGame((s) => s.career)!;
   const world = useGame((s) => s.world)!;
   const idx = useGame((s) => s.idx)!;
-  const [showTable, setShowTable] = useState(false);
-  const [showCup, setShowCup] = useState(false);
   const p = idx.playerById.get(career.playerId)!;
   const country = p.nationalityId;
   const conf = COUNTRY_BY_ID[country]?.confederation ?? 'UEFA';
   const nc = career.intl ?? emptyNational();
-  const intl = world.intl;
   const age = ageOn(p.birthDate, career.currentDate);
   const cname = countryName(country);
 
@@ -59,21 +56,13 @@ export function NationalPanel() {
     }),
     [world, p, career, age],
   );
-  const cycle = intl?.cycle ?? cycleFor(career.currentDate);
-  const kind = tournamentKind(cycle, conf);
-  const slots = qualSlots(kind, conf);
-  const table = useMemo(() => (intl ? qualTable(world, intl, conf) : []), [world, intl, conf]);
   const next = nextIntlEvent(career.currentDate, conf);
-  const t = intl?.tournament;
   const gk = p.mainPosition === 'GK';
 
   const calledNow = nc.called && nc.calledFor;
   return (
     <section className="panel natl">
-      <h2>
-        <Flag id={country} />
-        Timnas {cname}
-      </h2>
+      <h2>Statusmu di timnas</h2>
       <div className="nt-status small">
         {calledNow ? (
           <span className="pill ok">
@@ -129,6 +118,27 @@ export function NationalPanel() {
         </ul>
       )}
 
+    </section>
+  );
+}
+
+/** Kualifikasi & turnamen untuk satu negara (bisa negara mana saja) */
+export function NatCompetitions({ country }: { country: string }) {
+  const world = useGame((s) => s.world)!;
+  const today = useGame((s) => s.career?.currentDate ?? s.world!.startDate);
+  const [showTable, setShowTable] = useState(true);
+  const [showCup, setShowCup] = useState(true);
+  const conf = COUNTRY_BY_ID[country]?.confederation ?? 'UEFA';
+  const intl = world.intl;
+  const cname = countryName(country);
+  const cycle = intl?.cycle ?? cycleFor(today);
+  const kind = tournamentKind(cycle, conf);
+  const slots = qualSlots(kind, conf);
+  const table = useMemo(() => (intl ? qualTable(world, intl, conf) : []), [world, intl, conf]);
+  const t = intl?.tournament;
+  if (!intl) return <p className="muted small">Kualifikasi dan turnamen antarnegara akan muncul setelah jeda internasional pertama.</p>;
+  return (
+    <>
       {kind && intl && (
         <>
           <button className="link nt-toggle" onClick={() => setShowTable(!showTable)} aria-expanded={showTable}>
@@ -193,7 +203,7 @@ export function NationalPanel() {
             .join(' · ')}
         </p>
       )}
-    </section>
+    </>
   );
 }
 

@@ -118,7 +118,7 @@ export function SavePanel() {
 }
 
 /** Status simpan + tombol di topbar */
-export function SaveControls() {
+export function SaveControls({ compact }: { compact?: boolean }) {
   const saveNow = useGame((s) => s.saveNow);
   const exportSave = useGame((s) => s.exportSave);
   const status = useGame((s) => s.saveStatus);
@@ -137,9 +137,11 @@ export function SaveControls() {
       <button className="ghost" disabled={status === 'saving'} onClick={() => void saveNow()}>
         Simpan
       </button>
-      <button className="ghost hide-sm" onClick={() => void exportSave()}>
-        Ekspor
-      </button>
+      {!compact && (
+        <button className="ghost" onClick={() => void exportSave()}>
+          Ekspor file save
+        </button>
+      )}
     </div>
   );
 }

@@ -37,12 +37,27 @@ import { csvFormat, downloadCsv } from './csv';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
+export type LeagueTab = 'table' | 'cup' | 'clubs' | 'players' | 'stats';
+
+/** Halaman yang sedang dibuka. 'me' = Beranda karier. */
 export type View =
-  | { kind: 'league'; leagueId: string }
+  | { kind: 'league'; leagueId: string; tab?: LeagueTab }
   | { kind: 'club'; clubId: string }
   | { kind: 'player'; playerId: string }
   | { kind: 'me' }
+  | { kind: 'inbox'; id?: string }
+  | { kind: 'plan' }
+  | { kind: 'profile' }
+  | { kind: 'matches' }
+  | { kind: 'transfer' }
+  | { kind: 'relations' }
+  | { kind: 'awards' }
   | { kind: 'life' }
+  | { kind: 'national'; countryId?: string }
+  | { kind: 'stats'; leagueId?: string }
+  | { kind: 'search' }
+  | { kind: 'comps' }
+  | { kind: 'settings' }
   | { kind: 'continent'; confed: 'UEFA' | 'AFC' }
   | { kind: 'names'; edit?: { kind: RenameKind; id: string } };
 

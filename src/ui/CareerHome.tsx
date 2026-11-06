@@ -1,7 +1,7 @@
 // Beranda karier: status hidup, rencana minggu ini, inbox, dan laporan minggu lalu.
 
-import { useState, type ReactNode } from 'react';
-import { useGame } from './store';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useGame, type View } from './store';
 import { Badge, Stars, caStars, money } from './components';
 import { ORIGIN_INFO, FAMILY_INFO } from '../game/gen/character';
 import { ageOn } from '../game/gen/player';
@@ -16,19 +16,19 @@ import {
 import { pendingChoices, stressTarget } from '../game/sim/week';
 import { PLAN_INFO } from '../game/sim/injury';
 import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
-import { nextFixture, shortDate } from './LeagueSeason';
+import { ClubFixtures, nextFixture, shortDate } from './LeagueSeason';
 import { nextCupTie } from '../game/sim/cup';
 import { nextContGame } from '../game/sim/continental';
 import { PositionPlan } from './FormationView';
-import { roundDate } from '../game/sim/season';
-import { TransferPanel } from './TransferPanel';
-import { RelationsPanel } from './RelationsPanel';
-import { NationalPanel } from './NationalPanel';
+import { roundDate, standings } from '../game/sim/season';
 import { AwardsPanel } from './AwardsPanel';
 import { RetirementView } from './RetirementView';
 import { AvatarPanel } from './LifeView';
 import { matchReactions } from '../game/sim/relations';
 import { ENGINE_VERSION } from '../game/sim/engine';
+import { countryName, natRank } from '../game/sim/national';
+import { leagueLeaders } from '../game/sim/awards';
+import { fullName } from '../game/gen/names';
 
 const fmtDate = (d: string, long = false) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', {
@@ -52,117 +52,379 @@ function Meter({ value, invert }: { value: number; invert?: boolean }) {
   );
 }
 
-export function CareerHome({ children }: { children: ReactNode }) {
+/** Baris status: tanggal, uang, stres, kebugaran, tim, asal. */
+export function StatusStrip() {
   const career = useGame((s) => s.career)!;
   const idx = useGame((s) => s.idx)!;
   const go = useGame((s) => s.go);
   const p = idx.playerById.get(career.playerId)!;
   const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
-  const stress = stressTarget(career, p, p.contract ? idx.clubById.get(p.contract.clubId)?.countryId : undefined);
+  const stress = stressTarget(career, p, club?.countryId);
+  return (
+    <section className="panel life">
+      <div className="life-item">
+        <div className="muted small">Tanggal · minggu ke-{career.week + 1}</div>
+        <b>{fmtDate(career.currentDate, true)}</b>
+        <div className="muted small">Umur {ageOn(p.birthDate, career.currentDate)} tahun</div>
+      </div>
+      <div className="life-item">
+        <div className="muted small">Uang</div>
+        <b className={career.money < 0 ? 'loss' : ''}>{signed(career.money).replace(/^\+/, '')}</b>
+      </div>
+      <div className="life-item">
+        <div className="muted small">Stres</div>
+        <Meter value={career.stress} invert />
+        <span className="muted small">
+          {career.stress} / 100 · menuju ≈{stress.target}
+        </span>
+      </div>
+      <div className="life-item">
+        <div className="muted small">Kebugaran</div>
+        <Meter value={career.fitness} />
+        <span className="muted small">
+          {career.injury ? (
+            <span className="loss">
+              Cedera: {career.injury.name} ({career.injury.weeksLeft} mg lagi
+              {career.injury.plan ? ` · ${PLAN_INFO[career.injury.plan].label.toLowerCase()}` : ''})
+            </span>
+          ) : (
+            `${career.fitness} / 100 · ${fitLabel(career.fitness)}`
+          )}
+          {!career.injury && career.fragile && (
+            <span className="warn" title="Baru pulih dari cedera: risiko cedera lebih tinggi, terutama di bagian yang sama.">
+              {' '}
+              · Rawan kambuh {career.fragile.weeks} mg lagi ({career.fragile.part})
+            </span>
+          )}
+          {(career.ban?.club ?? 0) > 0 && <span className="loss"> · Skorsing klub {career.ban!.club} laga</span>}
+          {(career.ban?.nat ?? 0) > 0 && <span className="loss"> · Skorsing timnas {career.ban!.nat} laga</span>}
+        </span>
+      </div>
+      <div className="life-item">
+        <div className="muted small">Tim sekarang</div>
+        {club ? (
+          <button className="link" onClick={() => go({ kind: 'club', clubId: club.id })}>
+            {club.name}
+          </button>
+        ) : (
+          <b>{career.teamLabel}</b>
+        )}
+        <div className="muted small">
+          {p.contract ? (p.isYouth ? 'Akademi / U19' : `Skuad senior · ${p.contract.role}`) : 'Amatir, belum dikontrak'}
+        </div>
+      </div>
+      <div className="life-item">
+        <div className="muted small">Asal · Keluarga</div>
+        <b>
+          {ORIGIN_INFO[career.origin].label} · {FAMILY_INFO[career.family.wealth].label}
+        </b>
+        <div className="muted small">Dukungan keluarga {career.family.support}/20</div>
+        {career.dynasty && career.dynasty.ancestors.length > 0 && (
+          <div className="muted small" title={career.dynasty.ancestors.map((a) => `${a.name} (${a.years}, ${a.tier})`).join(' → ')}>
+            Generasi ke-{career.dynasty.generation} · {career.dynasty.ancestors[career.dynasty.ancestors.length - 1].relation === 'orang tua' ? 'anak' : 'keponakan'}{' '}
+            {career.dynasty.ancestors[career.dynasty.ancestors.length - 1].name}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
+/** Judul kartu beranda dengan tautan "Lihat semua" ke halamannya */
+function CardHead({ title, to, label = 'Lihat semua' }: { title: string; to?: View; label?: string }) {
+  const go = useGame((s) => s.go);
+  return (
+    <div className="card-head">
+      <h2>{title}</h2>
+      {to && (
+        <button className="link small" onClick={() => go(to)}>
+          {label} →
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Hal yang perlu kamu tangani minggu ini */
+function Attention() {
+  const career = useGame((s) => s.career)!;
+  const go = useGame((s) => s.go);
+  const pending = pendingChoices(career).length;
+  const items: { text: string; to: View; tone: 'warn' | 'ok' | 'loss' }[] = [];
+  if (pending) items.push({ text: `${pending} pesan perlu jawaban sebelum lanjut`, to: { kind: 'inbox' }, tone: 'warn' });
+  if (career.offers.length) items.push({ text: `${career.offers.length} tawaran kontrak menunggu`, to: { kind: 'transfer' }, tone: 'ok' });
+  if (career.injury) items.push({ text: `Cedera ${career.injury.name}, ${career.injury.weeksLeft} minggu lagi`, to: { kind: 'plan' }, tone: 'loss' });
+  if (career.stress >= 70) items.push({ text: `Stres tinggi (${career.stress}). Coba istirahat atau kegiatan santai`, to: { kind: 'plan' }, tone: 'loss' });
+  if (career.money < 0) items.push({ text: 'Uangmu minus. Kurangi pengeluaran', to: { kind: 'life' }, tone: 'loss' });
+  if (!items.length) return null;
+  return (
+    <section className="panel attention">
+      {items.map((it) => (
+        <button key={it.text} className={`att-item ${it.tone}`} onClick={() => go(it.to)}>
+          <span>{it.text}</span>
+          <span aria-hidden>→</span>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+/** Beranda karier: ringkasan singkat; detail ada di halaman masing-masing lewat menu samping. */
+export function HomeView() {
+  const career = useGame((s) => s.career)!;
   if (career.retired) {
     return (
       <div className="home">
         <RetirementView />
-        <div className="home-grid">
-          <AwardsPanel />
-          <div className="home-side">
-            <Inbox />
-            <MatchPanel />
-            <NationalPanel />
-          </div>
-        </div>
-        <h2 className="section-title">Profil pemain</h2>
-        {children}
+        <AwardsPanel />
       </div>
     );
   }
-
   return (
     <div className="home">
-      <section className="panel life">
-        <div className="life-item">
-          <div className="muted small">Tanggal · minggu ke-{career.week + 1}</div>
-          <b>{fmtDate(career.currentDate, true)}</b>
-          <div className="muted small">Umur {ageOn(p.birthDate, career.currentDate)} tahun</div>
+      <StatusStrip />
+      <Attention />
+      <div className="dash">
+        <div className="dash-col">
+          <section className="panel">
+            <CardHead title="Pertandingan" to={{ kind: 'matches' }} label="Jadwal & statistik" />
+            <MatchSummary />
+          </section>
+          <InboxPreview />
+          <ReportPanel />
         </div>
-        <div className="life-item">
-          <div className="muted small">Uang</div>
-          <b className={career.money < 0 ? 'loss' : ''}>{signed(career.money).replace(/^\+/, '')}</b>
+        <div className="dash-col">
+          <AvatarPanel />
+          <MiniTable />
+          <MiniNational />
+          <MiniScorers />
         </div>
-        <div className="life-item">
-          <div className="muted small">Stres</div>
-          <Meter value={career.stress} invert />
-          <span className="muted small">
-            {career.stress} / 100 · menuju ≈{stress.target}
-          </span>
-        </div>
-        <div className="life-item">
-          <div className="muted small">Kebugaran</div>
-          <Meter value={career.fitness} />
-          <span className="muted small">
-            {career.injury ? (
-              <span className="loss">
-                Cedera: {career.injury.name} ({career.injury.weeksLeft} mg lagi
-                {career.injury.plan ? ` · ${PLAN_INFO[career.injury.plan].label.toLowerCase()}` : ''})
-              </span>
-            ) : (
-              `${career.fitness} / 100 · ${fitLabel(career.fitness)}`
-            )}
-            {!career.injury && career.fragile && (
-              <span className="warn" title="Baru pulih dari cedera: risiko cedera lebih tinggi, terutama di bagian yang sama.">
-                {' '}
-                · Rawan kambuh {career.fragile.weeks} mg lagi ({career.fragile.part})
-              </span>
-            )}
-            {(career.ban?.club ?? 0) > 0 && <span className="loss"> · Skorsing klub {career.ban!.club} laga</span>}
-            {(career.ban?.nat ?? 0) > 0 && <span className="loss"> · Skorsing timnas {career.ban!.nat} laga</span>}
-          </span>
-        </div>
-        <div className="life-item">
-          <div className="muted small">Tim sekarang</div>
-          {club ? (
-            <button className="link" onClick={() => go({ kind: 'club', clubId: club.id })}>
-              {club.name}
-            </button>
-          ) : (
-            <b>{career.teamLabel}</b>
-          )}
-          <div className="muted small">
-            {p.contract ? (p.isYouth ? 'Akademi / U19' : `Skuad senior · ${p.contract.role}`) : 'Amatir, belum dikontrak'}
-          </div>
-        </div>
-        <div className="life-item">
-          <div className="muted small">Asal · Keluarga</div>
-          <b>
-            {ORIGIN_INFO[career.origin].label} · {FAMILY_INFO[career.family.wealth].label}
-          </b>
-          <div className="muted small">Dukungan keluarga {career.family.support}/20</div>
-          {career.dynasty && career.dynasty.ancestors.length > 0 && (
-            <div className="muted small" title={career.dynasty.ancestors.map((a) => `${a.name} (${a.years}, ${a.tier})`).join(' → ')}>
-              Generasi ke-{career.dynasty.generation} · {career.dynasty.ancestors[career.dynasty.ancestors.length - 1].relation === 'orang tua' ? 'anak' : 'keponakan'}{' '}
-              {career.dynasty.ancestors[career.dynasty.ancestors.length - 1].name}
-            </div>
-          )}
-        </div>
-      </section>
+      </div>
+    </div>
+  );
+}
 
+function InboxPreview() {
+  const career = useGame((s) => s.career)!;
+  const go = useGame((s) => s.go);
+  const list = career.inbox.slice(0, 4);
+  return (
+    <section className="panel">
+      <CardHead title="Inbox" to={{ kind: 'inbox' }} label={`Buka inbox (${career.inbox.length})`} />
+      {list.length ? (
+        <ul className="ib-mini">
+          {list.map((m) => {
+            const pending = !!m.choices?.length && m.chosen === undefined;
+            return (
+              <li key={m.id}>
+                <button className="ib-mini-row" onClick={() => go({ kind: 'inbox', id: m.id })}>
+                  <span className="ib-mini-title">
+                    {pending && <span className="dot" aria-label="Perlu jawaban" />}
+                    {m.title}
+                  </span>
+                  <span className="muted small">
+                    {m.from} · {fmtDate(m.date)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="muted small">Belum ada pesan.</p>
+      )}
+    </section>
+  );
+}
+
+/** Klasemen ringkas di sekitar posisi klub kita */
+function MiniTable() {
+  const career = useGame((s) => s.career)!;
+  const world = useGame((s) => s.world)!;
+  const idx = useGame((s) => s.idx)!;
+  const p = idx.playerById.get(career.playerId)!;
+  const club = p.contract && !p.isYouth ? idx.clubById.get(p.contract.clubId) : undefined;
+  const s = club ? world.seasons[club.leagueId] : undefined;
+  if (!club || !s) return null;
+  const table = standings(s);
+  const at = table.findIndex((r) => r.clubId === club.id);
+  const from = Math.max(0, Math.min(at - 2, table.length - 5));
+  const rows = table.slice(from, from + 5);
+  const league = world.leagues.find((l) => l.id === club.leagueId)!;
+  return (
+    <section className="panel">
+      <CardHead title={league.name} to={{ kind: 'league', leagueId: league.id }} label="Klasemen" />
+      <table className="tbl small mini-tbl">
+        <tbody>
+          {rows.map((r, i) => {
+            const c = idx.clubById.get(r.clubId)!;
+            return (
+              <tr key={r.clubId} className={r.clubId === club.id ? 'mine' : ''}>
+                <td className="num">{from + i + 1}</td>
+                <td>
+                  <Badge club={c} size={18} />
+                </td>
+                <td className="left">{c.name}</td>
+                <td className="num muted">{r.p}</td>
+                <td className="num strong">{r.pts}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function MiniNational() {
+  const career = useGame((s) => s.career)!;
+  const world = useGame((s) => s.world)!;
+  const idx = useGame((s) => s.idx)!;
+  const p = idx.playerById.get(career.playerId)!;
+  const nc = career.intl;
+  const rank = useMemo(() => natRank(world, p, career, 'senior'), [world, p, career]);
+  return (
+    <section className="panel">
+      <CardHead title={`Timnas ${countryName(p.nationalityId)}`} to={{ kind: 'national' }} label="Skuad & jadwal" />
+      <p className="small">
+        {nc?.called ? (
+          <span className="pill ok">Dipanggil {nc.called === 'senior' ? 'skuad senior' : 'skuad U-20'}</span>
+        ) : (
+          <span className="pill">Belum masuk skuad</span>
+        )}{' '}
+        Peringkatmu <b>#{rank.rank}</b> <span className="muted">(dipanggil {rank.cut} teratas)</span>
+      </p>
+      <p className="small muted">
+        {nc?.caps ?? 0} caps · {nc?.goals ?? 0} gol
+      </p>
+    </section>
+  );
+}
+
+function MiniScorers() {
+  const career = useGame((s) => s.career)!;
+  const world = useGame((s) => s.world)!;
+  const idx = useGame((s) => s.idx)!;
+  const p = idx.playerById.get(career.playerId)!;
+  const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
+  const league = world.leagues.find((l) => (club ? l.id === club.leagueId : l.countryId === p.nationalityId && l.division === 1));
+  const leaders = useMemo(() => (league ? leagueLeaders(world, league.id, 5) : null), [world, league]);
+  if (!league || !leaders || !leaders.scorers.length) return null;
+  return (
+    <section className="panel">
+      <CardHead title="Top skor" to={{ kind: 'stats', leagueId: league.id }} label="Statistik lengkap" />
+      <ol className="aw-top small">
+        {leaders.scorers.map((x, i) => (
+          <li key={x.pid} className={x.pid === p.id ? 'mine' : ''}>
+            <span className="muted num">{i + 1}.</span>
+            <span>
+              {x.pid === p.id ? 'Kamu' : fullName(x.p!)} <span className="muted">· {idx.clubById.get(x.clubId)?.name}</span>
+            </span>
+            <b className="num">{x.goals}</b>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/** Halaman Latihan & rencana */
+export function PlanView() {
+  const career = useGame((s) => s.career)!;
+  return (
+    <div className="home">
+      <PageTitle title="Latihan & rencana minggu ini" sub={fmtDate(career.currentDate, true)} />
       <div className="home-grid">
         <PlanPanel />
         <div className="home-side">
-          <AvatarPanel />
-          <Inbox />
-          <TransferPanel />
-          <MatchPanel />
-          <NationalPanel />
-          <AwardsPanel />
-          <RelationsPanel />
           <ReportPanel />
         </div>
       </div>
+    </div>
+  );
+}
 
-      <h2 className="section-title">Profil pemain</h2>
-      {children}
+/** Halaman Pertandingan: laga terakhir, jadwal, statistik musim, dan riwayat laga */
+export function MatchesView() {
+  const career = useGame((s) => s.career)!;
+  const idx = useGame((s) => s.idx)!;
+  const p = idx.playerById.get(career.playerId)!;
+  const club = p.contract && !p.isYouth ? idx.clubById.get(p.contract.clubId) : undefined;
+  return (
+    <div className="home">
+      <PageTitle title="Pertandingan" sub="Laga terakhir, jadwal, dan statistik kariermu" />
+      <MatchPanel />
+      {club && <ClubFixtures clubId={club.id} />}
+      <MatchHistory />
+    </div>
+  );
+}
+
+function MatchHistory() {
+  const matches = useGame((s) => s.career!.matches);
+  if (!matches.length) return null;
+  return (
+    <section className="panel">
+      <h2>Riwayat laga terakhir</h2>
+      <div className="table-wrap">
+        <table className="tbl small">
+          <thead>
+            <tr>
+              <th className="left">Tanggal</th>
+              <th className="left">Kompetisi</th>
+              <th className="left">Lawan</th>
+              <th>Skor</th>
+              <th>Menit</th>
+              <th>Gol</th>
+              <th>Ast</th>
+              <th>Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {matches.map((m, i) => {
+              const [us, them] = m.score;
+              const res = us > them ? 'win' : us < them ? 'loss-r' : 'draw';
+              return (
+                <tr key={`${m.date}-${i}`}>
+                  <td className="left muted">{shortDate(m.date)}</td>
+                  <td className="left">{m.stage ?? m.comp}</td>
+                  <td className="left">
+                    {m.home ? 'vs' : '@'} {m.opponent}
+                  </td>
+                  <td>
+                    <span className={`res ${res}`}>
+                      {us}-{them}
+                    </span>
+                  </td>
+                  <td className="num">{m.minutes > 0 ? `${m.minutes}'` : <span className="muted">{m.status}</span>}</td>
+                  <td className="num">{m.goals || ''}</td>
+                  <td className="num">{m.assists || ''}</td>
+                  <td className="num">
+                    {m.minutes > 0 && m.rating ? (
+                      <span className={`rating ${m.rating >= 7.5 ? 'hi' : m.rating < 6 ? 'lo' : ''}`}>{m.rating.toFixed(1)}</span>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/** Judul halaman sederhana */
+export function PageTitle({ title, sub, right }: { title: string; sub?: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="page-title">
+      <div>
+        <h1>{title}</h1>
+        {sub && <div className="muted small">{sub}</div>}
+      </div>
+      {right && <div className="page-title-right">{right}</div>}
     </div>
   );
 }
@@ -398,29 +660,60 @@ function MessageCard({ m, isNew }: { m: Message; isNew: boolean }) {
   );
 }
 
-function Inbox() {
+/** Halaman Inbox: daftar pesan di kiri, isi pesan di kanan */
+export function InboxView({ id }: { id?: string }) {
   const career = useGame((s) => s.career)!;
-  const [showOld, setShowOld] = useState(false);
-  const isTop = (m: Message) => (m.choices?.length && m.chosen === undefined) || m.date === career.currentDate;
-  const top = career.inbox.filter(isTop);
-  const old = career.inbox.filter((m) => !isTop(m));
+  const [filter, setFilter] = useState<'all' | 'pending'>('all');
+  const isPending = (m: Message) => !!m.choices?.length && m.chosen === undefined;
+  const firstPending = career.inbox.find(isPending);
+  const [sel, setSel] = useState<string | undefined>(id ?? firstPending?.id ?? career.inbox[0]?.id);
+  const list = filter === 'pending' ? career.inbox.filter(isPending) : career.inbox;
+  const cur = career.inbox.find((m) => m.id === sel) ?? list[0];
+  const pendingCount = career.inbox.filter(isPending).length;
   return (
-    <section className="panel inbox">
-      <h2>Inbox</h2>
-      {top.length ? (
-        top.map((m) => <MessageCard key={m.id} m={m} isNew />)
-      ) : (
-        <p className="muted small">Tidak ada pesan baru minggu ini.</p>
-      )}
-      {old.length > 0 && (
-        <>
-          <button className="link old-toggle" aria-expanded={showOld} onClick={() => setShowOld(!showOld)}>
-            {showOld ? 'Sembunyikan pesan lama' : `Pesan lama (${old.length})`}
-          </button>
-          {showOld && old.map((m) => <MessageCard key={m.id} m={m} isNew={false} />)}
-        </>
-      )}
-    </section>
+    <div>
+      <PageTitle
+        title="Inbox"
+        sub={pendingCount ? `${pendingCount} pesan perlu jawaban` : `${career.inbox.length} pesan`}
+        right={
+          <div className="chips">
+            <button className={`chip ${filter === 'all' ? 'sel' : ''}`} onClick={() => setFilter('all')}>
+              Semua
+            </button>
+            <button className={`chip ${filter === 'pending' ? 'sel' : ''}`} onClick={() => setFilter('pending')}>
+              Perlu jawaban ({pendingCount})
+            </button>
+          </div>
+        }
+      />
+      <div className="inbox2">
+        <ul className="ib-list panel">
+          {list.map((m) => (
+            <li key={m.id}>
+              <button className={`ib-row ${cur?.id === m.id ? 'sel' : ''} ${isPending(m) ? 'pending' : ''}`} onClick={() => setSel(m.id)}>
+                <span className="ib-from muted small">
+                  {m.from}
+                  <span>{fmtDate(m.date)}</span>
+                </span>
+                <span className="ib-title">
+                  {isPending(m) && <span className="dot" aria-label="Perlu jawaban" />}
+                  {m.title}
+                </span>
+              </button>
+            </li>
+          ))}
+          {!list.length && <li className="muted small ib-empty">Tidak ada pesan di sini.</li>}
+        </ul>
+        <div className="ib-detail">
+          {cur ? <MessageCard key={cur.id} m={cur} isNew={cur.date === career.currentDate} /> : <p className="muted">Belum ada pesan.</p>}
+          {cur && !isPending(cur) && firstPending && (
+            <button className="primary ib-next" onClick={() => setSel(firstPending.id)}>
+              Jawab pesan berikutnya ({pendingCount}) →
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -610,11 +903,11 @@ function LastMatch({ m }: { m: MatchRecord }) {
 
 const avg = (s: SeasonStat) => (s.apps ? (s.ratingSum / s.apps).toFixed(2) : '-');
 
-function MatchPanel() {
+/** Laga terakhir + jadwal berikutnya (dipakai di beranda dan halaman Pertandingan) */
+function MatchSummary() {
   const career = useGame((s) => s.career)!;
   const world = useGame((s) => s.world)!;
   const idx = useGame((s) => s.idx)!;
-  const [showAll, setShowAll] = useState(false);
   const p = idx.playerById.get(career.playerId)!;
   const last = career.matches[0];
   const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
@@ -631,12 +924,8 @@ function MatchPanel() {
   const nextRoundDate = season
     ? (season.rounds.map((_, r) => roundDate(season, r)).find((d) => d > career.currentDate) ?? null)
     : null;
-  const current = career.stats.filter((s) => season && s.season === season.label);
-  const rows = showAll ? [...career.stats].reverse() : current;
-
   return (
-    <section className="panel matches">
-      <h2>Pertandingan</h2>
+    <>
       {last ? <LastMatch m={last} /> : <p className="muted small">Belum ada pertandingan.</p>}
       <div className="next-match small">
         <span className="muted">Berikutnya: </span>
@@ -677,6 +966,26 @@ function MatchPanel() {
           </span>
         </div>
       )}
+    </>
+  );
+}
+
+function MatchPanel() {
+  const career = useGame((s) => s.career)!;
+  const world = useGame((s) => s.world)!;
+  const idx = useGame((s) => s.idx)!;
+  const [showAll, setShowAll] = useState(false);
+  const p = idx.playerById.get(career.playerId)!;
+  const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
+  const leagueId = club?.leagueId ?? world.leagues.find((l) => l.countryId === p.nationalityId)?.id;
+  const season = leagueId ? world.seasons[leagueId] : undefined;
+  const current = career.stats.filter((s) => season && s.season === season.label);
+  const rows = showAll ? [...career.stats].reverse() : current;
+
+  return (
+    <section className="panel matches">
+      <h2>Pertandingan</h2>
+      <MatchSummary />
       {(rows.length > 0 || career.stats.length > 0) && (
         <>
           <div className="table-wrap">
