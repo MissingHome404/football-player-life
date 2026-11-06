@@ -344,6 +344,57 @@ export interface Career {
   badges?: string[];
   /** jenis gol dari match engine: dari luar kotak, bola mati, sundulan */
   feats?: { long: number; set: number; head: number };
+  /** CA tertinggi sepanjang karier */
+  peakCA?: number;
+  /** karier sudah selesai */
+  retired?: Retirement;
+}
+
+export type RetireReason = 'pilihan' | 'cedera' | 'usia';
+export interface LegacyPart {
+  label: string;
+  detail: string;
+  points: number;
+}
+export interface Legacy {
+  total: number;
+  tier: string;
+  hallOfFame: boolean;
+  parts: LegacyPart[];
+}
+/** Ringkasan satu karier yang sudah selesai (untuk Hall of Fame lintas save) */
+export interface HofEntry {
+  id: string;
+  saveId: string;
+  name: string;
+  countryId: string;
+  position: string;
+  born: string;
+  retiredOn: string;
+  age: number;
+  reason: RetireReason;
+  years: string;
+  clubs: string[];
+  apps: number;
+  goals: number;
+  assists: number;
+  cleanSheets: number;
+  avg: number;
+  caps: number;
+  natGoals: number;
+  trophies: number;
+  awards: number;
+  peakCA: number;
+  legacy: number;
+  tier: string;
+  hallOfFame: boolean;
+}
+export interface Retirement {
+  date: string;
+  age: number;
+  reason: RetireReason;
+  legacy: Legacy;
+  entry: HofEntry;
 }
 
 export type NatTeam = 'senior' | 'u20';

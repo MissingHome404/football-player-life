@@ -75,6 +75,7 @@ export function SavePanel() {
                 </b>
                 <span className="muted small">
                   {s.summary.position} · {s.summary.age} th · {s.summary.team} · {fmtDate(s.summary.gameDate)}
+                  {s.summary.retired && ` · skor legacy ${s.summary.legacy ?? '-'}`}
                 </span>
                 <span className="muted small">Disimpan {ago(s.savedAt)}</span>
               </div>
@@ -97,8 +98,8 @@ export function SavePanel() {
                 </div>
               ) : (
                 <div className="save-actions">
-                  <button className="primary small-btn" onClick={() => void loadSave(s.id)}>
-                    Lanjutkan
+                  <button className={`${s.summary.retired ? 'ghost' : 'primary'} small-btn`} onClick={() => void loadSave(s.id)}>
+                    {s.summary.retired ? 'Lihat' : 'Lanjutkan'}
                   </button>
                   <button className="ghost" onClick={() => void exportSave(s.id)}>
                     Ekspor

@@ -9,7 +9,8 @@ import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { ageOn } from '../gen/player';
 import { ACTIVITY_INFO, COACH_INFO, INTENSITY_INFO, econOf, weeklyBudget } from './economy';
-import { trainWeek } from './training';
+import { ageDecline, trainWeek } from './training';
+import { MAX_AGE, retire } from './retire';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
@@ -191,6 +192,7 @@ export interface WeekResult {
 }
 
 export function advanceWeek(world: World, prev: Career): WeekResult {
+  if (prev.retired) throw new Error('Kariermu sudah selesai, kamu sudah pensiun.');
   if (pendingChoices(prev).length) throw new Error('Masih ada pesan yang menunggu keputusanmu.');
   const career: Career = structuredClone(prev);
   const original = world.players.find((p) => p.id === career.playerId)!;
@@ -203,6 +205,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   const ageBefore = ageOn(player.birthDate, career.currentDate);
   const plan = career.plan;
   const resting = plan.focus === 'istirahat';
+  const injuredBefore = !!career.injury;
+  let forced: 'cedera' | 'usia' | null = null;
 
   if (plan.activity === 'kencan' && !career.rel.partner) plan.activity = 'rumah';
 
@@ -235,6 +239,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     else if (last.comp === 'Liga') extra *= 0.95;
   }
   const training = trainWeek(career, player, club, extra);
+  career.peakCA = Math.max(career.peakCA ?? 0, player.ca);
 
   // 3. Kebugaran
   const act = ACTIVITY_INFO[plan.activity];
@@ -310,6 +315,11 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     }
   }
 
+  // Cedera berat di usia tua bisa mengakhiri karier
+  if (!injuredBefore && career.injury && career.injury.weeksLeft >= 12 && ageBefore >= 32) {
+    if (new Rng(`${career.characterSeed}:retire:${career.week}`).chance(0.25 + (ageBefore - 32) * 0.1)) forced = 'cedera';
+  }
+
   // 5. Stres bergerak perlahan ke "arah stres" minggu ini
   const clubCountry = player.contract ? w.clubs.find((c) => c.id === player.contract!.clubId)?.countryId : undefined;
   const target = stressTarget(career, player, clubCountry).target;
@@ -337,6 +347,28 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       title: `Selamat ulang tahun ke-${ageNow}!`,
       body: `Keluargamu merayakan ulang tahunmu yang ke-${ageNow} dan memberi hadiah €${gift.toLocaleString('id-ID')}.`,
     });
+    // usia mulai terasa
+    const caBefore = player.ca;
+    const lost = ageDecline(player, ageNow, new Rng(`${career.characterSeed}:age:${ageNow}`));
+    const n = Object.keys(lost).length;
+    if (n) {
+      const worst = Object.entries(lost)
+        .sort((a, b) => a[1] - b[1])
+        .slice(0, 3)
+        .map(([k, v]) => `${k} ${v}`)
+        .join(', ');
+      notes.push(`Usia mulai terasa: ${n} atribut turun (${worst}). CA ${caBefore} → ${player.ca}.`);
+    }
+    if (ageNow >= MAX_AGE) forced = 'usia';
+    else if (ageNow >= 34) {
+      career.inbox.unshift({
+        id: `retire-hint-${ageNow}`,
+        date: career.currentDate,
+        from: 'Agent & keluarga',
+        title: 'Sudah waktunya pensiun?',
+        body: `Di usia ${ageNow}, banyak pemain mulai memikirkan pensiun. Kamu bisa pensiun kapan saja lewat tombol "Pensiun" di panel Kontrak & transfer, atau terus bermain selama tubuhmu masih kuat.`,
+      });
+    }
   }
 
   // Lencana baru (atribut + pencapaian)
@@ -404,13 +436,18 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   w = relationsWeek(w, career, player, match, rng.fork('rel'));
   w = withPlayer(w, player);
 
+  if (forced) {
+    w = retire(w, career, player, forced, career.currentDate);
+    notes.push(forced === 'cedera' ? 'Cedera ini mengakhiri kariermu.' : 'Kamu pensiun karena usia.');
+  }
+
   // 8. Event inbox
   const ctx = makeCtx(w, career, player, rng);
   const ready = (id: string, cd: number) => career.cooldowns[id] === undefined || career.week - career.cooldowns[id] >= cd;
   const burnout = EVENT_BY_ID.burnout;
   const picks: string[] = [];
-  if (career.stress >= 90 && ready('burnout', burnout.cooldown)) picks.push('burnout');
-  let slots = rng.chance(0.5) ? (rng.chance(0.15) ? 2 : 1) : 0;
+  if (career.stress >= 90 && !career.retired && ready('burnout', burnout.cooldown)) picks.push('burnout');
+  let slots = career.retired ? 0 : rng.chance(0.5) ? (rng.chance(0.15) ? 2 : 1) : 0;
   while (slots-- > 0) {
     const options = ALL_EVENTS.filter((e) => e.id !== 'burnout' && !picks.includes(e.id) && ready(e.id, e.cooldown))
       .map((e) => [e, e.weight(ctx)] as const)

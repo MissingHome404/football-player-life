@@ -10,7 +10,9 @@ import {
   readSave,
   downloadFile,
   newSaveId,
+  putHof,
 } from '../game/save/storage';
+import { retireCareer } from '../game/sim/retire';
 import { fullName } from '../game/gen/names';
 import { ageOn } from '../game/gen/player';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../game/sim/week';
@@ -77,6 +79,8 @@ interface State {
   watch: () => void;
   closeMatch: () => void;
   setAutoWatch: (on: boolean) => void;
+  /** Pensiun atas pilihan sendiri */
+  retire: () => void;
 }
 
 const AUTO_KEY = 'fpl:autoWatch';
@@ -100,8 +104,9 @@ function summaryOf(career: Career, idx: Indexes): SaveSummary {
     age: ageOn(p.birthDate, career.currentDate),
     position: p.mainPosition,
     countryId: p.nationalityId,
-    team: club?.name ?? career.teamLabel,
+    team: career.retired ? 'Pensiun' : (club?.name ?? career.teamLabel),
     gameDate: career.currentDate,
+    ...(career.retired ? { retired: true, legacy: career.retired.legacy.total } : {}),
   };
 }
 
@@ -248,9 +253,18 @@ export const useGame = create<State>((set, get) => ({
     }
     set({ autoWatch: on });
   },
+  retire: () => {
+    const { world, career } = get();
+    if (!world || !career || career.retired) return;
+    const r = retireCareer(world, career);
+    set({ world: r.world, career: r.career, idx: buildIndexes(r.world), view: { kind: 'me' }, history: [] });
+    if (r.career.retired) void putHof(r.career.retired.entry);
+    window.scrollTo(0, 0);
+    void get().saveNow();
+  },
   nextWeek: (weeks = 1) => {
     let { world, career } = get();
-    if (!world || !career) return;
+    if (!world || !career || career.retired) return;
     const simBefore = career.lastSim;
     try {
       for (let i = 0; i < weeks; i++) {
@@ -260,7 +274,7 @@ export const useGame = create<State>((set, get) => ({
         world = r.world;
         career = r.career;
         // berhenti lebih awal kalau ada kejadian penting
-        if (pendingChoices(career).length || (!injured && career.injury)) break;
+        if (pendingChoices(career).length || (!injured && career.injury) || career.retired) break;
       }
     } catch (e) {
       set({ message: e instanceof Error ? e.message : String(e) });
@@ -268,6 +282,10 @@ export const useGame = create<State>((set, get) => ({
     }
     const watching = weeks === 1 && get().autoWatch && !!career.lastSim && career.lastSim.date !== simBefore?.date;
     set({ world, career, idx: buildIndexes(world), watching });
+    if (career.retired) {
+      void putHof(career.retired.entry);
+      window.scrollTo(0, 0);
+    }
     void get().saveNow();
   },
   choose: (msgId, choice) => {
@@ -332,6 +350,7 @@ export const useGame = create<State>((set, get) => ({
       if (!rec) throw new Error('Save tidak ditemukan.');
       const { world, career } = await decodeSave(rec.data);
       const c = { ...career, saveId: rec.id };
+      if (c.retired) void putHof(c.retired.entry);
       set({
         world,
         career: c,

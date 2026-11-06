@@ -484,3 +484,29 @@ input { font: inherit; }
 .rec-list .rec-label { grid-column: 1 / -1; font-size: 12px; }
 .rec-list .rec-me { text-align: right; white-space: nowrap; }
 .aw-world { margin-top: 4px; }
+
+/* Pensiun & Hall of Fame */
+.retire-box { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+.retire-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.retired { border-color: var(--accent-2); }
+.rt-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.rt-head h2 { font-size: 24px; margin: 2px 0; }
+.rt-score { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.rt-score b { font-family: var(--font-display); font-size: 40px; line-height: 1; color: var(--accent); }
+.rt-hof { font-weight: 700; color: #f2c94c; }
+.rt-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin: 14px 0; }
+.rt-tiles > div { display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.rt-tiles b { font-family: var(--font-display); font-size: 22px; line-height: 1.1; }
+.rt-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.rt-parts td { vertical-align: top; }
+.rt-clubs { list-style: none; padding: 0; margin: 0; }
+.rt-clubs li { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.rt-rank { margin-top: 10px; }
+.rt-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 6px; }
+.hof-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.hof-list li { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.hof-rank { font-family: var(--font-display); font-size: 18px; color: var(--muted); text-align: center; }
+.hof-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hof-score { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.hof-score b { font-family: var(--font-display); font-size: 22px; color: var(--accent); }
+@media (max-width: 600px) { .rt-score { align-items: flex-start; } }

@@ -5,6 +5,7 @@ import { randomSeed } from '../game/rng';
 import { useGame } from './store';
 import { Flag } from './components';
 import { SavePanel } from './SavePanel';
+import { HallOfFame } from './RetirementView';
 
 export function StartScreen() {
   const generate = useGame((s) => s.generate);
@@ -60,6 +61,7 @@ export function StartScreen() {
       </header>
 
       <SavePanel />
+      <HallOfFame />
 
       <h2 className="section-title">Karier baru</h2>
       <section className="panel">

@@ -7,7 +7,7 @@ import { ROLES } from '../data/roles';
 import { attrWeight, computeCA, ageOn } from '../gen/player';
 import type { Career, Club, Player } from '../types';
 import { INTENSITY_INFO } from './economy';
-import { clamp } from '../rng';
+import { clamp, type Rng } from '../rng';
 
 const GROUP_OF: Record<string, 'technical' | 'mental' | 'physical' | 'goalkeeping'> = {};
 for (const a of TECHNICAL) GROUP_OF[a] = 'technical';
@@ -157,4 +157,37 @@ export function trainWeek(
   }
   player.ca = clamp(computeCA(player), 1, 200);
   return { changes, caBefore, caAfter: player.ca, points };
+}
+
+/**
+ * Penurunan karena usia (dipanggil saat ulang tahun, mulai 31 tahun): fisik turun paling cepat,
+ * teknik sedikit, mental hampir tidak. Natural Fitness yang tinggi memperlambatnya.
+ * Hasilnya daftar atribut yang turun.
+ */
+export function ageDecline(p: Player, age: number, rng: Rng): Record<string, number> {
+  const changes: Record<string, number> = {};
+  if (age < 31) return changes;
+  const nf = p.physical['Natural Fitness'];
+  const drop = Math.min(12, (age - 30) * rng.float(0.8, 1.8)) * (1.25 - nf / 40) * (p.mainPosition === 'GK' ? 0.6 : 1);
+  const d = drop / 11.5;
+  const groups: [readonly string[], number][] = [
+    [TECHNICAL, 0.8],
+    [MENTAL, 0.2],
+    [PHYSICAL, 1.8],
+    ...(p.mainPosition === 'GK' ? ([[GOALKEEPING, 0.9]] as [readonly string[], number][]) : []),
+  ];
+  for (const [keys, mult] of groups) {
+    for (const a of keys) {
+      const v = d * mult;
+      const n = Math.floor(v) + (rng.next() < v - Math.floor(v) ? 1 : 0);
+      if (!n) continue;
+      const before = getAttr(p, a);
+      const after = clamp(before - n, 1, 20);
+      if (after === before) continue;
+      setAttr(p, a, after);
+      changes[a] = after - before;
+    }
+  }
+  p.ca = clamp(computeCA(p), 1, 200);
+  return changes;
 }

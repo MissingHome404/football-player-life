@@ -21,6 +21,7 @@ import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
 import { NationalPanel } from './NationalPanel';
 import { AwardsPanel } from './AwardsPanel';
+import { RetirementView } from './RetirementView';
 import { AvatarPanel } from './LifeView';
 import { matchReactions } from '../game/sim/relations';
 import { ENGINE_VERSION } from '../game/sim/engine';
@@ -54,6 +55,24 @@ export function CareerHome({ children }: { children: ReactNode }) {
   const p = idx.playerById.get(career.playerId)!;
   const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
   const stress = stressTarget(career, p, p.contract ? idx.clubById.get(p.contract.clubId)?.countryId : undefined);
+
+  if (career.retired) {
+    return (
+      <div className="home">
+        <RetirementView />
+        <div className="home-grid">
+          <AwardsPanel />
+          <div className="home-side">
+            <Inbox />
+            <MatchPanel />
+            <NationalPanel />
+          </div>
+        </div>
+        <h2 className="section-title">Profil pemain</h2>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="home">

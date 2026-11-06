@@ -44,6 +44,8 @@ export function TransferPanel() {
   const [showAgents, setShowAgents] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [confirmRetire, setConfirmRetire] = useState(false);
+  const retire = useGame((s) => s.retire);
 
   const p = idx.playerById.get(career.playerId)!;
   const club = p.contract ? idx.clubById.get(p.contract.clubId) : undefined;
@@ -217,6 +219,30 @@ export function TransferPanel() {
           )}
         </>
       )}
+
+      <div className="retire-box">
+        {confirmRetire ? (
+          <>
+            <p className="small">
+              <b>Yakin gantung sepatu?</b> Karier di save ini selesai dan tidak bisa dilanjutkan lagi. Kamu akan melihat
+              ringkasan karier, skor legacy, dan bisa mengunduh statistik untuk Football Manager.
+              {age < 30 && ` Umurmu baru ${age} tahun, masih banyak waktu.`}
+            </p>
+            <div className="retire-actions">
+              <button className="danger" onClick={retire}>
+                Ya, pensiun sekarang
+              </button>
+              <button className="ghost" onClick={() => setConfirmRetire(false)}>
+                Batal
+              </button>
+            </div>
+          </>
+        ) : (
+          <button className="link" onClick={() => setConfirmRetire(true)}>
+            Pensiun…
+          </button>
+        )}
+      </div>
     </section>
   );
 }

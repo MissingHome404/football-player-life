@@ -1,6 +1,6 @@
 // Penyimpanan save di browser (IndexedDB lewat Dexie) + jembatan ke save worker.
 import Dexie, { type Table } from 'dexie';
-import type { Career, World } from '../types';
+import type { Career, HofEntry, World } from '../types';
 import type { SaveSummary } from './codec';
 import type { SaveRequest } from './saveWorker';
 
@@ -13,9 +13,12 @@ export interface SaveRecord {
 
 class SaveDb extends Dexie {
   saves!: Table<SaveRecord, string>;
+  hof!: Table<HofEntry, string>;
   constructor() {
     super('football-player-life');
     this.version(1).stores({ saves: '&id, savedAt' });
+    // Hall of Fame: ringkasan karier yang sudah pensiun (tetap ada walau save-nya dihapus)
+    this.version(2).stores({ saves: '&id, savedAt', hof: '&id, legacy' });
   }
 }
 
@@ -79,9 +82,29 @@ export async function deleteSave(id: string): Promise<void> {
   await getDb().saves.delete(id);
 }
 
+export async function putHof(entry: HofEntry): Promise<void> {
+  try {
+    await getDb().hof.put(entry);
+  } catch {
+    /* IndexedDB diblokir */
+  }
+}
+
+export async function listHof(): Promise<HofEntry[]> {
+  try {
+    return await getDb().hof.orderBy('legacy').reverse().toArray();
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteHof(id: string): Promise<void> {
+  await getDb().hof.delete(id);
+}
+
 /** Unduh bytes sebagai file */
-export function downloadFile(bytes: Uint8Array, filename: string) {
-  const blob = new Blob([bytes as BlobPart], { type: 'application/octet-stream' });
+export function downloadFile(bytes: Uint8Array, filename: string, type = 'application/octet-stream') {
+  const blob = new Blob([bytes as BlobPart], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

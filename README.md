@@ -27,7 +27,10 @@ Sudah ada:
 - **Prestasi:** statistik musim dicatat untuk semua pemain di dunia game, jadi tiap akhir musim liga ada Pemain Terbaik, Top Skor, dan Pemain Muda Terbaik, dan tiap 1 Desember ada Bintang Dunia dan Bintang Muda Dunia. Rekor (gol semusim, pencetak gol termuda, gol untuk klub, gol dan caps timnas) dimulai dari legenda fiktif dan bisa dipecahkan pemain AI maupun kamu. Juara liga dan turnamen timnas masuk daftar trofi.
 - **Lencana:** 12 lencana (mis. Penembak Jarak Jauh, Raja Bola Mati, Pelari Kilat, Kapten) terbuka kalau syarat atribut dan pencapaian terpenuhi. Tiap lencana memberi bonus kecil di match engine dan menaikkan nilai pasar 5%. Progres tiap syarat terlihat di panel Prestasi.
 
-Belum ada: pensiun, Hall of Fame, ekspor CSV untuk FM.
+- **Pensiun:** pensiun kapan saja lewat panel Kontrak & transfer, atau dipaksa cedera parah di usia 32+ dan otomatis di usia 41. Mulai umur 31 fisik pelan-pelan menurun. Setelah pensiun ada ringkasan karier, skor legacy dengan rinciannya (penampilan, gol, rating, trofi, penghargaan, timnas, rekor, lencana, puncak CA, reputasi), dan peringkat di **Hall of Fame** yang menyimpan semua karier yang sudah pensiun di browser ini.
+- **Ekspor ke Football Manager:** unduh statistik karier sebagai CSV (Excel): riwayat per musim, total, klub, trofi, penghargaan, rekor, atribut akhir dengan skala 1-20 dan urutan seperti layar FM, personality, dan hidden attributes.
+
+Belum ada: karier setelah pensiun (pundit, pelatih, anak), impor nama asli.
 
 ## Menjalankan di komputer sendiri
 

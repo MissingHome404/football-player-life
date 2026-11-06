@@ -8,6 +8,7 @@ import { AWARD_NAME, ageLabel, leagueLeaders, recordOf, type RecordKind } from '
 import { countryName } from '../game/sim/national';
 import { fullName } from '../game/gen/names';
 import type { RecordEntry } from '../game/types';
+import { downloadCareerCsv } from './csv';
 
 export function AwardsPanel() {
   const career = useGame((s) => s.career)!;
@@ -206,6 +207,11 @@ export function AwardsPanel() {
             </div>
           )}
         </>
+      )}
+      {!career.retired && (
+        <button className="link nt-toggle" onClick={() => downloadCareerCsv(world, career, p)}>
+          ⬇ Unduh statistik karier (CSV untuk FM)
+        </button>
       )}
     </section>
   );

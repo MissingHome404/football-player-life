@@ -33,6 +33,9 @@ export interface SaveSummary {
   countryId: string;
   team: string;
   gameDate: string;
+  /** karier sudah selesai (pensiun) */
+  retired?: boolean;
+  legacy?: number;
 }
 
 export interface SaveFile {
