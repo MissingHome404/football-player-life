@@ -17,6 +17,7 @@ const FAMOUS = new Set([
   'Arda Güler', 'Hakan Çalhanoğlu', 'Salem Al-Dawsari', 'Mehdi Taremi', 'Sardar Azmoun',
   'Alexander Isak', 'Dušan Vlahović', 'Khvicha Kvaratskhelia', 'Nicolò Barella',
   'Gianluigi Donnarumma', 'Pedri González', 'Rodrigo Hernández', 'Lamine Yamal',
+  'Mohammed Kudus', 'Lucas Hernandez', 'Lucas Hernández', 'Theo Hernandez', 'Bukayo Saka',
 ]);
 
 export function generateName(

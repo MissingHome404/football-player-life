@@ -3,6 +3,7 @@
 // dari klub yang levelnya cocok dan cukup mengenalmu. Agent memperluas jangkauan
 // dan menaikkan gaji, tapi memotong penghasilan.
 
+import { badgeValue } from './badges';
 import type { AgentTier, Career, Club, ClubSpell, Message, Offer, Player, SquadRole, World } from '../types';
 import type { EventCtx, EventDef } from './events';
 import { Rng, clamp } from '../rng';
@@ -82,9 +83,9 @@ function roundNice(v: number): number {
 }
 
 /** Perkiraan nilai pasar (EUR) */
-export function marketValue(p: Player, date: string): number {
+export function marketValue(p: Player, date: string, factor = 1): number {
   const age = ageOn(p.birthDate, date);
-  let v = 20_000 * Math.exp((p.ca - 60) / 15);
+  let v = 20_000 * Math.exp((p.ca - 60) / 15) * factor;
   if (age <= 21) v *= 1 + Math.max(0, p.pa - p.ca) / 100;
   else if (age >= 30) v *= Math.max(0.2, 1 - (age - 29) * 0.15);
   if (p.contract && p.contract.expires <= addDays(date, 365)) v *= 0.6;
@@ -156,7 +157,7 @@ export function makeOffer(
     years,
     role,
     signOn: Math.round(wage * (type === 'bebas' ? 6 : type === 'perpanjangan' ? 2 : 3)),
-    fee: type === 'transfer' ? marketValue(p, career.currentDate) : 0,
+    fee: type === 'transfer' ? marketValue(p, career.currentDate, badgeValue(career)) : 0,
   };
 }
 

@@ -1,6 +1,7 @@
 // Panel Kontrak & transfer: kontrak sekarang, agent, permintaan ke klub,
 // kartu perbandingan tawaran klub, dan riwayat klub.
 
+import { badgeValue } from '../game/sim/badges';
 import { useState } from 'react';
 import { useGame } from './store';
 import { Badge, Flag, Stars, caStars, money } from './components';
@@ -89,7 +90,7 @@ export function TransferPanel() {
         )}
         <div className="tr-value">
           <div className="muted small">Nilai pasar</div>
-          <b>± {money(marketValue(p, date))}</b>
+          <b>± {money(marketValue(p, date, badgeValue(career)))}</b>
         </div>
       </div>
 

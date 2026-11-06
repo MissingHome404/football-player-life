@@ -24,7 +24,10 @@ Sudah ada:
 - **Timnas:** pemain terbaik tiap negara dipanggil di jeda internasional (Maret, Juni, September, Oktober, November), termasuk Timnas U-20 untuk pemain muda. Laga kualifikasi mengisi klasemen per konfederasi, dan tiap 2 tahun ada turnamen: Piala Dunia (32 tim, 2030, 2034, ...) dan Euro (16 tim) atau Piala Asia (8 tim) di tahun di antaranya, lengkap dengan fase grup, babak gugur, dan adu penalti. Laga timnas yang kamu mainkan memakai match engine 2D dan bisa ditonton. Caps, gol, dan riwayat turnamen tampil di panel Timnas.
 - **Match engine 2D:** laga timmu dimainkan 22 pemain yang bergerak dan memilih umpan, dribel, atau tembakan dari atribut mereka (ala FM), termasuk penjagaan, lari menembus, umpan silang, sepak pojok, tendangan bebas, dan penalti. Engine v2 memakai fisika bola 3D sederhana (tinggi bola, pantulan, gelinding): gol hanya sah kalau bola masuk di antara tiang dan di bawah mistar lalu tertahan jaring, dan kiper menangkap atau menepis bola di posisinya. Ada offside dan garis pertahanan yang naik-turun bersama, bola yang keluar lapangan jadi lemparan ke dalam, tendangan gawang, atau sepak pojok, dan gerak tiap pemain dipengaruhi kecepatan, akselerasi, stamina, antisipasi, positioning, off the ball, dan work rate. Hasilnya langsung masuk klasemen dan statistikmu. Tonton di layar 2D: susunan pemain, 90 menit (sekitar 2,5 menit per babak), kecepatan 1× sampai 8×, lewati ke akhir, ringkasan rating dan statistik, dan tonton ulang dari kartu laga terakhir. Laga tim lain tetap disimulasikan cepat.
 
-Belum ada: timnas, penghargaan, pensiun.
+- **Prestasi:** statistik musim dicatat untuk semua pemain di dunia game, jadi tiap akhir musim liga ada Pemain Terbaik, Top Skor, dan Pemain Muda Terbaik, dan tiap 1 Desember ada Bintang Dunia dan Bintang Muda Dunia. Rekor (gol semusim, pencetak gol termuda, gol untuk klub, gol dan caps timnas) dimulai dari legenda fiktif dan bisa dipecahkan pemain AI maupun kamu. Juara liga dan turnamen timnas masuk daftar trofi.
+- **Lencana:** 12 lencana (mis. Penembak Jarak Jauh, Raja Bola Mati, Pelari Kilat, Kapten) terbuka kalau syarat atribut dan pencapaian terpenuhi. Tiap lencana memberi bonus kecil di match engine dan menaikkan nilai pasar 5%. Progres tiap syarat terlihat di panel Prestasi.
+
+Belum ada: pensiun, Hall of Fame, ekspor CSV untuk FM.
 
 ## Menjalankan di komputer sendiri
 
@@ -46,7 +49,7 @@ npx tsx scripts/engine.ts 200    # kalibrasi match engine: gol, tembakan, pengua
 ```
 src/game/data/      data statis: atribut, negara, liga + klub, kumpulan nama
 src/game/gen/       generator: nama, pemain, personality, dunia, karakter
-src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, match engine, transfer, relasi, kehidupan
+src/game/sim/       simulasi mingguan: latihan, uang, stres, event inbox, musim liga, pertandingan, match engine, transfer, relasi, kehidupan, timnas, penghargaan, lencana
 src/game/save/      format file save, simpan di browser (IndexedDB)
 src/game/rng.ts     angka acak ber-seed
 src/game/worker.ts  generate dunia di Web Worker

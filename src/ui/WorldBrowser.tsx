@@ -8,6 +8,7 @@ import { LifeView } from './LifeView';
 import { ClubFixtures, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { marketValue } from '../game/sim/transfer';
+import { badgeValue } from '../game/sim/badges';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   TECHNICAL,
@@ -515,7 +516,7 @@ function PlayerView({ playerId }: { playerId: string }) {
           )}
         </InfoCard>
         <InfoCard label="Nilai pasar">
-          ± {money(marketValue(p, today))}
+          ± {money(marketValue(p, today, p.isUser ? badgeValue(career ?? undefined) : 1))}
           <div className="muted small">perkiraan harga transfer</div>
         </InfoCard>
         <InfoCard label="Posisi lain">

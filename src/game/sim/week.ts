@@ -14,6 +14,8 @@ import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
 import { nationalWeek } from './national';
+import { ledgerWeek, seasonAwards, tallyNational, worldAwardDay, worldAwards } from './awards';
+import { newBadges } from './badges';
 import { TRANSFER_EVENTS, contractWeek } from './transfer';
 import { defaultLife, lifeFitness, lifeInjuryFactor, lifeStress, lifeWeek } from './life';
 import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, relationsWeek } from './relations';
@@ -277,6 +279,9 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   // Timnas: panggilan, kualifikasi, turnamen
   const intl = nationalWeek(w, career, player, career.currentDate, weekEnd);
   w = intl.world;
+  // Statistik musim semua pemain & rekor dunia game
+  w = ledgerWeek(w, week, career, player, weekEnd, played?.engine);
+  w = tallyNational(w, intl.played, career, player, weekEnd);
   const games = [...(played ? [played] : []), ...intl.games];
   const watchable = games.filter((g) => g.sim).sort((a, b) => b.rec.date.localeCompare(a.rec.date))[0];
   const sim = watchable?.sim;
@@ -334,7 +339,23 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     });
   }
 
-  // Musim liga yang selesai minggu ini: juara, pemain AI berkembang/pensiun, jadwal baru
+  // Lencana baru (atribut + pencapaian)
+  for (const b of newBadges(career, player)) {
+    (career.badges ??= []).push(b.id);
+    player.reputation.home = clamp(player.reputation.home + 1, 1, 100);
+    career.inbox.unshift({
+      id: `badge-${b.id}`,
+      date: career.currentDate,
+      from: 'Pelatih',
+      title: `Lencana baru: ${b.icon} ${b.name}`,
+      body: `${b.desc} Lencana ini memberi bonus kecil di pertandingan dan menaikkan nilai pasarmu.`,
+    });
+  }
+
+  // Musim liga yang selesai minggu ini: penghargaan, juara, pemain AI berkembang/pensiun, jadwal baru
+  if (week.finished.length) w = seasonAwards(w, week.finished, career, player, career.currentDate);
+  const awardDay = worldAwardDay(+weekEnd.slice(0, 4));
+  if (awardDay > addDays(weekEnd, -7) && awardDay <= weekEnd) w = worldAwards(w, career, player, +weekEnd.slice(0, 4));
   w = withPlayer(w, player);
   if (week.finished.length) {
     const finished = w.seasons;
@@ -352,6 +373,10 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       if (!mine && !homeAmateur && !rows.some((x) => x.apps > 0)) continue;
       const name = (id: string) => w.clubs.find((c) => c.id === id)!.name;
       let body = `${name(h.championId)} juara ${league.name} musim ${h.season}, ${name(h.runnerUpId)} di posisi kedua.`;
+      if (rows.some((x) => x.clubId === h.championId && x.apps > 0)) {
+        (career.trophies ??= []).push({ id: `league-${h.leagueId}-${h.season}`, name: league.name, season: h.season, team: name(h.championId) });
+        body += ' Kamu ikut membawa timmu juara!';
+      }
       if (mine) {
         const pos = standings(finished[league.id]).findIndex((r) => r.clubId === player.contract!.clubId) + 1;
         body += ` ${name(player.contract!.clubId)} finis di posisi ke-${pos}.`;

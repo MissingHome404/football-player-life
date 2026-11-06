@@ -20,6 +20,7 @@ import { roundDate } from '../game/sim/season';
 import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
 import { NationalPanel } from './NationalPanel';
+import { AwardsPanel } from './AwardsPanel';
 import { AvatarPanel } from './LifeView';
 import { matchReactions } from '../game/sim/relations';
 import { ENGINE_VERSION } from '../game/sim/engine';
@@ -116,6 +117,7 @@ export function CareerHome({ children }: { children: ReactNode }) {
           <TransferPanel />
           <MatchPanel />
           <NationalPanel />
+          <AwardsPanel />
           <RelationsPanel />
           <ReportPanel />
         </div>

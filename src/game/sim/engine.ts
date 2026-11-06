@@ -191,6 +191,10 @@ export interface PStats {
   saves: number;
   conceded: number;
   offsides: number;
+  /** jenis gol: dari luar kotak (> 18 m), bola mati (penalti / tendangan bebas langsung), sundulan */
+  longGoals: number;
+  setGoals: number;
+  headGoals: number;
   on: number; // detik permainan mulai main
   off?: number;
 }
@@ -250,6 +254,7 @@ interface Shot {
   passed: boolean;
   /** pemain lawan yang sudah dilewati bola (dibelokkan sekali saja) */
   near?: Body[];
+  kind?: 'long' | 'set' | 'head';
 }
 
 interface Pass {
@@ -330,7 +335,7 @@ export class Match {
   private makeBody(p: EP, side: 0 | 1, on: boolean): Body {
     const st: PStats = {
       passes: 0, passesOk: 0, keyPasses: 0, shots: 0, onTarget: 0, goals: 0, assists: 0, tackles: 0,
-      interceptions: 0, dribbles: 0, lost: 0, saves: 0, conceded: 0, offsides: 0, on: on ? 0 : -1,
+      interceptions: 0, dribbles: 0, lost: 0, saves: 0, conceded: 0, offsides: 0, longGoals: 0, setGoals: 0, headGoals: 0, on: on ? 0 : -1,
     };
     // salinan atribut: input tidak pernah diubah (aman untuk ditonton ulang)
     const ep: EP = { ...p, a: fullAttrs(p.a) };
@@ -1156,7 +1161,8 @@ export class Match {
     ball.vz = (h - ball.z + (G * tl * tl) / 2) / tl;
     const assist = this.lastPasser && this.lastPasser.side === side && this.lastPasser !== c ? this.lastPasser : undefined;
     const gkX = gk && this.fx(side, gk.x) > fx ? gk.x : this.wx(side, PITCH_W - 0.4);
-    this.shot = { by: c, outcome, assist, blocker, gkX, passed: false };
+    const kind = header ? 'head' : setPiece ? 'set' : dist > 18 ? 'long' : undefined;
+    this.shot = { by: c, outcome, assist, blocker, gkX, passed: false, kind };
     if (outcome !== 'miss') {
       c.st.onTarget++;
       this.onTarget[side]++;
@@ -1325,6 +1331,9 @@ export class Match {
     if (gk) gk.st.conceded++;
     if (s && s.by.side === side) {
       s.by.st.goals++;
+      if (s.kind === 'long') s.by.st.longGoals++;
+      else if (s.kind === 'set') s.by.st.setGoals++;
+      else if (s.kind === 'head') s.by.st.headGoals++;
       if (s.assist) s.assist.st.assists++;
       this.log('goal', side, s.by.p.name, s.assist?.p.name);
     } else {

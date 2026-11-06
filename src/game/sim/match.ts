@@ -5,8 +5,9 @@ import type { Position } from '../data/attributes';
 import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, SeasonStat, World } from '../types';
 import { Rng, clamp } from '../rng';
 import { simScore, squadOf, topEleven, type WeekMatches } from './season';
-import { FULL, engineAttrs, pickXI, playEngine, slotFor, type EngineInput, type ETeam } from './engine';
+import { FULL, engineAttrs, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type ETeam } from './engine';
 import { shortName } from '../gen/names';
+import { applyBadges } from './badges';
 
 type Group = 'GK' | 'DEF' | 'MID' | 'ATT';
 const GROUP: Record<Position, Group> = {
@@ -17,11 +18,11 @@ const STARTERS: Record<Group, number> = { GK: 1, DEF: 4, MID: 3, ATT: 3 };
 const BENCH: Record<Group, number> = { GK: 1, DEF: 2, MID: 2, ATT: 2 };
 
 // Peluang mencetak gol / memberi assist per gol tim, sesuai posisi
-const GOAL_W: Record<Position, number> = {
+export const GOAL_W: Record<Position, number> = {
   GK: 0, DC: 0.04, DR: 0.03, DL: 0.03, WBR: 0.04, WBL: 0.04, DM: 0.05, MC: 0.08,
   MR: 0.1, ML: 0.1, AMC: 0.16, AMR: 0.17, AML: 0.17, ST: 0.32,
 };
-const ASSIST_W: Record<Position, number> = {
+export const ASSIST_W: Record<Position, number> = {
   GK: 0.01, DC: 0.03, DR: 0.08, DL: 0.08, WBR: 0.1, WBL: 0.1, DM: 0.07, MC: 0.12,
   MR: 0.15, ML: 0.15, AMC: 0.18, AMR: 0.17, AML: 0.17, ST: 0.1,
 };
@@ -117,6 +118,15 @@ export function statRow(career: Career, season: string, team: string, comp: Comp
   return row;
 }
 
+/** Laga liga milikmu yang dimainkan match engine (untuk statistik musim semua pemain) */
+export interface UserEngineMatch {
+  leagueId: string;
+  round: number;
+  index: number;
+  result: EngineResult;
+  input: EngineInput;
+}
+
 export interface GameSide {
   id: string;
   name: string;
@@ -137,16 +147,22 @@ export function engineGame(o: {
   theirs: GameSide;
   home: boolean;
   seed: string;
-}): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord> } {
+  /** hitung jenis gol untuk syarat lencana (hanya laga senior) */
+  feats?: boolean;
+}): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord>; result: EngineResult } {
   const { p, career, status, rng, home } = o;
   const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
   const xiOurs = pickXI(o.ours.squad, p, status === 'Inti');
   const user = xiOurs.xi.find((e) => e.user);
-  if (user) for (const k of ['pace', 'acc', 'sta'] as const) user.a[k] *= fit;
+  if (user) {
+    applyBadges(user.a, career.badges);
+    for (const k of ['pace', 'acc', 'sta'] as const) user.a[k] *= fit;
+  }
   const ourTeam: ETeam = { id: o.ours.id, name: o.ours.name, color: o.ours.colors[0], color2: o.ours.colors[1], xi: xiOurs.xi };
   if (status === 'Cadangan' && rng.chance(0.45)) {
     const mins = rng.int(5, 35);
     const a = engineAttrs(p);
+    applyBadges(a, career.badges);
     for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
     const slot = slotFor(p);
     ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: { id: p.id, name: shortName(p), num: 12, slot, user: true, a }, slot };
@@ -165,6 +181,12 @@ export function engineGame(o: {
   const st = r.stats[p.id];
   const minutes = st ? Math.max(1, Math.round((((st.off ?? FULL) - st.on) / FULL) * 90)) : 0;
   const group = GROUP[p.mainPosition];
+  if (st && o.feats) {
+    const f = (career.feats ??= { long: 0, set: 0, head: 0 });
+    f.long += st.longGoals;
+    f.set += st.setGoals;
+    f.head += st.headGoals;
+  }
   const perf: Perf = st
     ? {
         minutes,
@@ -180,7 +202,7 @@ export function engineGame(o: {
     shots: [r.shots[us], r.shots[1 - us]],
     possession: [r.possession[us], r.possession[1 - us]],
   };
-  return { score, perf, sim, extra };
+  return { score, perf, sim, extra, result: r };
 }
 
 /** Catat menit, gol, assist, dan rating ke baris statistik musim */
@@ -207,7 +229,7 @@ export function userMatch(
   p: Player,
   week: WeekMatches,
   rng: Rng,
-): { rec: MatchRecord; sim?: EngineInput } | null {
+): { rec: MatchRecord; sim?: EngineInput; engine?: UserEngineMatch } | null {
   const club: Club | undefined = p.contract ? world.clubs.find((c) => c.id === p.contract!.clubId) : undefined;
   const squad = club ? squadOf(world, club.id).filter((q) => !q.isUser) : [];
   let comp: Competition;
@@ -223,6 +245,7 @@ export function userMatch(
   let oppSquad: Player[] = [];
   let ours: Player[] = [];
   let fixture: { leagueId: string; round: number; index: number; home: boolean } | undefined;
+  let engine: UserEngineMatch | undefined;
 
   if (club && !p.isYouth) {
     const f = week.played.get(club.id);
@@ -293,8 +316,10 @@ export function userMatch(
       theirs: { id: oppClub.id, name: comp === 'U19' ? `${oppClub.name} U19` : oppClub.name, colors: oppClub.colors, squad: oppSquad },
       home,
       seed: `${career.characterSeed}:${date}:${club.id}`,
+      feats: comp === 'Liga',
     });
     ({ score, perf, sim, extra } = g);
+    if (fixture) engine = { ...fixture, result: g.result, input: g.sim };
     // skor dari match engine menggantikan hasil cepat di klasemen
     if (fixture) {
       const s = week.seasons[fixture.leagueId];
@@ -305,5 +330,5 @@ export function userMatch(
   }
   const rec: MatchRecord = { date, comp, season, team, opponent, opponentId, home, score, status, ...perf, ...extra };
   addStats(career, rec, club?.id);
-  return { rec, sim };
+  return { rec, sim, engine };
 }

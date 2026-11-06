@@ -130,6 +130,66 @@ export interface World {
   honours: Honour[]; // juara liga tiap musim
   /** sepak bola internasional: kualifikasi & turnamen (dibuat saat pertama dibutuhkan) */
   intl?: IntlState;
+  /** statistik musim berjalan semua pemain per liga (untuk penghargaan & rekor) */
+  ledger?: Record<string, SeasonLedger>;
+  records?: WorldRecords;
+  tallies?: Tallies;
+  /** penghargaan individu terbaru (semua liga + dunia), terbaru di depan */
+  awards?: AwardEntry[];
+  /** kandidat penghargaan dunia dari musim terakhir tiap liga */
+  candidates?: Record<string, Candidate[]>;
+  /** peringkat penghargaan dunia terakhir */
+  worldAward?: { year: string; top: Candidate[]; young: Candidate[] };
+}
+
+/** [main, gol, assist, total rating, id klub, clean sheet] */
+export type LedgerRow = [number, number, number, number, string, number];
+export interface SeasonLedger {
+  season: string;
+  rows: Record<string, LedgerRow>;
+  /** dimulai di tengah musim (awal game): tidak dipakai untuk penghargaan */
+  partial?: boolean;
+}
+
+export interface RecordEntry {
+  name: string;
+  playerId?: string;
+  value: number;
+  year: string;
+}
+export interface WorldRecords {
+  seasonGoals: Record<string, RecordEntry>; // per liga: gol liga terbanyak dalam semusim
+  youngest: Record<string, RecordEntry>; // per liga: pencetak gol termuda (nilai = umur dalam hari)
+  clubGoals: Record<string, RecordEntry>; // per klub: gol liga terbanyak sepanjang masa
+  natGoals: Record<string, RecordEntry>; // per negara
+  natCaps: Record<string, RecordEntry>;
+}
+export interface Tallies {
+  club: Record<string, number>; // "klub|pemain" -> gol liga
+  natGoals: Record<string, number>;
+  natCaps: Record<string, number>;
+}
+
+export type AwardKind = 'pots' | 'top' | 'young' | 'world' | 'worldYoung';
+export interface AwardEntry {
+  kind: AwardKind;
+  scope: string; // id liga atau 'world'
+  season: string;
+  playerId: string;
+  name: string;
+  clubId?: string;
+  value?: string;
+}
+export interface Candidate {
+  playerId: string;
+  name: string;
+  clubId?: string;
+  leagueId?: string;
+  apps: number;
+  goals: number;
+  assists: number;
+  avg: number;
+  score: number;
 }
 
 /** Baris klasemen kualifikasi timnas */
@@ -276,6 +336,14 @@ export interface Career {
   life: Life;
   /** karier timnas (dibuat saat pertama dibutuhkan) */
   intl?: NationalCareer;
+  /** penghargaan individu yang kamu menangkan */
+  awards?: { id: string; name: string; season: string; detail?: string }[];
+  /** trofi tim (juara liga, turnamen timnas) */
+  trophies?: { id: string; name: string; season: string; team: string }[];
+  /** lencana (special abilities) yang sudah terbuka */
+  badges?: string[];
+  /** jenis gol dari match engine: dari luar kotak, bola mati, sundulan */
+  feats?: { long: number; set: number; head: number };
 }
 
 export type NatTeam = 'senior' | 'u20';

@@ -25,6 +25,7 @@ import { ageOn } from '../gen/player';
 import { simScore, topEleven } from './season';
 import { addStats, engineGame, groupOf, recentForm } from './match';
 import type { EngineInput } from './engine';
+import type { NatPlayed } from './awards';
 
 export const SQUAD_SIZE = 23;
 export const SQUAD_GK = 3;
@@ -372,13 +373,22 @@ function penalties(rng: Rng, home: string, away: string, world: World): [number,
  * dan turnamen. Mengubah `career` (inbox, statistik, caps) dan mengembalikan dunia baru
  * beserta laga timnas yang kamu mainkan.
  */
-export function nationalWeek(world: World, career: Career, p: Player, from: string, to: string): { world: World; games: IntlGame[] } {
+export function nationalWeek(
+  world: World,
+  career: Career,
+  p: Player,
+  from: string,
+  to: string,
+): { world: World; games: IntlGame[]; played: NatPlayed[] } {
   const intl: IntlState = world.intl ? structuredClone(world.intl) : initIntl(from);
   const nc = (career.intl ??= emptyNational());
   const country = p.nationalityId;
   const conf = COUNTRY_BY_ID[country]?.confederation ?? 'UEFA';
   const cname = countryName(country);
   const games: IntlGame[] = [];
+  // semua laga senior minggu ini (untuk caps & gol semua pemain)
+  const played: NatPlayed[] = [];
+  let lastEngine: NatPlayed['engine'];
   const rng = new Rng(`${career.characterSeed}:intl:${from}`);
   const inRange = (d: string) => d >= from && d < to;
   const age = ageOn(p.birthDate, from);
@@ -426,6 +436,7 @@ export function nationalWeek(world: World, career: Career, p: Player, from: stri
       theirs: { id: opp, name: `${countryName(opp)}${suffix}`, colors: kitOf(opp), squad: theirs },
       home,
       seed: `${career.characterSeed}:${f.date}:${country}:${team}`,
+      feats: team === 'senior',
     });
     const rec: MatchRecord = {
       date: f.date,
@@ -454,6 +465,7 @@ export function nationalWeek(world: World, career: Career, p: Player, from: stri
       }
     }
     games.push({ rec, sim: g.sim });
+    lastEngine = team === 'senior' ? { result: g.result, input: g.sim } : undefined;
     const s: [number, number] = home ? g.score : [g.score[1], g.score[0]];
     if (rec.pens) f.pens = home ? rec.pens : [rec.pens[1], rec.pens[0]];
     return s;
@@ -474,8 +486,10 @@ export function nationalWeek(world: World, career: Career, p: Player, from: stri
             const label = kind ? `Kualifikasi ${TOURNAMENT_NAME[kind]} ${intl.cycle}` : 'Laga internasional';
             for (const f of qualifierFixtures(world, day)) {
               const mine = f.home === country || f.away === country;
+              lastEngine = undefined;
               const s = mine && nc.called === 'senior' && nc.calledFor === w.id && !career.injury ? playUser(f, 'senior', label, false) : quickScore(world, f);
               f.score = s;
+              played.push({ date: day, home: f.home, away: f.away, score: s, engine: lastEngine });
               addResult(intl.table, f.home, f.away, s);
             }
             if (nc.called === 'u20' && nc.calledFor === w.id && !career.injury) {
@@ -525,11 +539,13 @@ export function nationalWeek(world: World, career: Career, p: Player, from: stri
         const ko = KO_STAGES.includes(f.stage);
         const mine = f.home === country || f.away === country;
         const stage = `${t.name} · ${ko ? STAGE_NAME[f.stage] : `Grup ${f.stage}`}`;
+        lastEngine = undefined;
         if (mine && nc.called === 'senior' && nc.calledFor === t.id && !career.injury) f.score = playUser(f, 'senior', stage, ko);
         else {
           f.score = quickScore(world, f);
           if (ko && f.score[0] === f.score[1]) f.pens = penalties(new Rng(`${world.seed}:pens:${f.date}:${f.home}`), f.home, f.away, world);
         }
+        played.push({ date: f.date, home: f.home, away: f.away, score: f.score, engine: lastEngine });
       }
       t.fixtures.push(...nextStage(t));
       const fin = t.fixtures.find((f) => f.stage === 'FINAL' && f.score);
@@ -547,6 +563,7 @@ export function nationalWeek(world: World, career: Career, p: Player, from: stri
     const goals = prevApps.reduce((a, m) => a + m.goals, 0) + mine.reduce((a, g) => a + g.rec.goals, 0);
     if (nc.calledFor === t.id && nc.called === 'senior') {
       nc.tournaments.push({ id: t.id, name: t.name, stage, apps, goals });
+      if (stage === 'Juara') (career.trophies ??= []).push({ id: t.id, name: t.name, season: String(t.year), team: cname });
       p.reputation.world = clamp(p.reputation.world + (stage === 'Juara' ? 6 : 2), 1, 100);
       p.reputation.home = clamp(p.reputation.home + (stage === 'Juara' ? 8 : 2), 1, 100);
     }
@@ -566,5 +583,5 @@ export function nationalWeek(world: World, career: Career, p: Player, from: stri
     e.run();
   }
   runTournamentDays();
-  return { world: { ...world, intl }, games };
+  return { world: { ...world, intl }, games, played };
 }
