@@ -13,6 +13,7 @@ import { SearchView } from './SearchView';
 import { LifeView } from './LifeView';
 import { ContinentalView } from './ContinentalView';
 import { NamesView, RenameButton } from './NamesView';
+import { EditorView } from './EditorView';
 import { ClubTactic } from './FormationView';
 import { STYLE_LABEL, clubTactic } from '../game/sim/tactics';
 import { PLAY_TRAITS, playTraits } from '../game/sim/traits';
@@ -101,6 +102,7 @@ export function WorldBrowser() {
       title: 'Lainnya',
       items: [
         { key: 'names', icon: '✏️', label: 'Editor nama', to: { kind: 'names' }, on: k === 'names' },
+        ...(career && !career.retired ? [{ key: 'editor', icon: '🛠️', label: 'Editor in-game', to: { kind: 'editor' } as View, on: k === 'editor' }] : []),
         { key: 'settings', icon: '⚙️', label: 'Simpan & pengaturan', to: { kind: 'settings' }, on: k === 'settings' },
       ],
     },
@@ -171,6 +173,7 @@ export function WorldBrowser() {
           {k === 'search' && <SearchView />}
           {k === 'comps' && <CompetitionsView myLeague={myLeague} />}
           {k === 'settings' && <SettingsView />}
+          {k === 'editor' && career && <EditorView />}
           {k === 'league' && <LeagueView key={view.leagueId} leagueId={view.leagueId} tab={view.tab} />}
           {k === 'club' && <ClubView key={view.clubId} clubId={view.clubId} />}
           {k === 'player' && <PlayerView key={view.playerId} playerId={view.playerId} />}

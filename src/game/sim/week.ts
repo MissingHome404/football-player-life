@@ -8,7 +8,7 @@ import type { CharacterRoll } from '../gen/character';
 import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { ageOn } from '../gen/player';
-import { ACTIVITY_INFO, COACH_INFO, INTENSITY_INFO, econOf, weeklyBudget } from './economy';
+import { ACTIVITY_INFO, COACH_INFO, COACH_TIERS, INTENSITY_INFO, econOf, levelOf, weeklyBudget } from './economy';
 import { ageDecline, learnPositionWeek, trainWeek } from './training';
 import { MAX_AGE, retire } from './retire';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
@@ -26,6 +26,7 @@ import { defaultLife, lifeFitness, lifeStress, lifeWeek } from './life';
 import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, relationsWeek } from './relations';
 import { clubKey, intensityDrain, learnTactic, natKey, understandWeek } from './understanding';
 import { tacticalIQ } from './tactics';
+import { trophyBonus } from './bonus';
 
 const ALL_EVENTS = [...EVENTS, ...RELATION_EVENTS];
 
@@ -33,7 +34,7 @@ export const DEFAULT_PLAN: WeekPlan = {
   focus: 'seimbang',
   intensity: 'normal',
   activity: 'rumah',
-  coaches: { teknik: false, fisik: false, mental: false, psikolog: false },
+  coaches: { teknik: 0, fisik: 0, mental: 0, psikolog: 0 },
 };
 
 const INBOX_LIMIT = 60;
@@ -141,7 +142,8 @@ export function stressTarget(career: Career, player: Player, clubCountry?: strin
   if (!player.contract && age >= 17) parts.push(['Belum punya klub', 15]);
   const fam = Math.round(-(career.family.support - 10) * 1.5);
   if (fam) parts.push([fam < 0 ? 'Dukungan keluarga' : 'Keluarga kurang mendukung', fam]);
-  if (plan.coaches.psikolog) parts.push(['Psikolog', -15]);
+  const psy = levelOf(plan.coaches.psikolog);
+  if (psy) parts.push([`Psikolog ${COACH_TIERS[psy].label.toLowerCase()}`, COACH_TIERS[psy].stress]);
   if (career.injury) parts.push(['Cedera', 15]);
   if (career.money < 0) parts.push(['Uang minus', 20]);
   // menit bermain dan performa 6 minggu terakhir
@@ -197,9 +199,9 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   // 1. Uang. Kalau tidak cukup, pelatih pribadi dan kegiatan berbayar dibatalkan.
   let budget = weeklyBudget(career, player);
   if (career.money + budget.net < 0) {
-    const coaches = (Object.keys(plan.coaches) as (keyof WeekPlan['coaches'])[]).filter((k) => plan.coaches[k]);
+    const coaches = (Object.keys(plan.coaches) as (keyof WeekPlan['coaches'])[]).filter((k) => levelOf(plan.coaches[k]));
     if (coaches.length) {
-      for (const k of coaches) plan.coaches[k] = false;
+      for (const k of coaches) plan.coaches[k] = 0;
       notes.push(`Uangmu tidak cukup, jadi ${coaches.map((k) => COACH_INFO[k].label.toLowerCase()).join(', ')} dihentikan.`);
     }
     budget = weeklyBudget(career, player);
@@ -252,12 +254,12 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       Math.max(0.15, proneness) *
       (career.fitness < 40 ? 2 : 1) *
       (career.fitness < 20 ? 1.5 : 1) *
-      (plan.coaches.fisik ? 0.7 : 1) *
+      (levelOf(plan.coaches.fisik) ? COACH_TIERS[levelOf(plan.coaches.fisik) as 1 | 2 | 3].injury : 1) *
       injuryFactor(career);
     if (rng.chance(chance)) injure(career, rng, 'latihan', notes, player);
   }
   const abroad = !!club && club.countryId !== player.nationalityId;
-  lifeWeek(career, abroad, () => rng.chance(0.4));
+  lifeWeek(career, abroad, (p) => rng.chance(p));
 
   // 4b. Pertandingan minggu ini: semua liga, lalu pemain kita
   const weekEnd = addDays(career.currentDate, 7);
@@ -412,6 +414,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       let body = `${name(h.championId)} juara ${league.name} musim ${h.season}, ${name(h.runnerUpId)} di posisi kedua.`;
       if (rows.some((x) => x.clubId === h.championId && x.apps > 0)) {
         (career.trophies ??= []).push({ id: `league-${h.leagueId}-${h.season}`, name: league.name, season: h.season, team: name(h.championId) });
+        trophyBonus(career, player, h.championId, league.name, career.currentDate, notes);
         body += ' Kamu ikut membawa timmu juara!';
       }
       if (mine) {

@@ -4,6 +4,7 @@
 import type { Career, Competition, MatchRecord, Player, SeasonStat } from '../types';
 import type { Rng } from '../rng';
 import { injure } from './injury';
+import { clubMatchMoney } from './bonus';
 
 /** Kartu kuning yang terkumpul di satu musim liga sebelum skorsing 1 laga */
 export const YELLOW_LIMIT = 5;
@@ -78,5 +79,7 @@ export function afterGame(
       });
     }
   }
+  // bonus performa kontrak & denda kartu merah (laga klub senior)
+  if (scope === 'club') clubMatchMoney(career, rec, player, notes);
   if (rec.injured && !career.injury) injure(career, rng, 'pertandingan', notes, player);
 }

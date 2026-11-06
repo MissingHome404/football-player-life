@@ -403,6 +403,19 @@ input { font: inherit; }
 .offer-grid dt { color: var(--muted); }
 .offer-grid dd { margin: 0; min-width: 0; }
 .offer-actions { margin-bottom: 6px; }
+.bonus-list { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.bonus-chip { border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.tr-bonus { margin: 12px 0; }
+.bonus-log { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; }
+.bonus-log li { display: grid; grid-template-columns: 64px 1fr auto; gap: 8px; align-items: baseline; }
+.coach-tiers { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.coach-row { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.mod-plus { color: var(--a-hi); }
+.mod-minus { color: var(--a-poor); }
+.editor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 14px; }
+.editor-grid label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
+.editor-grid input[type=number] { width: 64px; }
+.editor-warn { border-left: 3px solid var(--star); padding: 6px 10px; }
 .tr-history { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
 .tr-history li { display: grid; grid-template-columns: 112px 1fr auto; gap: 8px; align-items: center; font-size: 14px; }
 

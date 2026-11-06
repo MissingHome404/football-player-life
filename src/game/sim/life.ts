@@ -2,11 +2,11 @@
 // staf pribadi, kegiatan sekali bayar (liburan, bantu orang tua, amal), dan tabungan.
 // Setiap pengeluaran punya efek yang jelas, dan gaya hidup mahal susah diturunkan.
 
-import type { Career, Life, Player, World } from '../types';
+import type { Career, CoachLevel, Life, Player, World } from '../types';
 import { clamp } from '../rng';
 import { addDays } from '../date';
 import { ageOn, computeCA } from '../gen/player';
-import { econOf } from './economy';
+import { COACH_TIERS, econOf, levelOf, tierCost } from './economy';
 import { getAttr, setAttr } from './training';
 import { addFans, addMedia, addPartner } from './relations';
 import { replacePlayer } from './season';
@@ -28,7 +28,9 @@ export interface ItemDef {
   desc: string;
   price: number;
   local?: boolean; // harga ikut ekonomi negaramu
-  attrs?: Record<string, number>; // bonus atribut sekali saat dibeli
+  attrs?: Record<string, number>; // bonus atribut permanen, sekali saat dibeli (barang lama)
+  /** perubahan atribut selama dipakai (bisa plus atau minus); hilang lagi saat dilepas/dijual */
+  mods?: Record<string, number>;
   fitness?: number; // per minggu
   stress?: number; // selama dipakai
   media?: number; // sekali saat dibeli
@@ -41,10 +43,24 @@ export const ITEMS: ItemDef[] = [
   { id: 'sepatu_biasa', kind: 'sepatu', label: 'Sepatu bola biasa', desc: 'Sepatu pertamamu.', price: 40, local: true, color: '#1d1f24' },
   { id: 'sepatu_pro', kind: 'sepatu', label: 'Sepatu pro', desc: 'Ringan dan pas di kaki.', price: 220, attrs: { 'First Touch': 1 }, color: '#ff6a1a' },
   { id: 'sepatu_elite', kind: 'sepatu', label: 'Sepatu elite', desc: 'Dibuat khusus untuk kakimu.', price: 850, attrs: { Finishing: 1, Technique: 1 }, color: '#e8c84a' },
+  { id: 'sepatu_speed', kind: 'sepatu', label: 'Sepatu speed', desc: 'Super ringan untuk sprint, tapi tipis dan kurang kokoh saat duel.', price: 600, mods: { Acceleration: 1, Pace: 1, Strength: -1 }, color: '#39e0ff' },
+  { id: 'sepatu_kontrol', kind: 'sepatu', label: 'Sepatu kontrol', desc: 'Kulit lembut, bola terasa lengket. Sedikit lebih berat.', price: 550, mods: { 'First Touch': 1, Dribbling: 1, Acceleration: -1 }, color: '#7a3cff' },
+  { id: 'sepatu_baja', kind: 'sepatu', label: 'Sepatu stud besi', desc: 'Pijakan mantap di rumput basah, tapi kaki terasa berat.', price: 450, mods: { Strength: 1, Balance: 1, Agility: -1 }, color: '#5b6273' },
+  { id: 'sepatu_finisher', kind: 'sepatu', label: 'Sepatu finisher', desc: 'Zona tendangan diperbesar. Umpan pendek jadi kurang terasa.', price: 1800, mods: { Finishing: 2, 'Long Shots': 1, Passing: -1 }, color: '#ff2d55' },
+  { id: 'sepatu_maestro', kind: 'sepatu', label: 'Sepatu maestro', desc: 'Untuk pengatur serangan: umpan presisi, tendangan kurang bertenaga.', price: 1500, mods: { Passing: 1, Technique: 1, Crossing: 1, 'Long Shots': -1 }, color: '#ffffff' },
+  { id: 'sepatu_tembok', kind: 'sepatu', label: 'Sepatu bertahan', desc: 'Stud panjang untuk menekel dan duel udara. Kurang lincah.', price: 700, mods: { Tackling: 1, 'Jumping Reach': 1, Dribbling: -1 }, color: '#1f6f3f' },
+  { id: 'sepatu_legenda', kind: 'sepatu', label: 'Sepatu edisi legenda', desc: 'Edisi terbatas buatan tangan, sempurna di segala hal.', price: 15000, mods: { Finishing: 1, 'First Touch': 1, Technique: 1, Dribbling: 1, Passing: 1 }, color: '#b8860b' },
   { id: 'sarung_pro', kind: 'alat', label: 'Sarung tangan kiper pro', desc: 'Grip lebih lengket.', price: 180, attrs: { Handling: 1 }, color: '#3fbf7f' },
   { id: 'recovery', kind: 'alat', label: 'Alat recovery', desc: 'Pijat, es, dan kompresi setiap malam.', price: 350, fitness: 3, color: '#5aa0ff' },
   { id: 'gym', kind: 'alat', label: 'Gym di rumah', desc: 'Butuh rumah atau rumah mewah.', price: 2500, attrs: { Strength: 1 }, fitness: 2, needHouse: 3, color: '#888' },
   { id: 'ikat_kepala', kind: 'aksesori', label: 'Ikat kepala', desc: 'Gaya klasik pemain bintang.', price: 12, local: true, color: '#f2f2f2' },
+  { id: 'gelang', kind: 'aksesori', label: 'Gelang keberuntungan', desc: 'Pemberian ibu. Bikin tenang di depan gawang.', price: 30, local: true, mods: { Composure: 1 }, stress: -1, color: '#c0392b' },
+  { id: 'kaus_grip', kind: 'aksesori', label: 'Kaus kaki grip', desc: 'Kaki tidak bergeser di dalam sepatu.', price: 80, mods: { Balance: 1, Agility: 1 }, color: '#f2f2f2' },
+  { id: 'deker_pro', kind: 'aksesori', label: 'Deker karbon', desc: 'Pelindung kaki ringan: berani masuk duel, sedikit membatasi gerak.', price: 150, mods: { Bravery: 1, Acceleration: -1 }, color: '#222831' },
+  { id: 'headphone', kind: 'aksesori', label: 'Headphone mahal', desc: 'Fokus penuh sebelum laga, tapi kamu jadi menyendiri di ruang ganti.', price: 450, mods: { Concentration: 1, Teamwork: -1 }, media: 1, color: '#111111' },
+  { id: 'jam_pintar', kind: 'aksesori', label: 'Jam pintar olahraga', desc: 'Memantau detak jantung dan beban latihan.', price: 350, mods: { 'Work Rate': 1 }, fitness: 1, color: '#2d3240' },
+  { id: 'kacamata', kind: 'aksesori', label: 'Kacamata desainer', desc: 'Gaya bintang film. Kamu jadi agak malas berlari.', price: 1200, mods: { 'Work Rate': -1 }, media: 2, stress: -1, color: '#0b0b0b' },
+  { id: 'anting', kind: 'aksesori', label: 'Anting berlian', desc: 'Berkilau di setiap foto, tapi pikiranmu sering ke mana-mana.', price: 7000, mods: { Concentration: -1 }, media: 4, stress: -2, color: '#e8f4ff' },
   { id: 'jam', kind: 'aksesori', label: 'Jam tangan mewah', desc: 'Media suka memotretnya.', price: 4000, media: 4, stress: -1, color: '#d9b44a' },
   { id: 'kalung', kind: 'aksesori', label: 'Kalung emas', desc: 'Mencolok di setiap foto.', price: 2500, media: 2, stress: -1, color: '#e8c84a' },
   { id: 'motor', kind: 'kendaraan', label: 'Motor', desc: 'Tidak perlu naik angkot lagi.', price: 900, local: true, stress: -1, upkeep: 2, color: '#c0392b' },
@@ -55,11 +71,40 @@ export const ITEMS: ItemDef[] = [
 export const ITEM_BY_ID: Record<string, ItemDef> = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
 
 export type SubId = 'suplemen' | 'gizi' | 'fisio';
-export const SUBS: Record<SubId, { label: string; desc: string; cost: number; fitness: number; injury: number }> = {
-  suplemen: { label: 'Suplemen', desc: 'Kebugaran sedikit lebih cepat pulih.', cost: 20, fitness: 2, injury: 0.9 },
-  gizi: { label: 'Ahli gizi pribadi', desc: 'Pola makan teratur: kebugaran naik, risiko cedera turun.', cost: 90, fitness: 3, injury: 0.85 },
-  fisio: { label: 'Fisio pribadi', desc: 'Cedera sembuh lebih cepat, risiko cedera turun.', cost: 130, fitness: 0, injury: 0.9 },
+/**
+ * Staf pribadi. Ahli gizi dan fisio punya tingkatan (amatir, profesional, world class): efek per tingkat
+ * ada di larik [amatir, profesional, world class]; biaya dasar = tingkat profesional.
+ */
+export const SUBS: Record<SubId, { label: string; desc: string; cost: number; tiered: boolean; fitness: number[]; injury: number[]; heal?: number[] }> = {
+  suplemen: { label: 'Suplemen', desc: 'Kebugaran sedikit lebih cepat pulih.', cost: 20, tiered: false, fitness: [2, 2, 2], injury: [0.9, 0.9, 0.9] },
+  gizi: { label: 'Ahli gizi pribadi', desc: 'Pola makan teratur: kebugaran naik, risiko cedera turun.', cost: 90, tiered: true, fitness: [2, 3, 5], injury: [0.92, 0.85, 0.75] },
+  fisio: {
+    label: 'Fisio pribadi',
+    desc: 'Cedera sembuh lebih cepat, risiko cedera turun.',
+    cost: 130,
+    tiered: true,
+    fitness: [0, 0, 1],
+    injury: [0.95, 0.9, 0.82],
+    heal: [0.25, 0.4, 0.6],
+  },
 };
+
+/** Tingkat staf yang dipakai (0 = tidak) */
+export const subLevel = (life: Life, id: SubId): CoachLevel => {
+  const l = levelOf(life.subs[id]);
+  return l && !SUBS[id].tiered ? 2 : l;
+};
+/** Biaya mingguan staf pada tingkat tertentu */
+export const subCost = (id: SubId, level: CoachLevel, econ: number) =>
+  SUBS[id].tiered ? tierCost(SUBS[id].cost, level, econ) : level ? SUBS[id].cost * econ : 0;
+const subEffect = (life: Life, id: SubId, k: 'fitness' | 'injury' | 'heal') => {
+  const l = subLevel(life, id);
+  return l ? SUBS[id][k]?.[l - 1] : undefined;
+};
+export { COACH_TIERS };
+
+/** Aksesori yang boleh dipakai bersamaan */
+export const MAX_WEAR = 4;
 
 export type ActionId = 'liburan' | 'bantu_ortu' | 'amal';
 export const ACTIONS: Record<ActionId, { label: string; desc: string; cost: number; local: boolean; cooldown: number }> = {
@@ -82,7 +127,7 @@ export function lifeCosts(career: Career, econ: number) {
   const life = career.life;
   const house = HOUSES[life.house].cost * econ;
   let subs = 0;
-  for (const k of Object.keys(SUBS) as SubId[]) if (life.subs[k]) subs += SUBS[k].cost * econ;
+  for (const k of Object.keys(SUBS) as SubId[]) subs += subCost(k, subLevel(life, k), econ);
   const car = life.car ? ITEM_BY_ID[life.car] : undefined;
   const upkeep = car?.upkeep ? (car.local ? car.upkeep * econ : car.upkeep) : 0;
   return { house, subs, upkeep };
@@ -99,14 +144,14 @@ export function lifeFitness(career: Career): number {
   const life = career.life;
   let f = HOUSES[life.house].fitness;
   for (const i of equippedItems(life)) f += i.fitness ?? 0;
-  for (const k of Object.keys(SUBS) as SubId[]) if (life.subs[k]) f += SUBS[k].fitness;
+  for (const k of Object.keys(SUBS) as SubId[]) f += subEffect(life, k, 'fitness') ?? 0;
   return f;
 }
 
 /** Pengali risiko cedera dari staf pribadi */
 export function lifeInjuryFactor(career: Career): number {
   let f = 1;
-  for (const k of Object.keys(SUBS) as SubId[]) if (career.life.subs[k]) f *= SUBS[k].injury;
+  for (const k of Object.keys(SUBS) as SubId[]) f *= subEffect(career.life, k, 'injury') ?? 1;
   return f;
 }
 
@@ -128,10 +173,11 @@ export function lifeStress(career: Career, age: number): [string, number][] {
  * Efek mingguan: bunga tabungan, fisio mempercepat pemulihan, pindah dari rumah
  * orang tua kalau main di luar negeri. Mengubah `career` langsung.
  */
-export function lifeWeek(career: Career, abroad: boolean, healChance: () => boolean) {
+export function lifeWeek(career: Career, abroad: boolean, healChance: (p: number) => boolean) {
   const life = career.life;
   if (life.savings > 0) life.savings = Math.round(life.savings * (1 + INTEREST) * 100) / 100;
-  if (life.subs.fisio && career.injury && career.injury.weeksLeft > 1 && healChance()) career.injury.weeksLeft -= 1;
+  const heal = subEffect(life, 'fisio', 'heal');
+  if (heal && career.injury && career.injury.weeksLeft > 1 && healChance(heal)) career.injury.weeksLeft -= 1;
   if (abroad && life.house === 'ortu') {
     life.house = 'kos';
     life.houseSince = career.currentDate;
@@ -146,6 +192,46 @@ export function lifeWeek(career: Career, abroad: boolean, healChance: () => bool
   if (life.house === 'mewah') addMedia(career, 0.3);
 }
 
+/**
+ * Pasang (on) atau lepas efek atribut barang. Selisih yang benar-benar diterapkan disimpan di
+ * life.mods supaya saat dilepas atribut kembali persis (tidak terpotong batas 1-20).
+ * Mengubah `p` dan `life` langsung; mengembalikan teks efek, mis. ["Pace +1", "Strength -1"].
+ */
+export function wearMods(p: Player, life: Life, id: string, on: boolean): string[] {
+  const item = ITEM_BY_ID[id];
+  const out: string[] = [];
+  const mods = (life.mods ??= {});
+  if (on) {
+    if (!item?.mods || mods[id]) return out;
+    const applied: Record<string, number> = {};
+    for (const [a, d] of Object.entries(item.mods)) {
+      const v = getAttr(p, a);
+      if (v === undefined) continue;
+      const nv = clamp(v + d, 1, 20);
+      if (nv !== v) {
+        setAttr(p, a, nv);
+        applied[a] = nv - v;
+      }
+      out.push(`${a} ${d > 0 ? '+' : ''}${d}`);
+    }
+    mods[id] = applied;
+  } else {
+    const applied = mods[id];
+    if (!applied) return out;
+    for (const [a, d] of Object.entries(applied)) setAttr(p, a, clamp(getAttr(p, a) - d, 1, 20));
+    delete mods[id];
+  }
+  p.ca = computeCA(p);
+  return out;
+}
+
+/** Jumlah efek atribut dari semua barang yang sedang dipakai */
+export function activeMods(life: Life): Record<string, number> {
+  const t: Record<string, number> = {};
+  for (const m of Object.values(life.mods ?? {})) for (const [a, d] of Object.entries(m)) t[a] = (t[a] ?? 0) + d;
+  return t;
+}
+
 // --- aksi dari halaman Kehidupan ---------------------------------------------------
 
 export type LifeOp =
@@ -153,7 +239,7 @@ export type LifeOp =
   | { op: 'sell'; id: string }
   | { op: 'equip'; id: string }
   | { op: 'house'; id: HouseId }
-  | { op: 'sub'; id: SubId; on: boolean }
+  | { op: 'sub'; id: SubId; level: CoachLevel }
   | { op: 'action'; id: ActionId }
   | { op: 'deposit'; amount: number }
   | { op: 'withdraw'; amount: number };
@@ -169,6 +255,15 @@ export function applyLife(world: World, prev: Career, op: LifeOp): { world: Worl
   const fail = (result: string) => ({ world, career: prev, result });
   const done = (result: string, w: World = world) => ({ world: w, career, result });
 
+  // barang dengan efek atribut selama dipakai mengubah pemain kita di dunia
+  let me2: Player | null = null;
+  const mine = () => (me2 ??= structuredClone(me));
+  const worldOut = () => (me2 ? (me2.ca = computeCA(me2), replacePlayer(world, me2)) : world);
+  const wearOn = (id: string) => wearMods(mine(), life, id, true);
+  const wearOff = (id: string) => {
+    if (life.mods?.[id]) wearMods(mine(), life, id, false);
+  };
+
   switch (op.op) {
     case 'buy': {
       const item = ITEM_BY_ID[op.id];
@@ -178,43 +273,67 @@ export function applyLife(world: World, prev: Career, op: LifeOp): { world: Worl
       if (item.needHouse && HOUSES[life.house].rank < item.needHouse) return fail(`${item.label} butuh rumah yang lebih besar.`);
       career.money -= price;
       life.owned.push(item.id);
-      if (item.kind === 'sepatu') life.boots = item.id;
-      if (item.kind === 'kendaraan') life.car = item.id;
-      if (item.kind === 'aksesori') life.wear.push(item.id);
-      if (item.media) addMedia(career, item.media);
-      let w = world;
       const gains: string[] = [];
+      let extra = '';
+      if (item.kind === 'sepatu') {
+        wearOff(life.boots);
+        life.boots = item.id;
+        gains.push(...wearOn(item.id));
+      }
+      if (item.kind === 'kendaraan') life.car = item.id;
+      if (item.kind === 'aksesori') {
+        if (life.wear.length < MAX_WEAR) {
+          life.wear.push(item.id);
+          gains.push(...wearOn(item.id));
+        } else extra = ` Kamu sudah memakai ${MAX_WEAR} aksesori, lepas satu dulu untuk memakainya.`;
+      }
+      if (item.media) addMedia(career, item.media);
       if (item.attrs) {
-        const p: Player = structuredClone(me);
+        const p = mine();
         for (const [a, d] of Object.entries(item.attrs)) {
           const v = getAttr(p, a);
           if (v === undefined || v >= 20) continue;
           setAttr(p, a, Math.min(20, v + d));
           gains.push(`${a} +${d}`);
         }
-        p.ca = computeCA(p);
-        w = replacePlayer(world, p);
       }
-      return done(`Kamu membeli ${item.label.toLowerCase()} seharga ${fmt(price)}.${gains.length ? ` ${gains.join(', ')}.` : ''}`, w);
+      return done(`Kamu membeli ${item.label.toLowerCase()} seharga ${fmt(price)}.${gains.length ? ` ${gains.join(', ')}.` : ''}${extra}`, worldOut());
     }
     case 'sell': {
       const item = ITEM_BY_ID[op.id];
       if (!item || !life.owned.includes(item.id) || item.id === 'sepatu_biasa') return fail('');
       const back = Math.round(priceOf(item, econ) * 0.5);
       career.money += back;
+      wearOff(item.id);
       life.owned = life.owned.filter((x) => x !== item.id);
       life.wear = life.wear.filter((x) => x !== item.id);
       if (life.car === item.id) life.car = null;
-      if (life.boots === item.id) life.boots = 'sepatu_biasa';
-      return done(`${item.label} terjual ${fmt(back)}.`);
+      if (life.boots === item.id) {
+        life.boots = 'sepatu_biasa';
+        wearOn('sepatu_biasa');
+      }
+      return done(`${item.label} terjual ${fmt(back)}.`, worldOut());
     }
     case 'equip': {
       const item = ITEM_BY_ID[op.id];
       if (!item || !life.owned.includes(item.id)) return fail('');
-      if (item.kind === 'sepatu') life.boots = item.id;
-      else if (item.kind === 'kendaraan') life.car = life.car === item.id ? null : item.id;
-      else if (item.kind === 'aksesori') life.wear = life.wear.includes(item.id) ? life.wear.filter((x) => x !== item.id) : [...life.wear, item.id];
-      return done('');
+      if (item.kind === 'sepatu') {
+        if (life.boots === item.id) return fail('');
+        wearOff(life.boots);
+        life.boots = item.id;
+        wearOn(item.id);
+      } else if (item.kind === 'kendaraan') life.car = life.car === item.id ? null : item.id;
+      else if (item.kind === 'aksesori') {
+        if (life.wear.includes(item.id)) {
+          life.wear = life.wear.filter((x) => x !== item.id);
+          wearOff(item.id);
+        } else {
+          if (life.wear.length >= MAX_WEAR) return fail(`Maksimal ${MAX_WEAR} aksesori sekaligus. Lepas satu dulu.`);
+          life.wear = [...life.wear, item.id];
+          wearOn(item.id);
+        }
+      }
+      return done('', worldOut());
     }
     case 'house': {
       if (op.id === life.house) return fail('');
@@ -235,7 +354,7 @@ export function applyLife(world: World, prev: Career, op: LifeOp): { world: Worl
       );
     }
     case 'sub': {
-      life.subs[op.id] = op.on;
+      life.subs[op.id] = op.level;
       return done('');
     }
     case 'action': {

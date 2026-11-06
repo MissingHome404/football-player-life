@@ -81,6 +81,22 @@ export interface Contract {
   expires: string; // YYYY-MM-DD
   role: SquadRole;
   releaseClause?: number;
+  /** bonus performa (EUR, sebelum pajak); kontrak lama tidak punya */
+  bonus?: ContractBonus;
+}
+
+/** Bonus performa di kontrak: per laga, per gol/assist/clean sheet, per trofi */
+export interface ContractBonus {
+  /** dimainkan (starter atau masuk dari bangku) */
+  app: number;
+  /** di bangku cadangan tapi tidak dimainkan */
+  unused: number;
+  goal: number;
+  assist: number;
+  /** clean sheet (kiper & bek, minimal 60 menit) */
+  cs: number;
+  /** juara liga, piala, atau kompetisi benua bersama klub ini */
+  trophy: number;
 }
 
 export interface Player extends Person {
@@ -184,7 +200,7 @@ export interface Tallies {
   natCaps: Record<string, number>;
 }
 
-export type AwardKind = 'pots' | 'top' | 'young' | 'world' | 'worldYoung';
+export type AwardKind = 'pots' | 'top' | 'assist' | 'gk' | 'young' | 'world' | 'worldYoung';
 export interface AwardEntry {
   kind: AwardKind;
   scope: string; // id liga atau 'world'
@@ -447,6 +463,16 @@ export interface Career {
   tacticFam?: Record<string, number>;
   /** karier sudah selesai */
   retired?: Retirement;
+  /** riwayat bonus (+) dan denda (-) terbaru, bersih setelah pajak/agent */
+  bonusLog?: BonusEntry[];
+  /** editor in-game pernah dipakai di karier ini */
+  edited?: boolean;
+}
+
+export interface BonusEntry {
+  date: string;
+  label: string;
+  amount: number;
 }
 
 export type RetireReason = 'pilihan' | 'cedera' | 'usia';
@@ -518,8 +544,10 @@ export interface Life {
   boots: string;
   car: string | null;
   wear: string[];
-  subs: Partial<Record<'suplemen' | 'gizi' | 'fisio', boolean>>;
+  subs: Partial<Record<'suplemen' | 'gizi' | 'fisio', CoachLevel>>;
   savings: number;
+  /** perubahan atribut dari barang yang sedang dipakai: id barang -> atribut -> selisih */
+  mods?: Record<string, Record<string, number>>;
 }
 
 /** Relasi bernilai -100 sampai 100 */
@@ -567,6 +595,7 @@ export interface Offer {
   until?: string; // pinjaman: tanggal kembali
   role: SquadRole; // janji menit bermain
   signOn: number; // bonus tanda tangan
+  bonus?: ContractBonus;
   fee: number; // biaya transfer yang dibayar klub (info)
   negotiated?: boolean;
 }
@@ -589,12 +618,16 @@ export type TrainingFocus = 'seimbang' | 'teknik' | 'mental' | 'fisik' | 'peran'
 export type Intensity = 'ringan' | 'normal' | 'berat';
 export type Activity = 'rumah' | 'keluarga' | 'nongkrong' | 'kencan' | 'pesta' | 'video' | 'kerja';
 export type CoachKind = 'teknik' | 'fisik' | 'mental' | 'psikolog';
+/** 0 tidak ada, 1 amatir, 2 profesional, 3 world class (save lama: true = profesional) */
+export type CoachLevel = 0 | 1 | 2 | 3;
 
 export interface WeekPlan {
   focus: TrainingFocus;
   intensity: Intensity;
   activity: Activity;
-  coaches: Record<CoachKind, boolean>;
+  coaches: Record<CoachKind, CoachLevel>;
+  /** peran yang dilatih saat fokus latihan "Peran" (harus peran dari posisi utama / posisi yang sedang dilatih) */
+  trainRole?: string | null;
   /** posisi baru yang sedang dipelajari (keakraban naik tiap minggu latihan) */
   learnPos?: Position | null;
   /** jenis postingan media sosial minggu ini */

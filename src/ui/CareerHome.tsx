@@ -8,14 +8,21 @@ import { ageOn } from '../game/gen/player';
 import {
   ACTIVITY_INFO,
   COACH_INFO,
+  COACH_LEVELS,
+  COACH_TIERS,
   FOCUS_INFO,
   INTENSITY_INFO,
   econOf,
+  levelOf,
+  tierCost,
   weeklyBudget,
 } from '../game/sim/economy';
+import { roleChoices, rolePosition, trainingRole } from '../game/sim/training';
+import { ROLES } from '../game/data/roles';
+import { POSITION_LABEL } from '../game/data/attributes';
 import { pendingChoices, stressTarget } from '../game/sim/week';
 import { PLAN_INFO } from '../game/sim/injury';
-import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
+import type { Activity, CoachKind, CoachLevel, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
 import { ClubFixtures, nextFixture, shortDate } from './LeagueSeason';
 import { nextCupTie } from '../game/sim/cup';
 import { nextContGame } from '../game/sim/continental';
@@ -459,6 +466,45 @@ function Chips<T extends string>({
   );
 }
 
+/** Ringkasan efek satu tingkat pelatih */
+function coachHint(k: CoachKind, l: CoachLevel): string {
+  const t = COACH_TIERS[l as 1 | 2 | 3];
+  if (k === 'psikolog') return `Arah stres ${t.stress}`;
+  const boost = `latihan ${k === 'teknik' ? 'teknik' : k} +${Math.round((t.boost - 1) * 100)}%`;
+  return k === 'fisik' ? `${boost}, risiko cedera latihan -${Math.round((1 - t.injury) * 100)}%` : boost;
+}
+
+/** Pilih peran yang dilatih (fokus latihan "Peran") */
+function RoleTraining() {
+  const career = useGame((s) => s.career)!;
+  const idx = useGame((s) => s.idx)!;
+  const setPlan = useGame((s) => s.setPlan);
+  const p = idx.playerById.get(career.playerId)!;
+  const pos = rolePosition(career, p);
+  const choices = roleChoices(career, p);
+  const cur = trainingRole(career, p);
+  const role = ROLES[cur];
+  return (
+    <div className="role-train">
+      <p className="small">
+        Peran yang dilatih ({POSITION_LABEL[pos].toLowerCase()}
+        {pos !== p.mainPosition ? ', posisi baru yang sedang kamu latih' : ', posisi utamamu'}):
+      </p>
+      <div className="chips" role="group" aria-label="Peran yang dilatih">
+        {choices.map((id) => (
+          <button key={id} className={`chip ${cur === id ? 'sel' : ''}`} aria-pressed={cur === id} onClick={() => setPlan({ trainRole: id })} title={ROLES[id].desc}>
+            {ROLES[id].name}
+            {id === p.preferredRole && ' ♥'}
+          </button>
+        ))}
+      </div>
+      <p className="muted small hint">
+        {role.desc} Atribut kunci: {role.key.join(', ')}.
+      </p>
+    </div>
+  );
+}
+
 function PlanPanel() {
   const career = useGame((s) => s.career)!;
   const idx = useGame((s) => s.idx)!;
@@ -505,6 +551,7 @@ function PlanPanel() {
           {FOCUS_INFO[plan.focus].desc}
           {career.injury && ' Kamu sedang cedera, jadi tidak bisa berlatih sampai pulih.'}
         </p>
+        {plan.focus === 'peran' && <RoleTraining />}
       </div>
 
       <PositionPlan />
@@ -550,22 +597,33 @@ function PlanPanel() {
       <div className="plan-group">
         <h3>Pelatih pribadi</h3>
         <div className="coach-list">
-          {(Object.keys(COACH_INFO) as CoachKind[]).map((k) => (
-            <label key={k} className={`coach ${plan.coaches[k] ? 'on' : ''}`}>
-              <input
-                type="checkbox"
-                checked={plan.coaches[k]}
-                onChange={(e) => setPlan({ coaches: { ...plan.coaches, [k]: e.target.checked } })}
-              />
-              <span>
+          {(Object.keys(COACH_INFO) as CoachKind[]).map((k) => {
+            const lv = levelOf(plan.coaches[k]);
+            return (
+              <div key={k} className={`coach-row ${lv ? 'on' : ''}`}>
                 <b>{COACH_INFO[k].label}</b>
-                <span className="muted small"> · {money(COACH_INFO[k].cost * econ)}/mg</span>
-                <br />
-                <span className="muted small">{COACH_INFO[k].desc}</span>
-              </span>
-            </label>
-          ))}
+                {lv > 0 && <span className="muted small"> · {COACH_TIERS[lv as 1 | 2 | 3].label} · {money(tierCost(COACH_INFO[k].cost, lv, econ))}/mg</span>}
+                <div className="muted small">{COACH_INFO[k].desc}</div>
+                <div className="coach-tiers" role="group" aria-label={COACH_INFO[k].label}>
+                  {COACH_LEVELS.map((l) => (
+                    <button
+                      key={l}
+                      className={`chip ${lv === l ? 'sel' : ''}`}
+                      aria-pressed={lv === l}
+                      onClick={() => setPlan({ coaches: { ...plan.coaches, [k]: l as CoachLevel } })}
+                      title={l ? coachHint(k, l) : undefined}
+                    >
+                      {l ? `${COACH_TIERS[l as 1 | 2 | 3].label} · ${money(tierCost(COACH_INFO[k].cost, l, econ))}` : 'Tidak'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
+        <p className="muted small hint">
+          Makin tinggi tingkatnya, makin efektif latihanmu, tapi makin mahal. Pelatih world class dibayar dengan harga internasional.
+        </p>
       </div>
 
       <div className="plan-group">

@@ -3,6 +3,7 @@
 // dari klub yang levelnya cocok dan cukup mengenalmu. Agent memperluas jangkauan
 // dan menaikkan gaji, tapi memotong penghasilan.
 
+import { makeBonus, raiseBonus } from './bonus';
 import { badgeValue } from './badges';
 import type { AgentTier, Career, Club, ClubSpell, Message, Offer, Player, SquadRole, World } from '../types';
 import type { EventCtx, EventDef } from './events';
@@ -144,6 +145,8 @@ export function makeOffer(
       role,
       signOn: 0,
       fee: 0,
+      // klub peminjam membayar bonus performa sendiri (gaji tetap dari klub induk)
+      bonus: makeBonus(p.contract?.wagePerWeek ?? wage, p.mainPosition, role, `${career.characterSeed}:${career.week}:${club.id}:${type}`),
     };
   }
   const years = contractYears(rng, age);
@@ -158,6 +161,7 @@ export function makeOffer(
     role,
     signOn: Math.round(wage * (type === 'bebas' ? 6 : type === 'perpanjangan' ? 2 : 3)),
     fee: type === 'transfer' ? marketValue(p, career.currentDate, badgeValue(career)) : 0,
+    bonus: makeBonus(wage, p.mainPosition, role, `${career.characterSeed}:${career.week}:${club.id}:${type}`),
   };
 }
 
@@ -378,14 +382,14 @@ export function acceptOffer(world: World, prev: Career, offerId: string): { worl
 
   if (offer.type === 'pinjaman' && p.contract) {
     career.loan = { parentClubId: p.contract.clubId, parentContract: p.contract, until: offer.until! };
-    p.contract = { clubId: club.id, wagePerWeek: p.contract.wagePerWeek, expires: offer.until!, role: offer.role };
+    p.contract = { clubId: club.id, wagePerWeek: p.contract.wagePerWeek, expires: offer.until!, role: offer.role, ...(offer.bonus ? { bonus: offer.bonus } : {}) };
     p.isYouth = false;
     startSpell(career, { clubId: club.id, team: club.name, from: date, kind: 'Pinjaman' });
     infoMessage(career, 'joined', club.name, `Dipinjamkan ke ${club.name}`, `Kamu resmi dipinjamkan ke ${club.name} sampai ${offer.until}. Gajimu tetap dibayar klub induk.`);
   } else {
     const expires = `${yearOf(date) + offer.years}-06-30`;
     const isNew = offer.type !== 'perpanjangan';
-    p.contract = { clubId: club.id, wagePerWeek: offer.wage, expires, role: offer.role };
+    p.contract = { clubId: club.id, wagePerWeek: offer.wage, expires, role: offer.role, ...(offer.bonus ? { bonus: offer.bonus } : {}) };
     p.isYouth = false;
     career.money += net(offer.signOn);
     if (isNew) {
@@ -425,7 +429,7 @@ export function rejectOffer(prev: Career, offerId: string): Career {
   return { ...prev, offers: prev.offers.filter((o) => o.id !== offerId) };
 }
 
-export type Ask = 'gaji' | 'peran';
+export type Ask = 'gaji' | 'peran' | 'bonus';
 
 /** Satu kali negosiasi per tawaran: minta gaji lebih tinggi atau peran lebih besar */
 export function negotiate(world: World, prev: Career, offerId: string, ask: Ask): { career: Career; result: string } {
@@ -451,6 +455,19 @@ export function negotiate(world: World, prev: Career, offerId: string, ask: Ask)
       result = `${club.name} tersinggung dan menarik tawarannya.`;
     } else {
       result = `${club.name} menolak menaikkan gaji. Tawaran awal masih berlaku.`;
+    }
+  } else if (ask === 'bonus') {
+    if (!o.bonus) return { career: prev, result: '' };
+    // bonus lebih mudah disetujui daripada gaji: klub hanya membayar kalau kamu berprestasi
+    const ok = rng.chance(clamp(0.6 + bonus + leverage, 0.2, 0.95));
+    if (ok) {
+      o.bonus = raiseBonus(o.bonus, 1.5);
+      result = `${club.name} setuju menaikkan semua bonus performa 50%.`;
+    } else if (rng.chance(0.15)) {
+      career.offers = career.offers.filter((x) => x.id !== offerId);
+      result = `${club.name} merasa tuntutanmu berlebihan dan menarik tawarannya.`;
+    } else {
+      result = `${club.name} menolak menaikkan bonus. Tawaran awal masih berlaku.`;
     }
   } else {
     const next: SquadRole | null = o.role === 'Rotasi' ? 'Inti' : o.role === 'Pelapis' || o.role === 'Pemain muda' ? 'Rotasi' : null;

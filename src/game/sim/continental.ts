@@ -2,6 +2,7 @@
 // Jatah tiap liga dari reputasi liga, peserta dari klasemen akhir musim terakhir.
 // Fase grup (4 klub, kandang-tandang), babak gugur dua leg, final satu laga di tempat netral.
 
+import { trophyBonus } from './bonus';
 import type { Career, ContComp, ContGroup, ContTie, CupHonour, League, Player, World } from '../types';
 import { Rng } from '../rng';
 import { addDays } from '../date';
@@ -436,7 +437,7 @@ export function continentalWeek(
         comp.runnerUp = comp.winner === t.home ? t.away : t.home;
         honours.push({ leagueId: def.id, name: comp.name, season: comp.season, winnerId: comp.winner, runnerUpId: comp.runnerUp });
         pay(comp.winner, def.prize * 4);
-        if (mine) contEnd(world, career, comp, myClubId!, msg);
+        if (mine) contEnd(world, career, comp, myClubId!, msg, p, to, notes);
         break;
       }
       const next = comp.ko[r + 1];
@@ -466,7 +467,7 @@ export function continentalWeek(
 }
 
 /** Final selesai: trofi kalau klubmu juara dan kamu ikut bermain di edisi ini */
-function contEnd(world: World, career: Career, comp: ContComp, clubId: string, msg: (id: string, title: string, body: string, from: string) => void) {
+function contEnd(world: World, career: Career, comp: ContComp, clubId: string, msg: (id: string, title: string, body: string, from: string) => void, p: Player, date: string, notes?: string[]) {
   const name = (id: string) => world.clubs.find((c) => c.id === id)?.name ?? id;
   const club = name(clubId);
   const played = career.stats.some((s) => s.comp === 'Kontinental' && s.season === comp.season && s.clubId === clubId && s.apps > 0);
@@ -474,6 +475,7 @@ function contEnd(world: World, career: Career, comp: ContComp, clubId: string, m
     let body = `${club} juara ${comp.name} ${comp.season} setelah mengalahkan ${name(comp.runnerUp!)} di final!`;
     if (played) {
       (career.trophies ??= []).push({ id: `cont-${comp.id}`, name: comp.name, season: comp.season, team: club });
+      trophyBonus(career, p, clubId, comp.name, date, notes);
       body += ' Kamu ikut membawa timmu menjadi juara benua.';
     }
     msg(`cont-win-${comp.id}`, `Juara ${comp.name}!`, body, comp.name);

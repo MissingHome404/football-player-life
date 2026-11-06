@@ -25,10 +25,13 @@ import { COUNTRY_BY_ID } from '../data/countries';
 import { ASSIST_W, GOAL_W, groupOf, type UserEngineMatch } from './match';
 import { seasonLabel, squadsOf, standings, type WeekMatches } from './season';
 import { STAGE_NAME, nationalSquad, stageReached } from './national';
+import { awardBonus, bonusEur } from './bonus';
 
 export const AWARD_NAME: Record<AwardKind, string> = {
   pots: 'Pemain Terbaik',
   top: 'Top Skor',
+  assist: 'Raja Assist',
+  gk: 'Sarung Tangan Emas',
   young: 'Pemain Muda Terbaik',
   world: 'Bintang Dunia',
   worldYoung: 'Bintang Muda Dunia',
@@ -366,12 +369,13 @@ function giveUser(career: Career, user: Player, e: AwardEntry, title: string, de
   (career.awards ??= []).push({ id: awardMsgId(e.kind, e.scope, e.season), name: title, season: e.season, detail });
   user.reputation.home = clamp(user.reputation.home + rep[0], 1, 100);
   user.reputation.world = clamp(user.reputation.world + rep[1], 1, 100);
+  const cash = awardBonus(career, user, e.kind, title, career.currentDate);
   career.inbox.unshift({
     id: awardMsgId(e.kind, e.scope, e.season),
     date: career.currentDate,
     from,
     title: `Penghargaan: ${title}!`,
-    body: `Selamat! Kamu meraih ${title} musim ${e.season} (${detail}). Namamu makin dikenal.`,
+    body: `Selamat! Kamu meraih ${title} musim ${e.season} (${detail}). Namamu makin dikenal. Bonus penghargaan ${bonusEur(cash)} (bersih) sudah masuk ke rekeningmu.`,
   });
 }
 
@@ -414,9 +418,15 @@ export function seasonAwards(world: World, leagueIds: string[], career: Career, 
     );
     const top = [...all].sort((a, b) => b.goals - a.goals || a.apps - b.apps || b.avg - a.avg)[0];
     const young = eligible.find((c) => ageOn(c.p.birthDate, date) <= YOUNG_AGE);
+    const assist = [...all].sort((a, b) => b.assists - a.assists || a.apps - b.apps || b.avg - a.avg)[0];
+    const gk = eligible
+      .filter((c) => c.p.mainPosition === 'GK' && c.row[5] > 0)
+      .sort((a, b) => b.row[5] - a.row[5] || a.apps - b.apps || b.avg - a.avg)[0];
     const wins: [AwardKind, (typeof all)[number] | undefined, string][] = [
       ['pots', eligible[0], eligible[0] ? `rating ${eligible[0].avg.toFixed(2)}, ${eligible[0].goals} gol, ${eligible[0].assists} assist` : ''],
       ['top', top.goals > 0 ? top : undefined, `${top.goals} gol`],
+      ['assist', assist.assists > 0 ? assist : undefined, `${assist.assists} assist`],
+      ['gk', gk, gk ? `${gk.row[5]} clean sheet` : ''],
       ['young', young, young ? `rating ${young.avg.toFixed(2)}, ${young.goals} gol` : ''],
     ];
     const lines: string[] = [];
@@ -426,7 +436,7 @@ export function seasonAwards(world: World, leagueIds: string[], career: Career, 
       awards.unshift(e);
       lines.push(`${AWARD_NAME[kind]}: ${c.name} (${clubName(c.clubId)}), ${detail}`);
       if (c.playerId === user.id) {
-        const rep: [number, number] = kind === 'pots' ? [4, 2] : [3, 1];
+        const rep: [number, number] = kind === 'pots' ? [4, 2] : kind === 'assist' || kind === 'gk' ? [2, 1] : [3, 1];
         giveUser(career, user, e, `${AWARD_NAME[kind]} ${league.name}`, detail, league.name, rep);
       }
     }

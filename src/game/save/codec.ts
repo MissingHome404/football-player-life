@@ -7,13 +7,15 @@ import type { Career, Player, World } from '../types';
 import { careerDefaults, migrateCareer } from '../sim/week';
 import { initRelations } from '../sim/relations';
 import { defaultLife } from '../sim/life';
+import { levelOf } from '../sim/economy';
 import { ageOn } from '../gen/player';
 import { createSeasons } from '../sim/season';
 import { Rng } from '../rng';
 
 export const SAVE_MAGIC = 'FPL-SAVE';
 // 1: tahap 4 (karier dasar). 2: tahap 5 (minggu, latihan, inbox). 3: tahap 6 (musim, pertandingan).
-export const SAVE_FORMAT = 6;
+// 7: pelatih & staf pribadi bertingkat (boolean -> tingkat 0-3).
+export const SAVE_FORMAT = 7;
 
 const GROUPS = {
   technical: TECHNICAL,
@@ -114,6 +116,12 @@ export function readSaveFile(data: unknown): { file: SaveFile; world: World; car
   }
   if (f.format < 5) career = { ...career, rel: initRelations(world, career, me) };
   if (f.format < 6) career = { ...career, life: defaultLife(ageOn(me.birthDate, career.currentDate), career.currentDate) };
+  if (f.format < 7) {
+    // pelatih/staf lama (true) = tingkat profesional
+    const coaches = Object.fromEntries(Object.entries(career.plan.coaches).map(([k, v]) => [k, levelOf(v)])) as Career['plan']['coaches'];
+    const subs = Object.fromEntries(Object.entries(career.life.subs ?? {}).map(([k, v]) => [k, levelOf(v)])) as Career['life']['subs'];
+    career = { ...career, plan: { ...career.plan, coaches }, life: { ...career.life, subs } };
+  }
   if (career.signed === undefined) {
     // save sebelum ada catatan tanda tangan: pakai tanggal masuk klub terakhir (bukan pinjaman)
     const last = [...career.history].reverse().find((h) => h.clubId && h.kind !== 'Pinjaman');

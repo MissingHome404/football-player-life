@@ -3,10 +3,10 @@
 // Pemain tidak bisa melewati PA (potensi).
 
 import { GOALKEEPING, MENTAL, PHYSICAL, POSITION_LABEL, TECHNICAL, type VisibleAttr } from '../data/attributes';
-import { ROLES } from '../data/roles';
+import { POSITION_ROLES, ROLES } from '../data/roles';
 import { attrWeight, computeCA, ageOn } from '../gen/player';
 import type { Career, Club, Player } from '../types';
-import { INTENSITY_INFO } from './economy';
+import { INTENSITY_INFO, coachBoostOf } from './economy';
 import { familiarity } from './formation';
 import { clamp, type Rng } from '../rng';
 
@@ -30,6 +30,24 @@ export function setAttr(p: Player, a: string, v: number) {
 export function trainingQuality(career: Career, player: Player, club: Club | undefined): number {
   if (club) return player.isYouth ? Math.max(club.facilities.youth, club.facilities.training - 1) : club.facilities.training;
   return career.origin === 'ssb' ? 2 : 1;
+}
+
+/** Posisi yang perannya boleh dilatih: posisi baru yang sedang dipelajari, atau posisi utama */
+export function rolePosition(career: Career, player: Player) {
+  const learn = career.plan.learnPos;
+  return learn && learn !== player.mainPosition ? learn : player.mainPosition;
+}
+
+/** Peran yang boleh dipilih di fokus latihan "Peran" */
+export const roleChoices = (career: Career, player: Player): string[] => POSITION_ROLES[rolePosition(career, player)];
+
+/** Peran yang benar-benar dilatih minggu ini (pilihanmu kalau cocok dengan posisinya) */
+export function trainingRole(career: Career, player: Player): string {
+  const choices = roleChoices(career, player);
+  const pick = career.plan.trainRole;
+  if (pick && choices.includes(pick)) return pick;
+  if (choices.includes(player.preferredRole)) return player.preferredRole;
+  return choices[0];
 }
 
 export function ageFactor(age: number): number {
@@ -86,15 +104,15 @@ export function trainWeek(
 
   // Bobot tiap atribut sesuai fokus
   const isGK = player.mainPosition === 'GK';
-  const role = ROLES[player.preferredRole];
+  const role = ROLES[trainingRole(career, player)];
   const roleKey = new Set<string>(role.key);
   const rolePref = new Set<string>(role.pref);
   const candidates: VisibleAttr[] = [...TECHNICAL, ...MENTAL, ...PHYSICAL, ...(isGK ? GOALKEEPING : [])];
   const coachBoost = (a: string) => {
     const g = GROUP_OF[a];
-    if ((g === 'technical' || g === 'goalkeeping') && plan.coaches.teknik) return 1.35;
-    if (g === 'physical' && plan.coaches.fisik) return 1.35;
-    if (g === 'mental' && plan.coaches.mental) return 1.35;
+    if (g === 'technical' || g === 'goalkeeping') return coachBoostOf(career, 'teknik');
+    if (g === 'physical') return coachBoostOf(career, 'fisik');
+    if (g === 'mental') return coachBoostOf(career, 'mental');
     return 1;
   };
   const focusMatch = (a: string) => {

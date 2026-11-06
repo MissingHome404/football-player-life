@@ -3,14 +3,19 @@
 import { lazy, Suspense, useState } from 'react';
 import { useGame } from './store';
 import { money } from './components';
-import { econOf } from '../game/sim/economy';
+import { COACH_LEVELS, COACH_TIERS, econOf } from '../game/sim/economy';
+import type { CoachLevel } from '../game/types';
 import {
   ACTIONS,
   HOUSES,
   ITEMS,
   ITEM_BY_ID,
+  MAX_WEAR,
   SUBS,
+  activeMods,
   actionCost,
+  subCost,
+  subLevel,
   priceOf,
   type ActionId,
   type HouseId,
@@ -84,7 +89,8 @@ const KIND_LABEL: Record<ItemKind, string> = {
 
 function itemEffects(i: ItemDef, econ: number): string {
   const e: string[] = [];
-  if (i.attrs) e.push(Object.entries(i.attrs).map(([a, d]) => `${a} +${d}`).join(', ') + ' (sekali)');
+  if (i.attrs) e.push(Object.entries(i.attrs).map(([a, d]) => `${a} +${d}`).join(', ') + ' (permanen)');
+  if (i.mods) e.push(Object.entries(i.mods).map(([a, d]) => `${a} ${d > 0 ? '+' : ''}${d}`).join(', ') + ' (selama dipakai)');
   if (i.fitness) e.push(`kebugaran +${i.fitness}/mg`);
   if (i.stress) e.push(`stres ${i.stress}`);
   if (i.media) e.push(`media +${i.media}`);
@@ -92,6 +98,34 @@ function itemEffects(i: ItemDef, econ: number): string {
   if (upkeep >= 1) e.push(`perawatan ${money(upkeep)}/mg`);
   if (i.needHouse) e.push('butuh rumah');
   return e.join(' · ');
+}
+
+/** Total efek atribut dari sepatu & aksesori yang sedang dipakai */
+function ModsSummary() {
+  const career = useGame((s) => s.career)!;
+  const mods = Object.entries(activeMods(career.life)).filter(([, d]) => d !== 0);
+  return (
+    <p className="small">
+      {mods.length ? (
+        <>
+          Efek barang yang dipakai:{' '}
+          {mods.map(([a, d], i) => (
+            <span key={a} className={d > 0 ? 'mod-plus' : 'mod-minus'}>
+              {i > 0 && ', '}
+              {a} {d > 0 ? '+' : ''}
+              {d}
+            </span>
+          ))}
+          .
+        </>
+      ) : (
+        <span className="muted">Sepatu dan aksesori tertentu menaikkan atau menurunkan atribut selama dipakai.</span>
+      )}{' '}
+      <span className="muted">
+        Aksesori dipakai {career.life.wear.length}/{MAX_WEAR}.
+      </span>
+    </p>
+  );
 }
 
 export function LifeView() {
@@ -201,6 +235,7 @@ export function LifeView() {
 
       <section className="panel">
         <h2>Belanja</h2>
+        <ModsSummary />
         {(Object.keys(KIND_LABEL) as ItemKind[]).map((kind) => (
           <div key={kind} className="shop-group">
             <h3>{KIND_LABEL[kind]}</h3>
@@ -248,19 +283,46 @@ export function LifeView() {
         <div className="shop-grid">
           {(Object.keys(SUBS) as SubId[]).map((id) => {
             const s = SUBS[id];
-            const on = !!life.subs[id];
+            const lv = subLevel(life, id);
+            const levels: CoachLevel[] = s.tiered ? COACH_LEVELS : [0, 2];
+            const fx = (l: CoachLevel) => {
+              if (!l) return '';
+              const i = l - 1;
+              const parts = [
+                s.fitness[i] ? `kebugaran +${s.fitness[i]}/mg` : '',
+                `risiko cedera -${Math.round((1 - s.injury[i]) * 100)}%`,
+                s.heal ? `${Math.round(s.heal[i] * 100)}% peluang sembuh 1 mg lebih cepat` : '',
+              ];
+              return parts.filter(Boolean).join(', ');
+            };
             return (
-              <div key={id} className={`shop-card ${on ? 'cur' : ''}`}>
+              <div key={id} className={`shop-card ${lv ? 'cur' : ''}`}>
                 <b>{s.label}</b>
                 <span className="muted small">{s.desc}</span>
-                <span className="small">{money(s.cost * econ)}/mg</span>
-                <button className={`chip ${on ? 'sel' : ''}`} aria-pressed={on} onClick={() => act({ op: 'sub', id, on: !on })}>
-                  {on ? 'Berhenti' : 'Pakai'}
-                </button>
+                {lv > 0 && (
+                  <span className="small">
+                    {s.tiered ? `${COACH_TIERS[lv as 1 | 2 | 3].label}: ` : ''}
+                    {fx(lv)} · {money(subCost(id, lv, econ))}/mg
+                  </span>
+                )}
+                <div className="chips">
+                  {levels.map((l) => (
+                    <button
+                      key={l}
+                      className={`chip ${lv === l ? 'sel' : ''}`}
+                      aria-pressed={lv === l}
+                      title={fx(l) || undefined}
+                      onClick={() => act({ op: 'sub', id, level: l })}
+                    >
+                      {l === 0 ? 'Tidak' : s.tiered ? `${COACH_TIERS[l as 1 | 2 | 3].label} · ${money(subCost(id, l, econ))}` : `Pakai · ${money(subCost(id, l, econ))}`}
+                    </button>
+                  ))}
+                </div>
               </div>
             );
           })}
         </div>
+        <p className="muted small">Ahli gizi dan fisio punya tiga tingkat: amatir (murah), profesional, dan world class (harga internasional, efek terbesar).</p>
       </section>
     </div>
   );

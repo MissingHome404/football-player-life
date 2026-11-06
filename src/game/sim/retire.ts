@@ -77,7 +77,7 @@ export function heldRecords(world: World, playerId: string): { kind: RecordKind;
   return out;
 }
 
-const AWARD_POINTS: Record<AwardKind, number> = { pots: 25, top: 15, young: 8, world: 80, worldYoung: 15 };
+const AWARD_POINTS: Record<AwardKind, number> = { pots: 25, top: 15, assist: 8, gk: 10, young: 8, world: 80, worldYoung: 15 };
 const awardKind = (id: string) => /^award-([a-zA-Z]+)-/.exec(id)?.[1] as AwardKind | undefined;
 
 const TIERS: [number, string][] = [

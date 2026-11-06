@@ -12,7 +12,8 @@ import { fullName } from '../game/gen/names';
 import { groupOf } from '../game/sim/match';
 import { squadOf } from '../game/sim/season';
 import { AGENT_INFO, SETTLE_DAYS, agentAvailable, marketValue, transferWindow } from '../game/sim/transfer';
-import type { AgentTier, Offer, PlayingStyle } from '../game/types';
+import type { AgentTier, ContractBonus, Offer, PlayingStyle } from '../game/types';
+import { bonusOf } from '../game/sim/bonus';
 
 const TYPE_LABEL: Record<Offer['type'], string> = {
   transfer: 'Transfer',
@@ -34,6 +35,91 @@ const pressure = (fans: number) =>
   fans < 100_000 ? 'Rendah' : fans < 600_000 ? 'Sedang' : fans < 2_000_000 ? 'Tinggi' : 'Sangat tinggi';
 
 const TIERS: AgentTier[] = ['lokal', 'regional', 'super'];
+
+/** Daftar bonus performa kontrak (angka kotor, sebelum pajak & agent) */
+export function BonusList({ b }: { b: ContractBonus }) {
+  const items: [string, number][] = (
+    [
+      ['Dimainkan', b.app],
+      ['Di bangku, tidak main', b.unused],
+      ['Per gol', b.goal],
+      ['Per assist', b.assist],
+      ['Clean sheet', b.cs],
+      ['Juara (liga/piala/benua)', b.trophy],
+    ] as [string, number][]
+  ).filter(([, v]) => v > 0);
+  return (
+    <span className="bonus-list small">
+      {items.map(([k, v]) => (
+        <span key={k} className="bonus-chip">
+          {k} <b>{money(v)}</b>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Bonus kontrak sekarang + riwayat bonus & denda */
+function BonusPanel() {
+  const career = useGame((s) => s.career)!;
+  const idx = useGame((s) => s.idx)!;
+  const [open, setOpen] = useState(false);
+  const p = idx.playerById.get(career.playerId)!;
+  const b = p.isYouth ? undefined : bonusOf(p.contract, p);
+  const log = career.bonusLog ?? [];
+  const year = career.currentDate.slice(0, 4);
+  const thisYear = log.filter((e) => e.date.startsWith(year));
+  const got = thisYear.filter((e) => e.amount > 0).reduce((a, e) => a + e.amount, 0);
+  const fines = thisYear.filter((e) => e.amount < 0).reduce((a, e) => a + e.amount, 0);
+  if (!b && !log.length) return null;
+  return (
+    <div className="tr-bonus">
+      <h3>Bonus performa</h3>
+      {b ? (
+        <>
+          <BonusList b={b} />
+          <p className="muted small">
+            Dibayar setelah tiap laga liga, piala, dan kompetisi benua (dipotong pajak 30% dan komisi agent). Kartu merah: denda 2 minggu gaji
+            (merah langsung) atau 1 minggu (dua kuning). Penghargaan individu (Pemain Terbaik, Top Skor, Raja Assist, Sarung Tangan Emas, dll.) juga
+            memberi bonus uang.
+          </p>
+        </>
+      ) : (
+        <p className="muted small">Kontrakmu sekarang tidak punya bonus performa.</p>
+      )}
+      {log.length > 0 && (
+        <>
+          <p className="small">
+            Tahun {year}: bonus <b className="gain">{money(got)}</b>
+            {fines < 0 && (
+              <>
+                {' '}
+                · denda <b className="loss">{money(-fines)}</b>
+              </>
+            )}
+          </p>
+          <button className="link old-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Sembunyikan riwayat bonus' : `Riwayat bonus & denda (${log.length})`}
+          </button>
+          {open && (
+            <ul className="bonus-log small">
+              {log.map((e, i) => (
+                <li key={i}>
+                  <span className="muted num">{shortDate(e.date)}</span>
+                  <span>{e.label}</span>
+                  <b className={`num ${e.amount < 0 ? 'loss' : 'gain'}`}>
+                    {e.amount < 0 ? '−' : '+'}
+                    {money(Math.abs(e.amount))}
+                  </b>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 export function TransferPanel() {
   const career = useGame((s) => s.career)!;
@@ -95,6 +181,8 @@ export function TransferPanel() {
           <b>± {money(marketValue(p, date, badgeValue(career)))}</b>
         </div>
       </div>
+
+      <BonusPanel />
 
       <div className="tr-agent">
         <h3>Agent</h3>
@@ -269,7 +357,7 @@ function OfferCard({ offer: o, onNote }: { offer: Offer; onNote: (s: string) => 
   const better = rivals.filter((q) => q.ca > p.ca + 2).length;
   const top = rivals[0];
   const canAskRole = o.role !== 'Inti';
-  const ask = (a: 'gaji' | 'peran') => onNote(negotiate(o.id, a));
+  const ask = (a: 'gaji' | 'peran' | 'bonus') => onNote(negotiate(o.id, a));
 
   return (
     <article className="offer">
@@ -303,6 +391,14 @@ function OfferCard({ offer: o, onNote }: { offer: Offer; onNote: (s: string) => 
         <dd>
           <b>{o.role}</b>
         </dd>
+        {o.bonus && (
+          <>
+            <dt>Bonus performa</dt>
+            <dd>
+              <BonusList b={o.bonus} />
+            </dd>
+          </>
+        )}
         {o.signOn > 0 && (
           <>
             <dt>Bonus tanda tangan</dt>
@@ -364,6 +460,11 @@ function OfferCard({ offer: o, onNote }: { offer: Offer; onNote: (s: string) => 
             {!o.negotiated && o.type !== 'pinjaman' && (
               <button className="ghost small" onClick={() => ask('gaji')} title="Satu kali negosiasi per tawaran">
                 Minta gaji +20%
+              </button>
+            )}
+            {!o.negotiated && o.bonus && (
+              <button className="ghost small" onClick={() => ask('bonus')} title="Satu kali negosiasi per tawaran">
+                Minta bonus +50%
               </button>
             )}
             {!o.negotiated && canAskRole && (

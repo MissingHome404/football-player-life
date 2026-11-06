@@ -2,6 +2,7 @@
 // Laga tengah pekan (Rabu), final hari Minggu di tempat netral, adu penalti kalau imbang.
 // Undian tiap babak dilakukan setelah babak sebelumnya selesai.
 
+import { trophyBonus } from './bonus';
 import { clubFormation } from './formation';
 import type { Career, Competition, Cup, CupHonour, CupRound, CupTie, League, LeagueSeason, MatchRecord, MatchStatus, Player, World } from '../types';
 import { Rng, clamp } from '../rng';
@@ -161,7 +162,7 @@ export function cupWeek(
         cup.winner = tieWinner(t);
         cup.runnerUp = cup.winner === t.home ? t.away : t.home;
         honours.push({ leagueId: league.id, name: cup.name, season: cup.season, winnerId: cup.winner!, runnerUpId: cup.runnerUp });
-        if (mine) cupEnd(world, career, cup, myClubId!, msg);
+        if (mine) cupEnd(world, career, cup, myClubId!, msg, p, to, notes);
       } else {
         const winners = round.ties.map((t) => tieWinner(t)!);
         const next = cup.rounds[r + 1];
@@ -305,7 +306,7 @@ function userTie(
 }
 
 /** Final piala selesai: trofi kalau klubmu juara dan kamu ikut bermain di piala ini */
-function cupEnd(world: World, career: Career, cup: Cup, clubId: string, msg: (id: string, title: string, body: string, from: string) => void) {
+function cupEnd(world: World, career: Career, cup: Cup, clubId: string, msg: (id: string, title: string, body: string, from: string) => void, p: Player, date: string, notes?: string[]) {
   const name = (id: string) => world.clubs.find((c) => c.id === id)?.name ?? id;
   const club = name(clubId);
   const played = career.stats.some((s) => s.comp === 'Piala' && s.season === cup.season && s.clubId === clubId && s.apps > 0);
@@ -313,6 +314,7 @@ function cupEnd(world: World, career: Career, cup: Cup, clubId: string, msg: (id
     let body = `${club} juara ${cup.name} ${cup.season} setelah mengalahkan ${name(cup.runnerUp!)} di final!`;
     if (played) {
       (career.trophies ??= []).push({ id: `cup-${cup.id}`, name: cup.name, season: cup.season, team: club });
+      trophyBonus(career, p, clubId, cup.name, date, notes);
       body += ' Kamu ikut membawa timmu juara.';
     }
     msg(`cup-win-${cup.id}`, `Juara ${cup.name}!`, body, cup.name);

@@ -20,6 +20,7 @@ import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../game/s
 import { acceptOffer, hireAgent, negotiate, rejectOffer, type Ask } from '../game/sim/transfer';
 import { applyWish, initRelations } from '../game/sim/relations';
 import { applyLife, type LifeOp } from '../game/sim/life';
+import { applyEditor, type EditorDraft } from '../game/sim/editor';
 import { ENGINE_VERSION } from '../game/sim/engine';
 import {
   KIND_LABEL,
@@ -58,6 +59,7 @@ export type View =
   | { kind: 'search' }
   | { kind: 'comps' }
   | { kind: 'settings' }
+  | { kind: 'editor' }
   | { kind: 'continent'; confed: 'UEFA' | 'AFC' }
   | { kind: 'names'; edit?: { kind: RenameKind; id: string } };
 
@@ -120,6 +122,8 @@ interface State {
   setWish: (patch: Partial<Pick<Career, 'listed' | 'wantsLoan'>>) => void;
   /** Aksi halaman Kehidupan; hasilnya teks untuk ditampilkan */
   lifeOp: (op: LifeOp) => string;
+  /** editor in-game: terapkan perubahan, hasilnya catatan */
+  applyEditor: (draft: EditorDraft) => string[];
   /** Layar pertandingan 2D sedang terbuka */
   watching: boolean;
   /** Buka layar pertandingan otomatis setelah lanjut 1 minggu */
@@ -430,6 +434,14 @@ export const useGame = create<State>((set, get) => ({
     set({ world: r.world, career: r.career, ...(r.world !== world ? { idx: buildIndexes(r.world) } : {}) });
     void get().saveNow();
     return r.result;
+  },
+  applyEditor: (draft) => {
+    const { world, career } = get();
+    if (!world || !career) return [];
+    const r = applyEditor(world, career, draft);
+    set({ world: r.world, career: r.career, idx: buildIndexes(r.world) });
+    void get().saveNow();
+    return r.notes;
   },
   loadSave: async (id) => {
     set({ busy: 'Memuat karier…', message: null });

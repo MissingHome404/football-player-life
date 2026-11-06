@@ -3,7 +3,7 @@
 
 import { ECONOMY } from '../gen/character';
 import { lifeCosts } from './life';
-import type { Activity, Career, CoachKind, Intensity, Player, TrainingFocus } from '../types';
+import type { Activity, Career, CoachKind, CoachLevel, Intensity, Player, TrainingFocus } from '../types';
 
 export const econOf = (countryId: string) => ECONOMY[countryId] ?? 0.5;
 
@@ -12,7 +12,7 @@ export const FOCUS_INFO: Record<TrainingFocus, { label: string; desc: string }> 
   teknik: { label: 'Teknik', desc: 'Fokus atribut technical (atau goalkeeping untuk kiper).' },
   mental: { label: 'Mental', desc: 'Fokus keputusan, posisi, dan ketenangan.' },
   fisik: { label: 'Fisik', desc: 'Fokus kecepatan, stamina, dan kekuatan. Lebih melelahkan.' },
-  peran: { label: 'Peran', desc: 'Fokus atribut kunci peran favoritmu.' },
+  peran: { label: 'Peran', desc: 'Fokus atribut kunci peran yang kamu pilih (peran dari posisi utamamu, atau dari posisi baru yang sedang kamu latih).' },
   taktik: {
     label: 'Taktik',
     desc: 'Pelajari taktik pelatih: pemahaman taktik naik jauh lebih cepat, atribut membaca permainan (Decisions, Teamwork, Anticipation, Positioning) ikut berkembang.',
@@ -47,10 +47,41 @@ export const ACTIVITY_INFO: Record<
 };
 
 export const COACH_INFO: Record<CoachKind, { label: string; desc: string; cost: number }> = {
-  teknik: { label: 'Pelatih teknik', desc: 'Latihan technical lebih efektif.', cost: 60 },
-  fisik: { label: 'Pelatih fisik', desc: 'Latihan fisik lebih efektif, risiko cedera turun.', cost: 50 },
+  teknik: { label: 'Pelatih teknik', desc: 'Latihan technical (atau goalkeeping) lebih efektif.', cost: 60 },
+  fisik: { label: 'Pelatih fisik', desc: 'Latihan fisik lebih efektif, risiko cedera latihan turun.', cost: 50 },
   mental: { label: 'Pelatih mental', desc: 'Latihan mental lebih efektif.', cost: 50 },
-  psikolog: { label: 'Psikolog', desc: 'Arah stresmu turun banyak.', cost: 70 },
+  psikolog: { label: 'Psikolog', desc: 'Arah stresmu turun.', cost: 70 },
+};
+
+/**
+ * Tingkatan pelatih & staf pribadi. Amatir murah tapi efeknya kecil; world class dibayar
+ * dengan harga internasional (tidak ikut ekonomi negaramu) dan efeknya paling besar.
+ */
+export const COACH_TIERS: Record<1 | 2 | 3, { label: string; cost: number; local: boolean; boost: number; injury: number; stress: number }> = {
+  1: { label: 'Amatir', cost: 0.4, local: true, boost: 1.15, injury: 0.85, stress: -7 },
+  2: { label: 'Profesional', cost: 1, local: true, boost: 1.35, injury: 0.7, stress: -15 },
+  3: { label: 'World class', cost: 6, local: false, boost: 1.7, injury: 0.5, stress: -24 },
+};
+export const COACH_LEVELS: CoachLevel[] = [0, 1, 2, 3];
+
+/** Tingkat pelatih/staf; save lama menyimpan true (= profesional) atau false */
+export function levelOf(v: unknown): CoachLevel {
+  if (v === true) return 2;
+  if (typeof v === 'number' && v >= 1 && v <= 3) return Math.round(v) as CoachLevel;
+  return 0;
+}
+
+/** Biaya mingguan pelatih/staf dengan tingkat tertentu (harga dasar = tingkat profesional) */
+export function tierCost(base: number, level: CoachLevel, econ: number): number {
+  if (!level) return 0;
+  const t = COACH_TIERS[level];
+  return base * t.cost * (t.local ? econ : 1);
+}
+
+/** Pengali poin latihan dari pelatih pribadi jenis ini */
+export const coachBoostOf = (career: Career, k: CoachKind) => {
+  const l = levelOf(career.plan.coaches[k]);
+  return l ? COACH_TIERS[l].boost : 1;
 };
 
 export const ALLOWANCE = { miskin: 8, menengah: 40, kaya: 200 } as const;
@@ -75,7 +106,7 @@ export function weeklyBudget(career: Career, player: Player) {
   const lifestyle = round(lc.subs + lc.upkeep);
   let coaches = 0;
   for (const k of Object.keys(COACH_INFO) as CoachKind[]) {
-    if (career.plan.coaches[k]) coaches += COACH_INFO[k].cost * econ;
+    coaches += tierCost(COACH_INFO[k].cost, levelOf(career.plan.coaches[k]), econ);
   }
   const act = ACTIVITY_INFO[career.plan.activity];
   // kerja sampingan hanya menghasilkan uang kalau belum digaji klub
