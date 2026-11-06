@@ -128,6 +128,50 @@ export interface World {
   staff: Staff[];
   seasons: Record<string, LeagueSeason>; // musim berjalan / berikutnya per liga
   honours: Honour[]; // juara liga tiap musim
+  /** sepak bola internasional: kualifikasi & turnamen (dibuat saat pertama dibutuhkan) */
+  intl?: IntlState;
+}
+
+/** Baris klasemen kualifikasi timnas */
+export interface IntlRow {
+  p: number;
+  w: number;
+  d: number;
+  l: number;
+  gf: number;
+  ga: number;
+  pts: number;
+}
+
+/** Laga timnas (kualifikasi atau turnamen) */
+export interface IntlFixture {
+  date: string;
+  stage: string; // 'A'..'H' = grup, 'R16' | 'QF' | 'SF' | 'F'
+  home: string; // id negara
+  away: string;
+  score?: [number, number];
+  pens?: [number, number];
+}
+
+export type TournamentKind = 'world' | 'euro' | 'asia';
+export interface Tournament {
+  id: string; // mis. 'world-2030'
+  kind: TournamentKind;
+  name: string; // mis. 'Piala Dunia 2030'
+  year: number;
+  teams: string[];
+  groups: string[][];
+  fixtures: IntlFixture[];
+  champion?: string;
+  runnerUp?: string;
+}
+
+export interface IntlState {
+  /** tahun turnamen yang sedang diperebutkan lewat kualifikasi */
+  cycle: number;
+  table: Record<string, IntlRow>;
+  tournament?: Tournament; // turnamen berjalan / terakhir
+  history: { id: string; name: string; champion: string; runnerUp: string }[];
 }
 
 /** Satu musim liga: jadwal kandang-tandang dan hasilnya */
@@ -148,7 +192,7 @@ export interface Honour {
   runnerUpId: string;
 }
 
-export type Competition = 'Liga' | 'U19' | 'Amatir';
+export type Competition = 'Liga' | 'U19' | 'Amatir' | 'Timnas' | 'Timnas U20';
 export type MatchStatus = 'Inti' | 'Cadangan' | 'Tidak masuk skuad' | 'Cedera';
 
 /** Satu pertandingan pemain kita */
@@ -172,6 +216,9 @@ export interface MatchRecord {
   scorers?: [number, 0 | 1, string][];
   shots?: [number, number];
   possession?: [number, number];
+  /** laga timnas: babak/kompetisi, mis. "Kualifikasi Piala Asia 2028" atau "Piala Dunia 2030 · Grup B" */
+  stage?: string;
+  pens?: [number, number];
 }
 
 /** Statistik pemain kita per musim, tim, dan kompetisi */
@@ -227,6 +274,21 @@ export interface Career {
   signed?: string; // tanggal terakhir tanda tangan kontrak (pindah, bebas transfer, perpanjangan)
   rel: Relations;
   life: Life;
+  /** karier timnas (dibuat saat pertama dibutuhkan) */
+  intl?: NationalCareer;
+}
+
+export type NatTeam = 'senior' | 'u20';
+export interface NationalCareer {
+  caps: number;
+  goals: number;
+  u20Caps: number;
+  u20Goals: number;
+  debut?: string;
+  /** skuad terakhir yang memanggilmu dan untuk acara apa (id jeda internasional / turnamen) */
+  called: NatTeam | null;
+  calledFor?: string;
+  tournaments: { id: string; name: string; stage: string; apps: number; goals: number }[];
 }
 
 /** Kehidupan dan barang milik pemain (lihat sim/life.ts) */

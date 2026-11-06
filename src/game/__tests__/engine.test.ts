@@ -118,8 +118,9 @@ describe('laga mingguan memakai match engine', () => {
       for (const m of pendingChoices(career)) ({ world, career } = resolveChoice(world, career, m.id, 0));
       const r = advanceWeek(world, career);
       ({ world, career } = r);
-      if (!r.sim || career.matches[0].comp !== 'Liga') continue;
-      const rec = career.matches[0];
+      if (!r.sim) continue;
+      const rec = career.matches.find((m) => m.date === career.lastSim!.date)!;
+      if (rec.comp !== 'Liga') continue;
       const replay = playEngine(structuredClone(career.lastSim!.input));
       const us = rec.home ? 0 : 1;
       expect([replay.score[us], replay.score[1 - us]]).toEqual(rec.score);

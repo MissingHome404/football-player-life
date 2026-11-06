@@ -19,6 +19,7 @@ import { nextFixture, shortDate } from './LeagueSeason';
 import { roundDate } from '../game/sim/season';
 import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
+import { NationalPanel } from './NationalPanel';
 import { AvatarPanel } from './LifeView';
 import { matchReactions } from '../game/sim/relations';
 import { ENGINE_VERSION } from '../game/sim/engine';
@@ -114,6 +115,7 @@ export function CareerHome({ children }: { children: ReactNode }) {
           <Inbox />
           <TransferPanel />
           <MatchPanel />
+          <NationalPanel />
           <RelationsPanel />
           <ReportPanel />
         </div>
@@ -472,7 +474,7 @@ function LastMatch({ m }: { m: MatchRecord }) {
   return (
     <div className="last-match">
       <div className="lm-top">
-        <span className="pill">{m.comp === 'Liga' ? 'Liga' : m.comp}</span>
+        <span className="pill">{m.stage ?? m.comp}</span>
         <span className="muted small">
           {shortDate(m.date)} · {m.home ? 'Kandang' : 'Tandang'}
         </span>
@@ -484,6 +486,11 @@ function LastMatch({ m }: { m: MatchRecord }) {
         </span>
         <span className="lm-team right">{m.opponent}</span>
       </div>
+      {m.pens && (
+        <div className="muted small lm-pens">
+          Adu penalti {m.pens[0]}-{m.pens[1]} ({m.pens[0] > m.pens[1] ? 'menang' : 'kalah'})
+        </div>
+      )}
       {m.scorers && m.scorers.length > 0 && (
         <div className="lm-goals small">
           {[0, 1].map((side) => (

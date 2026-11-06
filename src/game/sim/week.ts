@@ -13,6 +13,7 @@ import { trainWeek } from './training';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
+import { nationalWeek } from './national';
 import { TRANSFER_EVENTS, contractWeek } from './transfer';
 import { defaultLife, lifeFitness, lifeInjuryFactor, lifeStress, lifeWeek } from './life';
 import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, relationsWeek } from './relations';
@@ -273,15 +274,26 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   let w: World = { ...world, seasons: week.seasons };
   const played = userMatch(w, career, player, week, rng.fork('match'));
   const match = played?.rec ?? null;
-  const sim = played?.sim;
-  if (match && sim) career.lastSim = { date: match.date, input: sim, v: ENGINE_VERSION };
+  // Timnas: panggilan, kualifikasi, turnamen
+  const intl = nationalWeek(w, career, player, career.currentDate, weekEnd);
+  w = intl.world;
+  const games = [...(played ? [played] : []), ...intl.games];
+  const watchable = games.filter((g) => g.sim).sort((a, b) => b.rec.date.localeCompare(a.rec.date))[0];
+  const sim = watchable?.sim;
+  if (watchable && sim) career.lastSim = { date: watchable.rec.date, input: sim, v: ENGINE_VERSION };
+  for (const { rec: m } of games) {
+    career.matches.unshift(m);
+    if (m.minutes > 0) {
+      career.fitness = clamp(Math.round(career.fitness - m.minutes / 9), 0, 100);
+      if (m.comp === 'Timnas' && (m.rating ?? 0) >= 7.3 && rng.chance(0.5)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
+    }
+  }
+  career.matches.sort((a, b) => b.date.localeCompare(a.date));
+  career.matches.length = Math.min(career.matches.length, 30);
   if (match) {
-    career.matches.unshift(match);
-    career.matches.length = Math.min(career.matches.length, 30);
     if (match.minutes > 0) {
-      career.fitness = clamp(Math.round(career.fitness - match.minutes / 9), 0, 100);
       const good = (match.rating ?? 0) >= 7.5;
-      const repChance = { Liga: 0.5, U19: 0.2, Amatir: 0.1 }[match.comp];
+      const repChance = { Liga: 0.5, U19: 0.2, Amatir: 0.1, Timnas: 0.6, 'Timnas U20': 0.25 }[match.comp];
       if (good && rng.chance(repChance)) player.reputation.home = clamp(player.reputation.home + 1, 1, 100);
       if (match.motm && match.comp === 'Liga') player.reputation.home = clamp(player.reputation.home + 1, 1, 100);
       if (good && match.comp === 'Liga' && club) {

@@ -34,7 +34,7 @@ export function recentForm(career: Career, n = 5): number | null {
   return r.length ? r.reduce((s, m) => s + m.rating!, 0) / r.length : null;
 }
 
-interface Perf {
+export interface Perf {
   minutes: number;
   rating?: number;
   goals: number;
@@ -115,6 +115,86 @@ export function statRow(career: Career, season: string, team: string, comp: Comp
     career.stats.push(row);
   }
   return row;
+}
+
+export interface GameSide {
+  id: string;
+  name: string;
+  colors: readonly [string, string] | string[];
+  squad: Player[];
+}
+
+/**
+ * Satu laga timmu yang dimainkan match engine 2D (klub atau timnas). Kamu masuk XI kalau
+ * statusmu Inti, atau masuk dari bangku cadangan (45%) kalau Cadangan.
+ */
+export function engineGame(o: {
+  p: Player;
+  career: Career;
+  status: MatchStatus;
+  rng: Rng;
+  ours: GameSide;
+  theirs: GameSide;
+  home: boolean;
+  seed: string;
+}): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord> } {
+  const { p, career, status, rng, home } = o;
+  const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
+  const xiOurs = pickXI(o.ours.squad, p, status === 'Inti');
+  const user = xiOurs.xi.find((e) => e.user);
+  if (user) for (const k of ['pace', 'acc', 'sta'] as const) user.a[k] *= fit;
+  const ourTeam: ETeam = { id: o.ours.id, name: o.ours.name, color: o.ours.colors[0], color2: o.ours.colors[1], xi: xiOurs.xi };
+  if (status === 'Cadangan' && rng.chance(0.45)) {
+    const mins = rng.int(5, 35);
+    const a = engineAttrs(p);
+    for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
+    const slot = slotFor(p);
+    ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: { id: p.id, name: shortName(p), num: 12, slot, user: true, a }, slot };
+  }
+  const oppTeam: ETeam = {
+    id: o.theirs.id,
+    name: o.theirs.name,
+    color: o.theirs.colors[0],
+    color2: o.theirs.colors[1],
+    xi: pickXI(o.theirs.squad, undefined, false).xi,
+  };
+  const sim: EngineInput = { seed: o.seed, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
+  const r = playEngine(sim);
+  const us = home ? 0 : 1;
+  const score: [number, number] = [r.score[us], r.score[1 - us]];
+  const st = r.stats[p.id];
+  const minutes = st ? Math.max(1, Math.round((((st.off ?? FULL) - st.on) / FULL) * 90)) : 0;
+  const group = GROUP[p.mainPosition];
+  const perf: Perf = st
+    ? {
+        minutes,
+        rating: r.ratings[p.id],
+        goals: st.goals,
+        assists: st.assists,
+        cleanSheet: score[1] === 0 && minutes >= 60 && (group === 'GK' || group === 'DEF'),
+        motm: r.motm === p.id,
+      }
+    : { minutes: 0, goals: 0, assists: 0 };
+  const extra: Partial<MatchRecord> = {
+    scorers: r.events.filter((e) => e.kind === 'goal').map((e) => [e.min, e.side === us ? 0 : 1, e.og ? `${e.name ?? ''} (bd)` : (e.name ?? '')] as [number, 0 | 1, string]),
+    shots: [r.shots[us], r.shots[1 - us]],
+    possession: [r.possession[us], r.possession[1 - us]],
+  };
+  return { score, perf, sim, extra };
+}
+
+/** Catat menit, gol, assist, dan rating ke baris statistik musim */
+export function addStats(career: Career, rec: MatchRecord, clubId?: string) {
+  if (rec.minutes <= 0) return;
+  const row = statRow(career, rec.season, rec.team, rec.comp, clubId);
+  row.apps++;
+  if (rec.status === 'Inti') row.starts++;
+  row.minutes += rec.minutes;
+  row.goals += rec.goals;
+  row.assists += rec.assists;
+  if (rec.cleanSheet) row.cleanSheets++;
+  row.ratingSum += rec.rating ?? 0;
+  if (rec.motm) row.motm++;
 }
 
 /**
@@ -204,47 +284,17 @@ export function userMatch(
   let extra: Partial<MatchRecord> = {};
   if (club && opponentId && (status === 'Inti' || status === 'Cadangan') && ours.length >= 11 && oppSquad.length >= 11) {
     const oppClub = world.clubs.find((c) => c.id === opponentId)!;
-    const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
-    const xiOurs = pickXI(ours, p, status === 'Inti');
-    const user = xiOurs.xi.find((e) => e.user);
-    if (user) for (const k of ['pace', 'acc', 'sta'] as const) user.a[k] *= fit;
-    const ourTeam: ETeam = { id: club.id, name: comp === 'U19' ? `${club.name} U19` : club.name, color: club.colors[0], color2: club.colors[1], xi: xiOurs.xi };
-    if (status === 'Cadangan' && rng.chance(0.45)) {
-      const mins = rng.int(5, 35);
-      const a = engineAttrs(p);
-      for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
-      const slot = slotFor(p);
-      ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: { id: p.id, name: shortName(p), num: 12, slot, user: true, a }, slot };
-    }
-    const oppTeam: ETeam = {
-      id: oppClub.id,
-      name: comp === 'U19' ? `${oppClub.name} U19` : oppClub.name,
-      color: oppClub.colors[0],
-      color2: oppClub.colors[1],
-      xi: pickXI(oppSquad, undefined, false).xi,
-    };
-    sim = { seed: `${career.characterSeed}:${date}:${club.id}`, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
-    const r = playEngine(sim);
-    const us = home ? 0 : 1;
-    score = [r.score[us], r.score[1 - us]];
-    const st = r.stats[p.id];
-    const minutes = st ? Math.max(1, Math.round((((st.off ?? FULL) - st.on) / FULL) * 90)) : 0;
-    const group = GROUP[p.mainPosition];
-    perf = st
-      ? {
-          minutes,
-          rating: r.ratings[p.id],
-          goals: st.goals,
-          assists: st.assists,
-          cleanSheet: score[1] === 0 && minutes >= 60 && (group === 'GK' || group === 'DEF'),
-          motm: r.motm === p.id,
-        }
-      : { minutes: 0, goals: 0, assists: 0 };
-    extra = {
-      scorers: r.events.filter((e) => e.kind === 'goal').map((e) => [e.min, e.side === us ? 0 : 1, e.og ? `${e.name ?? ''} (bd)` : (e.name ?? '')] as [number, 0 | 1, string]),
-      shots: [r.shots[us], r.shots[1 - us]],
-      possession: [r.possession[us], r.possession[1 - us]],
-    };
+    const g = engineGame({
+      p,
+      career,
+      status,
+      rng,
+      ours: { id: club.id, name: comp === 'U19' ? `${club.name} U19` : club.name, colors: club.colors, squad: ours },
+      theirs: { id: oppClub.id, name: comp === 'U19' ? `${oppClub.name} U19` : oppClub.name, colors: oppClub.colors, squad: oppSquad },
+      home,
+      seed: `${career.characterSeed}:${date}:${club.id}`,
+    });
+    ({ score, perf, sim, extra } = g);
     // skor dari match engine menggantikan hasil cepat di klasemen
     if (fixture) {
       const s = week.seasons[fixture.leagueId];
@@ -254,16 +304,6 @@ export function userMatch(
     perf = performance(rng, p, status, teamCA, score, career.fitness);
   }
   const rec: MatchRecord = { date, comp, season, team, opponent, opponentId, home, score, status, ...perf, ...extra };
-  if (perf.minutes > 0) {
-    const row = statRow(career, season, team, comp, club?.id);
-    row.apps++;
-    if (status === 'Inti') row.starts++;
-    row.minutes += perf.minutes;
-    row.goals += perf.goals;
-    row.assists += perf.assists;
-    if (perf.cleanSheet) row.cleanSheets++;
-    row.ratingSum += perf.rating ?? 0;
-    if (perf.motm) row.motm++;
-  }
+  addStats(career, rec, club?.id);
   return { rec, sim };
 }
