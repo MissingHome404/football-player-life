@@ -3,7 +3,8 @@
 import { useGame } from './store';
 import { Badge } from './components';
 import { lastPlayedRound, roundDate, standings } from '../game/sim/season';
-import type { LeagueSeason, World } from '../game/types';
+import { currentRound, tieWinner } from '../game/sim/cup';
+import type { CupRound, CupTie, LeagueSeason, World } from '../game/types';
 
 export const shortDate = (d: string) =>
   new Date(d + 'T00:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -209,6 +210,101 @@ export function ClubFixtures({ clubId }: { clubId: string }) {
           {upcoming.length ? <ul className="cf-list">{upcoming.map(row)}</ul> : <p className="muted small">Musim sudah selesai.</p>}
         </div>
       </div>
+    </section>
+  );
+}
+
+function CupTieRow({ t }: { t: CupTie }) {
+  const idx = useGame((st) => st.idx)!;
+  const go = useGame((st) => st.go);
+  const myClub = useGame((st) => (st.career ? st.idx?.playerById.get(st.career.playerId)?.contract?.clubId : undefined));
+  const home = idx.clubById.get(t.home);
+  const away = idx.clubById.get(t.away);
+  if (!home || !away) return null;
+  const won = tieWinner(t);
+  return (
+    <li className={`fx ${home.id === myClub || away.id === myClub ? 'mine' : ''}`}>
+      <button className={`fx-team home ${won === home.id ? 'strong' : ''}`} onClick={() => go({ kind: 'club', clubId: home.id })}>
+        <span className="fx-name">{home.name}</span>
+        <Badge club={home} size={18} />
+      </button>
+      <span className="fx-score num">
+        {t.score ? `${t.score[0]} - ${t.score[1]}` : 'vs'}
+        {t.pens && <span className="muted small fx-pens">pen {t.pens.join('-')}</span>}
+      </span>
+      <button className={`fx-team ${won === away.id ? 'strong' : ''}`} onClick={() => go({ kind: 'club', clubId: away.id })}>
+        <Badge club={away} size={18} />
+        <span className="fx-name">{away.name}</span>
+      </button>
+    </li>
+  );
+}
+
+function CupRoundList({ r }: { r: CupRound }) {
+  const idx = useGame((st) => st.idx)!;
+  return (
+    <>
+      <h3>
+        {r.name} · {shortDate(r.date)}
+        {r.name === 'Final' && <span className="muted small"> · tempat netral</span>}
+      </h3>
+      <ul className="fx-list">
+        {r.ties.map((t) => (
+          <CupTieRow key={`${t.home}-${t.away}`} t={t} />
+        ))}
+      </ul>
+      {!!r.byes?.length && (
+        <p className="muted small">Langsung lolos: {r.byes.map((id) => idx.clubById.get(id)?.name ?? id).join(', ')}</p>
+      )}
+    </>
+  );
+}
+
+/** Piala domestik negara liga ini: babak terakhir, babak berikutnya, dan juara */
+export function CupPanel({ leagueId }: { leagueId: string }) {
+  const world = useGame((s) => s.world)!;
+  const idx = useGame((s) => s.idx)!;
+  const cup = world.cups?.[leagueId];
+  if (!cup) return null;
+  const cur = currentRound(cup);
+  const done = cup.rounds.filter((r) => r.ties.length && r.ties.every((t) => t.score));
+  const last = done[done.length - 1];
+  const next = cur >= 0 ? cup.rounds[cur] : undefined;
+  const prev = [...(world.cupHonours ?? [])].reverse().find((h) => h.leagueId === leagueId && h.season !== cup.season);
+  const earlier = done.slice(0, -1).reverse();
+  return (
+    <section className="panel">
+      <div className="season-head">
+        <h2>
+          🏆 {cup.name} {cup.season}
+        </h2>
+        <span className="muted small">
+          {cup.winner ? (
+            <>
+              Juara: <b>{idx.clubById.get(cup.winner)?.name}</b>
+            </>
+          ) : next ? (
+            `Berikutnya: ${next.name} · ${shortDate(next.date)}`
+          ) : null}
+          {prev && (
+            <>
+              {' · '}Juara {prev.season}: <b>{idx.clubById.get(prev.winnerId)?.name}</b>
+            </>
+          )}
+        </span>
+      </div>
+      <div className="two-col">
+        <div>{last ? <CupRoundList r={last} /> : <p className="muted small">Piala belum dimulai.</p>}</div>
+        <div>{next && next.ties.length > 0 ? <CupRoundList r={next} /> : null}</div>
+      </div>
+      {earlier.length > 0 && (
+        <details className="cup-earlier">
+          <summary className="small">Babak sebelumnya</summary>
+          {earlier.map((r) => (
+            <CupRoundList key={r.name} r={r} />
+          ))}
+        </details>
+      )}
     </section>
   );
 }

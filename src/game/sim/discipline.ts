@@ -75,7 +75,7 @@ export function afterGame(career: Career, rec: MatchRecord, rng: Rng, scope: Ban
     } else if (rec.card === 'YR') {
       games = 1;
       why = 'dua kartu kuning';
-    } else if (scope === 'club' && row && (row.yellow ?? 0) % YELLOW_LIMIT === 0) {
+    } else if (scope === 'club' && rec.comp !== 'Piala' && row && (row.yellow ?? 0) % YELLOW_LIMIT === 0) {
       games = 1;
       why = `akumulasi ${row.yellow} kartu kuning musim ini`;
     }

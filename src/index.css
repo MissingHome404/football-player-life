@@ -261,6 +261,10 @@ input { font: inherit; }
 .fx-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-team:hover .fx-name { color: var(--accent); }
 .fx-score { text-align: center; font-weight: 700; }
+.fx-pens { display: block; font-weight: 400; font-size: 11px; }
+.fx-team.strong .fx-name { font-weight: 700; }
+.cup-earlier { margin-top: 10px; }
+.cup-earlier summary { cursor: pointer; color: var(--muted); }
 .cf-list { list-style: none; margin: 0; padding: 0; }
 .cf-row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-bottom: 1px solid #252938; font-size: 13px; }
 .cf-row .badge { margin: 0; }

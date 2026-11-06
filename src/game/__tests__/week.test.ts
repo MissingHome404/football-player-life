@@ -65,7 +65,8 @@ describe('minggu demi minggu', () => {
       expect(career.fitness).toBeGreaterThanOrEqual(0);
       expect(career.fitness).toBeLessThanOrEqual(100);
       expect(Number.isFinite(career.money)).toBe(true);
-      expect(career.inbox.length).toBeLessThanOrEqual(61);
+      // maksimal 60 pesan, ditambah pesan yang masih menunggu jawaban
+      expect(career.inbox.length).toBeLessThanOrEqual(60 + pendingChoices(career).length);
       // relasi tetap di -100..100
       const rel = career.rel;
       const vals = [rel.media, ...Object.values(rel.fans), ...rel.mates.map((m) => m.value)];

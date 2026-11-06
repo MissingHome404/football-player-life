@@ -16,6 +16,7 @@ import {
 import { pendingChoices, stressTarget } from '../game/sim/week';
 import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
 import { nextFixture, shortDate } from './LeagueSeason';
+import { nextCupTie } from '../game/sim/cup';
 import { roundDate } from '../game/sim/season';
 import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
@@ -602,6 +603,9 @@ function MatchPanel() {
   const season = leagueId ? world.seasons[leagueId] : undefined;
   const next = club && !p.isYouth ? nextFixture(world, club.id, career.currentDate) : null;
   const nextOpp = next ? idx.clubById.get(next.opponentId) : undefined;
+  const cupNext = club && !p.isYouth ? nextCupTie(world, club.id) : null;
+  const cupOppId = cupNext?.tie ? (cupNext.tie.home === club!.id ? cupNext.tie.away : cupNext.tie.home) : undefined;
+  const cupOpp = cupOppId ? idx.clubById.get(cupOppId) : undefined;
   // jadwal U19/amatir ikut pekan liga
   const nextRoundDate = season
     ? (season.rounds.map((_, r) => roundDate(season, r)).find((d) => d > career.currentDate) ?? null)
@@ -629,6 +633,20 @@ function MatchPanel() {
           <span className="muted">Jeda musim. Jadwal baru menyusul.</span>
         )}
       </div>
+      {cupNext && (
+        <div className="next-match small">
+          <span className="muted">{cupNext.cup.name}: </span>
+          {cupNext.tie && cupOpp ? (
+            <span className="nm">
+              {shortDate(cupNext.round.date)} · {cupNext.round.name} ·{' '}
+              {cupNext.round.name === 'Final' ? 'vs' : cupNext.tie.home === club!.id ? 'vs' : 'di kandang'} <Badge club={cupOpp} size={16} />{' '}
+              <b>{cupOpp.name}</b>
+            </span>
+          ) : (
+            <span>langsung lolos ke babak berikutnya ({shortDate(cupNext.round.date)})</span>
+          )}
+        </div>
+      )}
       {(rows.length > 0 || career.stats.length > 0) && (
         <>
           <div className="table-wrap">

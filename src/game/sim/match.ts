@@ -99,11 +99,11 @@ function performance(
 }
 
 /** Dipilih pelatih? Bandingkan dengan rekan seposisi (CA + sedikit acak) */
-function selection(rng: Rng, p: Player, teammates: Player[], career: Career): MatchStatus {
+export function selection(rng: Rng, p: Player, teammates: Player[], career: Career, bonus = 0): MatchStatus {
   if (career.injury) return 'Cedera';
   const g = GROUP[p.mainPosition];
   const form = recentForm(career, 3);
-  let mine = p.ca + rng.normal(0, 5);
+  let mine = p.ca + rng.normal(0, 5) + bonus;
   if (career.fitness < 55) mine -= (55 - career.fitness) / 2;
   if (form !== null) mine += form >= 7.2 ? 4 : form <= 6.1 ? -4 : 0;
   // janji peran di kontrak dan janji manajer setelah diprotes

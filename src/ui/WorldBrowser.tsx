@@ -5,7 +5,7 @@ import { ROLES } from '../game/data/roles';
 import { SaveControls } from './SavePanel';
 import { CareerHome } from './CareerHome';
 import { LifeView } from './LifeView';
-import { ClubFixtures, SeasonPanel } from './LeagueSeason';
+import { ClubFixtures, CupPanel, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { marketValue } from '../game/sim/transfer';
 import { badgeValue } from '../game/sim/badges';
@@ -191,6 +191,7 @@ function LeagueView({ leagueId }: { leagueId: string }) {
       </div>
 
       <SeasonPanel leagueId={leagueId} />
+      <CupPanel leagueId={leagueId} />
 
       <section className="panel">
         <h2>Klub</h2>

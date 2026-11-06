@@ -130,6 +130,10 @@ export interface World {
   honours: Honour[]; // juara liga tiap musim
   /** sepak bola internasional: kualifikasi & turnamen (dibuat saat pertama dibutuhkan) */
   intl?: IntlState;
+  /** piala domestik musim berjalan per liga (dibuat saat pertama dibutuhkan) */
+  cups?: Record<string, Cup>;
+  /** juara piala domestik tiap musim */
+  cupHonours?: CupHonour[];
   /** statistik musim berjalan semua pemain per liga (untuk penghargaan & rekor) */
   ledger?: Record<string, SeasonLedger>;
   records?: WorldRecords;
@@ -245,6 +249,38 @@ export interface LeagueSeason {
   results: ([number, number] | null)[][];
 }
 
+/** Satu laga piala: skor [kandang, tandang], adu penalti kalau imbang */
+export interface CupTie {
+  home: string;
+  away: string;
+  score?: [number, number];
+  pens?: [number, number];
+}
+export interface CupRound {
+  name: string;
+  date: string;
+  ties: CupTie[];
+  /** klub yang langsung lolos ke babak berikutnya (hanya babak pertama) */
+  byes?: string[];
+}
+/** Piala domestik satu negara satu musim (sistem gugur, semua klub divisi 1) */
+export interface Cup {
+  id: string;
+  leagueId: string;
+  name: string;
+  season: string;
+  rounds: CupRound[];
+  winner?: string;
+  runnerUp?: string;
+}
+export interface CupHonour {
+  leagueId: string;
+  name: string;
+  season: string;
+  winnerId: string;
+  runnerUpId: string;
+}
+
 export interface Honour {
   leagueId: string;
   season: string;
@@ -252,7 +288,7 @@ export interface Honour {
   runnerUpId: string;
 }
 
-export type Competition = 'Liga' | 'U19' | 'Amatir' | 'Timnas' | 'Timnas U20';
+export type Competition = 'Liga' | 'Piala' | 'U19' | 'Amatir' | 'Timnas' | 'Timnas U20';
 export type MatchStatus = 'Inti' | 'Cadangan' | 'Tidak masuk skuad' | 'Cedera' | 'Skorsing';
 
 /** Satu pertandingan pemain kita */
