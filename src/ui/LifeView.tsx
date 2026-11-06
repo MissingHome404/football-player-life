@@ -19,6 +19,7 @@ import {
   type SubId,
 } from '../game/sim/life';
 import type { AvatarLook } from './Avatar3D';
+import { POST_INFO, POST_TYPES, fmtFollowers, socialOf, tierLabel } from '../game/sim/social';
 
 const Avatar3D = lazy(() => import('./Avatar3D'));
 
@@ -166,6 +167,8 @@ export function LifeView() {
         </p>
       )}
 
+      <SocialPanel />
+
       <section className="panel">
         <h2>Tempat tinggal</h2>
         <div className="shop-grid">
@@ -260,5 +263,81 @@ export function LifeView() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Media sosial & sponsor: pengikut, citra, postingan mingguan, kontrak sponsor */
+function SocialPanel() {
+  const career = useGame((s) => s.career)!;
+  const idx = useGame((s) => s.idx)!;
+  const setPlan = useGame((s) => s.setPlan);
+  const p = idx.playerById.get(career.playerId)!;
+  // career di store tidak diubah di sini: tampilkan data awal kalau belum pernah dibuat
+  const s = career.social ?? socialOf(structuredClone(career), p);
+  const post = career.plan.post ?? 'tidak';
+  const total = s.deals.reduce((a, d) => a + d.weekly, 0);
+  return (
+    <section className="panel social">
+      <div className="season-head">
+        <h2>Media sosial & sponsor</h2>
+        <span className="muted small">
+          <b className="social-big">{fmtFollowers(s.followers)}</b> pengikut · puncak {fmtFollowers(s.peak)} · citra {Math.round(s.image)}/100
+          {s.scandals > 0 && ` · ${s.scandals} kontroversi`}
+        </span>
+      </div>
+      <div className="two-col">
+        <div>
+          <h3>Postingan minggu ini</h3>
+          <div className="chips">
+            {POST_TYPES.map((t) => (
+              <button key={t} className={`chip ${post === t ? 'sel' : ''}`} aria-pressed={post === t} onClick={() => setPlan({ post: t })}>
+                {POST_INFO[t].label}
+              </button>
+            ))}
+          </div>
+          <p className="muted small">{POST_INFO[post].desc}</p>
+          <p className="muted small">
+            Pengikut tumbuh dari reputasimu, gol, man of the match, dan laga timnas. Citra yang bagus membuat sponsor datang dan membayar
+            lebih; citra di bawah 25 bisa membuat sponsor memutus kontrak.
+          </p>
+          <h3 className="mt">Kontrak sponsor</h3>
+          {s.deals.length ? (
+            <ul className="social-deals">
+              {s.deals.map((d) => (
+                <li key={d.brand}>
+                  <b>{d.brand}</b> <span className="muted small">({d.category.toLowerCase()}, {tierLabel(d.tier)})</span>
+                  <span className="num">{money(d.weekly)} / mg</span>
+                  <span className="muted small">s/d {d.until}</span>
+                </li>
+              ))}
+              <li className="muted small">Total {money(total)} per minggu (kena pajak 30%).</li>
+            </ul>
+          ) : (
+            <p className="muted small">
+              Belum ada sponsor. Tawaran datang lewat inbox kalau pengikutmu cukup banyak (±1.500+) dan citramu bagus. Maksimal 3 kontrak, satu per
+              kategori.
+            </p>
+          )}
+        </div>
+        <div>
+          <h3>Postingan terakhir</h3>
+          {s.posts.length ? (
+            <ul className="social-posts">
+              {s.posts.slice(0, 6).map((x, i) => (
+                <li key={`${x.date}-${i}`}>
+                  <div>{x.text}</div>
+                  <div className="muted small">
+                    {x.date} · ❤️ {fmtFollowers(x.likes)}
+                    {x.viral && <span className="pill ok"> viral</span>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted small">Belum ada postingan.</p>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }

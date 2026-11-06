@@ -552,3 +552,10 @@ input { font: inherit; }
 .traits { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .trait { font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; cursor: help; }
 .inj-history td { white-space: nowrap; }
+
+/* media sosial */
+.social-big { font-size: 15px; color: var(--text); }
+.social-deals, .social-posts { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.social-deals li { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.social-deals .num { margin-left: auto; }
+.social-posts li { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }

@@ -62,7 +62,9 @@ export function weeklyBudget(career: Career, player: Player) {
   // uang saku keluarga berhenti saat sudah digaji layak oleh klub
   const fullAllowance = ALLOWANCE[career.family.wealth] * econ;
   const allowance = round(wage >= fullAllowance * 3 ? 0 : fullAllowance);
-  const tax = round(wage * TAX_RATE);
+  // kontrak sponsor (lihat social.ts)
+  const sponsor = round((career.social?.deals ?? []).reduce((a, d) => a + d.weekly, 0));
+  const tax = round((wage + sponsor) * TAX_RATE);
   const agent = round(wage * (career.agent?.fee ?? 0));
   const lc = lifeCosts(career, econ);
   const living = round(lc.house);
@@ -74,11 +76,12 @@ export function weeklyBudget(career: Career, player: Player) {
   const act = ACTIVITY_INFO[career.plan.activity];
   // kerja sampingan hanya menghasilkan uang kalau belum digaji klub
   const activity = career.plan.activity === 'kerja' && wage > 0 ? 0 : act.cost * econ;
-  const income = allowance + wage + (activity < 0 ? -activity : 0);
+  const income = allowance + wage + sponsor + (activity < 0 ? -activity : 0);
   const expense = round(coaches) + (activity > 0 ? activity : 0) + tax + living + lifestyle + agent;
   return {
     allowance,
     wage,
+    sponsor,
     tax,
     living,
     lifestyle,

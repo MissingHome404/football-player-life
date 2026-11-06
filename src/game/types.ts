@@ -399,6 +399,8 @@ export interface Career {
   injury: Injury | null;
   /** riwayat cedera (terbaru di depan) */
   injuries?: InjuryRecord[];
+  /** media sosial & sponsor (dibuat saat pertama dibutuhkan) */
+  social?: Social;
   /** masa rawan setelah kembali dari cedera: sisa minggu, pengali risiko cedera, bagian tubuh */
   fragile?: { weeks: number; factor: number; part: InjuryPart };
   /** sisa laga skorsing: klub (liga/U19/amatir) dan timnas */
@@ -585,6 +587,36 @@ export interface WeekPlan {
   coaches: Record<CoachKind, boolean>;
   /** posisi baru yang sedang dipelajari (keakraban naik tiap minggu latihan) */
   learnPos?: Position | null;
+  /** jenis postingan media sosial minggu ini */
+  post?: PostType;
+}
+
+export type PostType = 'tidak' | 'latihan' | 'pribadi' | 'fans' | 'provokatif';
+export interface SocialPost {
+  date: string;
+  type: PostType;
+  text: string;
+  likes: number;
+  viral?: boolean;
+}
+export interface SponsorDeal {
+  brand: string;
+  category: string;
+  /** bayaran per minggu (EUR) */
+  weekly: number;
+  until: string;
+  /** 0 lokal, 1 nasional, 2 global */
+  tier: number;
+}
+/** Media sosial dan sponsor pemain kita */
+export interface Social {
+  followers: number;
+  peak: number;
+  /** citra di mata publik 0-100 (sponsor menghindari citra buruk) */
+  image: number;
+  posts: SocialPost[];
+  deals: SponsorDeal[];
+  scandals: number;
 }
 
 export type InjuryPart =

@@ -210,8 +210,9 @@ function PlanPanel() {
     [
       ['Uang saku keluarga', budget.allowance],
       ['Gaji klub', budget.wage],
+      ['Sponsor', budget.sponsor],
       ['Kerja sampingan', budget.activity < 0 ? -budget.activity : 0],
-      ['Pajak gaji (30%)', -budget.tax],
+      ['Pajak (30%)', -budget.tax],
       ['Komisi agent', -budget.agent],
       ['Tempat tinggal', -budget.living],
       ['Staf pribadi & kendaraan', -budget.lifestyle],

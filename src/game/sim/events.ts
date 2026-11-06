@@ -14,6 +14,7 @@ import { squadOf } from './season';
 import { startSpell } from './transfer';
 import { setMate } from './relations';
 import { injuryPlanEvent } from './injury';
+import { controversyEvent, sponsorOfferEvent } from './social';
 
 export interface EventCtx {
   world: World;
@@ -462,6 +463,9 @@ export const EVENTS: EventDef[] = [
   },
   // rencana pemulihan cedera (pesan dibuat oleh injury.ts, tidak muncul acak)
   injuryPlanEvent,
+  // media sosial (dibuat oleh social.ts)
+  controversyEvent,
+  sponsorOfferEvent,
 ];
 
 export const EVENT_BY_ID: Record<string, EventDef> = Object.fromEntries(EVENTS.map((e) => [e.id, e]));

@@ -15,6 +15,7 @@ import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
 import { injure, injuryFactor, recoverWeek } from './injury';
+import { socialWeek } from './social';
 import { cupWeek } from './cup';
 import { continentalWeek } from './continental';
 import { nationalWeek } from './national';
@@ -281,6 +282,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       if (intlRep > 0 && (m.rating ?? 0) >= 7.3 && rng.chance(intlRep)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
     }
   }
+  // media sosial & sponsor
+  socialWeek(career, player, games.map((g) => g.rec), rng.fork('social'), notes);
   career.matches.sort((a, b) => b.date.localeCompare(a.date));
   career.matches.length = Math.min(career.matches.length, 30);
   if (match) {
