@@ -125,6 +125,9 @@ const RESTART_TEXT: Record<string, string> = {
 
 /** Bola mati yang sedang berlangsung, untuk label kecil di atas lapangan */
 function restartLabel(match: Match, names: [string, string]): string | null {
+  // pergantian pemain sedang berlangsung: jam berhenti sampai pengganti di posisinya
+  const q = match.subbing[0];
+  if (q) return `🔁 Pergantian pemain · ${names[q.sub.side]}`;
   const r = match.dead ?? match.restart;
   if (!r || !RESTART_TEXT[r.kind]) return null;
   return `${RESTART_TEXT[r.kind]} · ${names[r.side]}`;
@@ -523,14 +526,14 @@ function Live({
       });
       let user: [number, number, string] | null = null;
       for (const b of match.bodies) {
-        // pemain yang diganti masih digambar saat berjalan keluar lapangan
-        if (!b.on && !b.leaving) continue;
+        // pemain yang diganti masih digambar saat berjalan keluar lapangan; pengganti menunggu di pinggir lapangan
+        if (!b.on && !b.leaving && !b.waiting) continue;
         const p0 = prev.get(b) ?? b;
         const [x, y] = P(p0.x + (b.x - p0.x) * alpha, p0.y + (b.y - p0.y) * alpha);
         const fill = b.p.slot === 'GK' ? keepers[b.side] : colors[b.side];
         // pemain cedera terkapar: digambar pudar dengan tanda palang merah
         const hurt = b.hurt >= 0;
-        ctx.globalAlpha = hurt ? 0.55 : b.leaving ? 0.7 : 1;
+        ctx.globalAlpha = hurt ? 0.55 : b.leaving ? 0.7 : b.waiting ? 0.9 : 1;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = fill;
@@ -552,6 +555,33 @@ function Live({
           ctx.fillRect(cx - k * 0.38, cy - k * 0.12, k * 0.76, k * 0.24);
         }
         if (b.p.user) user = [x, y, b.p.name];
+      }
+      // papan pergantian ofisial keempat: nomor merah keluar, nomor hijau masuk
+      for (const q of match.subbing) {
+        if (!q.sub.waiting) continue;
+        const [x, y] = P(q.sub.x, q.sub.y);
+        const fs = Math.max(10, Math.round(r * 1.2));
+        ctx.font = `700 ${fs}px 'Barlow Condensed', system-ui, sans-serif`;
+        const t1 = String(q.out.p.num);
+        const t2 = String(q.sub.p.num);
+        const w1 = ctx.measureText(t1).width;
+        const w2 = ctx.measureText(t2).width;
+        const bw = w1 + w2 + fs * 0.9;
+        const bh = fs * 1.25;
+        // di layar tegak garis samping bawah ada di tepi kanan: papan digambar di sebelah kiri pemain
+        const bx = geo.vertical ? x - r * 1.4 - bw : x + r * 1.4;
+        const by = y - bh / 2;
+        ctx.fillStyle = 'rgba(10,12,16,.9)';
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeStyle = 'rgba(255,255,255,.6)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx, by, bw, bh);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#ff5a5f';
+        ctx.fillText(t1, bx + fs * 0.3, by + bh / 2 + 0.5);
+        ctx.fillStyle = '#4ade80';
+        ctx.fillText(t2, bx + fs * 0.6 + w1, by + bh / 2 + 0.5);
+        ctx.textAlign = 'center';
       }
       if (user) {
         const [x, y, name] = user;

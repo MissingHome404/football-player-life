@@ -183,6 +183,13 @@ describe('match engine versi 12', () => {
           expect(v.restart).not.toBeNull();
         }
         if (walking) expect(v.t).toBe(t0);
+        for (const q of m.subbing) {
+          // pengganti baru masuk setelah pemain yang diganti melewati garis samping
+          const outInside = q.out.leaving && q.out.y >= 0 && q.out.y <= 68;
+          if (q.sub.on && v.restart) expect(outInside).toBe(false);
+          // selama menunggu, pengganti berdiri di luar lapangan
+          if (q.sub.waiting) expect(q.sub.y).toBeGreaterThan(68);
+        }
       }
     }
     expect(subs).toBeGreaterThan(6);
@@ -244,5 +251,22 @@ describe('match engine versi 12', () => {
     }
     expect(xs.length).toBeGreaterThan(10);
     expect(xs.reduce((s, x) => s + x, 0) / xs.length).toBeGreaterThan(38);
+  });
+});
+
+describe('match engine versi 13', () => {
+  it('Finishing jelas mengubah peluang gol tembakan kaki di kotak penalti', () => {
+    const m = new Match({ seed: 'fin', home: side(eng[0].id), away: side(eng[1].id) });
+    const v = m as unknown as { shotProb(c: unknown, fx: number, fy: number, pressure: number): number };
+    const st = m.bodies.find((b) => b.on && b.side === 0 && b.p.slot !== 'GK')!;
+    const at = (fin: number) => {
+      st.p.a.fin = fin;
+      return v.shotProb(st, 94, 30, 0.3);
+    };
+    const p5 = at(5);
+    const p10 = at(10);
+    const p20 = at(20);
+    expect(p20 / p10).toBeGreaterThan(1.3);
+    expect(p5 / p10).toBeLessThan(0.85);
   });
 });

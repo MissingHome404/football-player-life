@@ -44,7 +44,7 @@ import { playTraits, traitK } from './traits';
 import { aiFamiliarity, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 12;
+export const ENGINE_VERSION = 13;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -61,7 +61,7 @@ const BOX_Y = 20.16;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 5.2, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 4.9, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -102,6 +102,8 @@ export const TUNE = {
   gkCover: 0.35,
   /** peluang gol jenuh: tembakan dari dekat tidak pernah pasti masuk (batas atas pMax) */
   pMax: 0.7,
+  /** seberapa besar atribut penyelesaian (Finishing / Long Shots / Heading / Free Kick) mengubah peluang gol, per poin dari 10 */
+  finK: 0.05,
   /** bobot peluang gol saat memilih menembak / membawa bola mendekat */
   shootV: 4.5,
   /** bobot hukuman umpan ke belakang (di luar sepertiga akhir) */
@@ -173,6 +175,8 @@ export type { Slot, FormationId } from './formation';
 const BASE = {} as Record<Slot, [number, number]>;
 for (const f of FORMATION_IDS) for (const spot of FORMATIONS[f].spots) BASE[spot.slot] ??= spot.base;
 /** bek murni (bek tengah dan bek sayap biasa); wing back dihitung penyerang saat timnya menyerang */
+/** Pengali peluang dari atribut penyelesaian (10 = rata-rata = 1.0; 20 = 1.5; 5 = 0.75) */
+const skillK = (s: number) => Math.max(0.5, 1 + (s - 10) * TUNE.finK);
 const isBack = (x: Slot) => isCB(x) || x === 'RB' || x === 'LB';
 const isWB = (x: Slot) => x === 'RWB' || x === 'LWB';
 /** pergantian pemain per tim per laga */
@@ -457,6 +461,8 @@ export interface Body {
   hurt: number; // detik permainan saat cedera (-1 = sehat); pemain cedera terkapar sampai diganti
   /** pemain yang diganti sedang berjalan keluar lapangan (masih digambar, tidak ikut bermain) */
   leaving?: boolean;
+  /** pemain pengganti berdiri di pinggir lapangan, menunggu pemain yang diganti keluar dulu */
+  waiting?: boolean;
   /** pemain pengganti sedang berlari dari pinggir lapangan ke posisinya (bola mati menunggu) */
   entering?: boolean;
 }
@@ -592,6 +598,8 @@ export class Match {
   private celeb: { side: 0 | 1; scorer: Body | null } | null = null;
   /** pergantian yang menunggu bola mati: keluar, masuk */
   private pendingSubs: { out: Body; sub: Body }[] = [];
+  /** pergantian yang sedang berlangsung: yang keluar berjalan ke garis, pengganti menunggu lalu masuk */
+  subbing: { out: Body; sub: Body }[] = [];
   /** jumlah pemain pengganti yang masih berjalan ke posisinya */
   private entering = 0;
   /** instruksi taktik tiap tim (null: tanpa taktik, pakai gaya main) */
@@ -871,8 +879,10 @@ export class Match {
     return clamp(0.5 * Math.exp(-(d - 5) / 8.5) * clamp(angle / 0.55, 0.15, 1), 0.005, 0.6);
   }
 
-  private sat(x: number): number {
-    return TUNE.pMax * (1 - Math.exp(-x / TUNE.pMax));
+  /** Peluang jenuh: dari posisi terbaik pun tidak pasti gol. Penyelesai jago punya batas atas lebih tinggi. */
+  private sat(x: number, skill = 10): number {
+    const cap = TUNE.pMax * clamp(0.85 + skill * 0.015, 0.85, 1.15);
+    return cap * (1 - Math.exp(-x / cap));
   }
 
   /**
@@ -904,9 +914,9 @@ export class Match {
     const gkSkill = gk ? (gk.p.a.ref * 2 + gk.p.a.ono + gk.p.a.han + gk.p.a.pos) / 5 : 8;
     const skill = dist < 18 ? a.fin : a.lon;
     const x =
-      this.xgAt(fx, fy) * (0.7 + skill * 0.025) * (0.9 + a.cmp * 0.008) * (1 - pressure * 0.25) * (1.3 - gkSkill * 0.03) *
+      this.xgAt(fx, fy) * skillK(skill) * (0.9 + a.cmp * 0.008) * (1 - pressure * 0.25) * (1.3 - gkSkill * 0.03) *
       (dist > 18 ? TUNE.longK : 1) * TUNE.shotK;
-    return this.sat(x) * (1 - this.gkCoverAt(c.side, fx, fy, a));
+    return this.sat(x, skill) * (1 - this.gkCoverAt(c.side, fx, fy, a));
   }
 
   /** Jarak titik (px,py) ke garis a-b (hanya kalau proyeksi di dalam segmen) */
@@ -2032,7 +2042,7 @@ export class Match {
     const gkSkill = gk ? (gk.p.a.ref * 2 + gk.p.a.ono + gk.p.a.han + gk.p.a.pos) / 5 : 8;
     // kaki lemah: tidak selalu sempat memindahkan bola ke kaki terkuat (pemain dua kaki tidak terpengaruh)
     const foot = !header && !setPiece && this.rng.chance(TUNE.weakUse) ? Math.min(1, 0.45 + a.wf * 0.0275) : 1;
-    let p = xg * (0.7 + skill * 0.025) * (0.9 + a.cmp * 0.008) * (1 - pressure * 0.25) * foot;
+    let p = xg * skillK(skill) * (0.9 + a.cmp * 0.008) * (1 - pressure * 0.25) * foot;
     p *= 1.3 - gkSkill * 0.03;
     // kiper yang salah posisi (jauh dari titik idealnya) lebih mudah dibobol
     if (gk) {
@@ -2046,7 +2056,7 @@ export class Match {
     if (!setPiece && this.t < this.spUntil && this.spSide === side) p *= TUNE.spK;
     // penalti & tendangan bebas langsung: peluangnya sudah berupa persentase nyata (tanpa pengali tembakan)
     // peluang jenuh (dari dekat pun tidak pasti gol); kiper yang menutup sudut mengurangi peluang
-    p = setPiece ? clamp(p, 0.004, 0.85) : clamp(this.sat(p * TUNE.shotK) * (header ? 1 : 1 - this.gkCoverAt(side, fx, fy, a)), 0.004, 0.85);
+    p = setPiece ? clamp(p, 0.004, 0.85) : clamp(this.sat(p * TUNE.shotK, skill) * (header ? 1 : 1 - this.gkCoverAt(side, fx, fy, a)), 0.004, 0.85);
     const onTarget = clamp(Math.max(p + 0.12, TUNE.onT + skill * foot * 0.017 - dist * 0.004 - pressure * 0.08), 0, 0.95);
     const r = this.rng.next();
     const outcome: Shot['outcome'] = forced ? forced.outcome : blocker ? 'miss' : r < p ? 'goal' : r < onTarget ? 'save' : 'miss';
@@ -2666,8 +2676,9 @@ export class Match {
     }
     r.wait -= DT;
     r.setup = (r.setup ?? 0) + DT;
-    // pemain pengganti masih berjalan ke posisinya: wasit menunggu (jam berhenti)
-    if (this.entering > 0 && r.setup < 15) return;
+    // pergantian pemain belum selesai (yang keluar belum melewati garis / pengganti belum di posisinya):
+    // wasit menunggu, jam berhenti
+    if (this.entering > 0 && r.setup < 30) return;
     const d = Math.hypot(taker.x - taker.tx, taker.y - taker.ty);
     if (r.wait > 0 || (d > 1 && r.wait > -3)) return;
     const max = SETUP_MAX[r.kind];
@@ -2860,12 +2871,16 @@ export class Match {
 
   /** Pemain sedang menunggu / dalam proses pergantian */
   private inSub(b: Body): boolean {
-    return this.pendingSubs.some((q) => q.out === b || q.sub === b);
+    const has = (q: { out: Body; sub: Body }) => q.out === b || q.sub === b;
+    return this.pendingSubs.some(has) || this.subbing.some(has);
   }
 
   /**
-   * Bola mati: pergantian yang tertunda dilakukan. Pemain yang keluar berjalan ke pinggir lapangan, pengganti
-   * masuk dari dekat garis tengah dan berlari ke posisinya; bola mati menunggu (jam berhenti) sampai ia siap.
+   * Bola mati: pergantian yang tertunda dilakukan, seperti di laga sungguhan:
+   * 1. pemain yang diganti berjalan keluar lewat garis samping terdekat, pengganti menunggu di pinggir
+   *    lapangan dekat garis tengah;
+   * 2. setelah yang keluar melewati garis, pengganti masuk dan berlari ke posisinya;
+   * 3. bola mati menunggu (jam berhenti) sampai pengganti siap di posisinya.
    */
   private runSubs() {
     const list = this.pendingSubs;
@@ -2877,26 +2892,30 @@ export class Match {
         continue;
       }
       const min = this.clock().min;
-      const bench: [number, number] = [PITCH_W / 2 + (out.side === 0 ? -3 : 3), -1.2];
       if (out.on) {
         out.on = false;
         out.st.off = this.t;
         out.st.offMin = min;
+        // keluar lewat titik terdekat di garis samping
+        out.leaving = true;
+        out.tx = clamp(out.x, 3, PITCH_W - 3);
+        out.ty = out.y < PITCH_H / 2 ? -1.5 : PITCH_H + 1.5;
+        out.sprint = false;
       }
-      out.leaving = true;
-      out.tx = bench[0];
-      out.ty = bench[1];
-      out.sprint = false;
-      sub.on = true;
-      sub.entering = true;
+      // pengganti menunggu di pinggir lapangan dekat garis tengah, di depan bangku cadangan (sisi bawah layar)
+      sub.on = false;
+      sub.waiting = true;
       this.entering++;
       sub.st.on = this.t;
       sub.st.onMin = min;
-      sub.x = bench[0];
-      sub.y = bench[1];
+      sub.x = PITCH_W / 2 + (out.side === 0 ? -2.5 : 2.5);
+      sub.y = PITCH_H + 1.6;
+      sub.tx = sub.x;
+      sub.ty = sub.y;
       sub.vx = sub.vy = 0;
       this.takeSlot(sub, out);
       this.bodies.push(sub);
+      this.subbing.push({ out, sub });
       if (this.owner === out) this.owner = null;
       if (this.lastTouch === out) this.lastTouch = sub;
       this.log('sub', out.side, sub.p.name, out.p.name);
@@ -2904,21 +2923,41 @@ export class Match {
     this.refresh();
   }
 
-  /** Pemain yang keluar berjalan ke bangku cadangan; pengganti yang sudah di posisinya siap bermain */
+  /**
+   * Pemain yang keluar berjalan ke luar lapangan; pengganti baru masuk setelah ia melewati garis,
+   * lalu siap bermain setelah sampai di posisinya
+   */
   private walkSubs() {
     for (const b of this.bodies) {
       if (b.leaving) {
         this.move(b);
         if (Math.hypot(b.x - b.tx, b.y - b.ty) < 1) b.leaving = false;
       }
-      if (b.entering && b.on) {
-        b.sprint = true;
-        if (Math.hypot(b.x - b.tx, b.y - b.ty) < 2.5 || !this.restart) {
-          b.entering = false;
+    }
+    if (!this.subbing.length) return;
+    for (const q of this.subbing) {
+      const { out, sub } = q;
+      if (sub.waiting) {
+        // sudah melewati garis samping tempat ia keluar
+        const offPitch = !out.leaving || (out.ty < PITCH_H / 2 ? out.y < 0 : out.y > PITCH_H);
+        // bola sudah dimainkan lagi (wasit tidak bisa menunggu lebih lama): pengganti langsung masuk
+        if (!offPitch && this.restart) continue;
+        sub.waiting = false;
+        sub.on = true;
+        sub.entering = true;
+        this.refresh();
+        // posisi tujuannya baru dihitung pada langkah berikutnya
+        if (this.restart) continue;
+      }
+      if (sub.entering) {
+        sub.sprint = true;
+        if (Math.hypot(sub.x - sub.tx, sub.y - sub.ty) < 2.5 || !this.restart) {
+          sub.entering = false;
           this.entering--;
         }
       }
     }
+    this.subbing = this.subbing.filter((q) => q.sub.waiting || q.sub.entering);
   }
 
   /** Pelatih mengganti pemain: kaki segar untuk yang kelelahan, penyerang tambahan kalau tertinggal */
@@ -3065,7 +3104,7 @@ export class Match {
     // pergantian pemain kita: diputuskan pada menitnya, dilakukan saat bola mati berikutnya
     for (const sub of this.bench) {
       const team = sub.side === 0 ? this.input.home : this.input.away;
-      if (sub.on || !team.sub || this.t < team.sub.at || this.inSub(sub)) continue;
+      if (sub.on || sub.st.on >= 0 || !team.sub || this.t < team.sub.at || this.inSub(sub)) continue;
       const out =
         this.bodies.find((b) => b.on && b.side === sub.side && b.p.slot === team.sub!.slot && !this.inSub(b)) ??
         // pemain di slot itu dikartu merah: pelatih menarik pemain lain
