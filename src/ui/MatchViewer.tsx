@@ -20,6 +20,8 @@ import {
 
 type Phase = 'lineup' | 'play' | 'end';
 const SPEEDS = [1, 2, 4, 8] as const;
+/** Kecepatan 1x = dua kali waktu permainan per detik nyata (1x lama terasa seperti gerak lambat) */
+const BASE_RATE = 2;
 /** Ruang di luar garis (meter) supaya gawang, jaring & bola yang keluar tetap terlihat */
 const EDGE = 3;
 
@@ -52,6 +54,8 @@ const GRASS = '#2f7d46';
 interface Kits {
   shirt: [string, string];
   keeper: [string, string];
+  /** warna seragam wasit & asisten wasit */
+  ref: string;
 }
 
 /** Warna kaus kedua tim (tim tamu ganti kaus kalau mirip), kiper diberi warna yang beda dari semuanya */
@@ -63,7 +67,9 @@ function kits(input: EngineInput): Kits {
   const ok = (c: string, taken: string[]) => [...taken, GRASS].every((t) => dist(c, t) > 110);
   const k1 = gk.find((c) => ok(c, [home, away])) ?? gk[0];
   const k2 = gk.find((c) => c !== k1 && ok(c, [home, away, k1])) ?? gk[1];
-  return { shirt: [home, away], keeper: [k1, k2] };
+  const refs = ['#151515', '#d7f23a', '#ff4fa3', '#f4f4f4', '#38c7d6'];
+  const ref = refs.find((c) => ok(c, [home, away, k1, k2])) ?? refs.find((c) => ok(c, [home, away])) ?? refs[0];
+  return { shirt: [home, away], keeper: [k1, k2], ref };
 }
 
 // --- teks kejadian -------------------------------------------------------------------
@@ -185,6 +191,7 @@ function MatchViewer({ input }: { input: EngineInput }) {
             names={names}
             colors={colors}
             keepers={kit.keeper}
+            referee={kit.ref}
             mySide={mySide}
             onEnd={() => {
               setResult(match.result());
@@ -303,6 +310,7 @@ function Live({
   names,
   colors,
   keepers,
+  referee,
   mySide,
   onEnd,
   onSkip,
@@ -311,6 +319,7 @@ function Live({
   names: [string, string];
   colors: [string, string];
   keepers: [string, string];
+  referee: string;
   mySide: 0 | 1;
   onEnd: () => void;
   onSkip: () => void;
@@ -336,6 +345,7 @@ function Live({
     const ctx = canvas.getContext('2d')!;
     const prev = new WeakMap<Body, Snap>();
     const prevBall = { x: match.ball.x, y: match.ball.y, z: match.ball.z };
+    const prevRef = match.officials.map((o) => ({ x: o.x, y: o.y }));
     let raf = 0;
     let last = performance.now();
     let acc = 0;
@@ -381,6 +391,10 @@ function Live({
       prevBall.x = match.ball.x;
       prevBall.y = match.ball.y;
       prevBall.z = match.ball.z;
+      match.officials.forEach((o, i) => {
+        prevRef[i].x = o.x;
+        prevRef[i].y = o.y;
+      });
     }
 
     function drawPitch() {
@@ -467,6 +481,30 @@ function Live({
       ctx.font = `700 ${Math.max(8, Math.round(r * 1.15))}px 'Barlow Condensed', system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      // wasit & asisten wasit: titik kecil tanpa nomor, asisten membawa bendera
+      const rr = r * 0.72;
+      match.officials.forEach((o, i) => {
+        const p0 = prevRef[i] ?? o;
+        const [x, y] = P(p0.x + (o.x - p0.x) * alpha, p0.y + (o.y - p0.y) * alpha);
+        if (o.role !== 'ref') {
+          const up = o.role === 'ar1' ? -1 : 1;
+          ctx.strokeStyle = '#222';
+          ctx.lineWidth = Math.max(1, rr * 0.18);
+          ctx.beginPath();
+          ctx.moveTo(x + rr * 0.6, y);
+          ctx.lineTo(x + rr * 0.6, y + up * rr * 2);
+          ctx.stroke();
+          ctx.fillStyle = i === 1 ? '#f5c542' : '#e5484d';
+          ctx.fillRect(x + rr * 0.6, y + up * rr * 2 - (up < 0 ? 0 : rr * 0.8), rr * 1.1, rr * 0.8);
+        }
+        ctx.beginPath();
+        ctx.arc(x, y, rr, 0, Math.PI * 2);
+        ctx.fillStyle = referee;
+        ctx.fill();
+        ctx.lineWidth = Math.max(1, rr * 0.22);
+        ctx.strokeStyle = lum(referee) > 0.6 ? 'rgba(0,0,0,.7)' : 'rgba(255,255,255,.85)';
+        ctx.stroke();
+      });
       let user: [number, number, string] | null = null;
       for (const b of match.bodies) {
         if (!b.on) continue;
@@ -540,7 +578,7 @@ function Live({
       const dt = Math.min(0.25, (now - last) / 1000);
       last = now;
       if (!pausedRef.current && now >= holdUntil && !match.done) {
-        acc += dt * speedRef.current;
+        acc += dt * speedRef.current * BASE_RATE;
         let n = 0;
         while (acc >= DT && !match.done && n < 400) {
           snapshot();
@@ -600,7 +638,7 @@ function Live({
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
     };
-  }, [match, colors, keepers]);
+  }, [match, colors, keepers, referee]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

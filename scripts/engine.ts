@@ -7,7 +7,7 @@ import { SLOT_LABEL, clubFormation, type FormationId } from '../src/game/sim/for
 // formasi bisa dipaksa untuk semua tim: F=4-4-2 npx tsx scripts/engine.ts
 const FORCE = process.env.F as FormationId | undefined;
 const N = Number(process.argv[2] ?? 200);
-// penyetel bisa diubah dari baris perintah, mis. shotK=1.1 shootW=18
+// penyetel bisa diubah dari baris perintah, mis. shotK=7.7 shootV=4.5
 for (const arg of process.argv.slice(3)) {
   const [k, v] = arg.split('=');
   if (k in TUNE) (TUNE as Record<string, number>)[k] = Number(v);

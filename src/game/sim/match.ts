@@ -5,7 +5,7 @@ import type { Position } from '../data/attributes';
 import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, PlayingStyle, SeasonStat, World } from '../types';
 import { Rng, clamp } from '../rng';
 import { simScore, squadOf, topEleven, type WeekMatches } from './season';
-import { FULL, engineAttrs, injuryRisk, minutesPlayed, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type EP, type ETeam } from './engine';
+import { FULL, engineAttrs, injuryRisk, minutesPlayed, pickXI, playEngine, roleFor, slotFor, type EngineInput, type EngineResult, type EP, type ETeam } from './engine';
 import { injuryFactor } from './injury';
 import { shortName } from '../gen/names';
 import { applyBadges } from './badges';
@@ -196,7 +196,7 @@ export function engineGame(o: {
     for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
     a.inj = injuryRisk(p) * injuryFactor(career);
     const slot = slotFor(p, o.ours.formation);
-    const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a };
+    const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a, role: roleFor(p, o.ours.formation) };
     if (rng.chance(0.45)) {
       const mins = rng.int(5, 35);
       ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: me, slot };

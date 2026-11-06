@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { BAR, DT, ENGINE_VERSION, FULL, GOAL_HALF, HALF, MAX_SUBS, Match, PITCH_W, minutesPlayed, pickXI, playEngine, sprintStep, startAccel, topSpeed, type EAttrs, type EngineInput, type ETeam } from '../sim/engine';
+import { BAR, DT, ENGINE_VERSION, FULL, GOAL_HALF, HALF, MAX_SUBS, Match, PITCH_W, minutesPlayed, pickXI, playEngine, sprintStep, startAccel, topSpeed, type Body, type EAttrs, type EngineInput, type ETeam } from '../sim/engine';
 import { rollCharacter } from '../gen/character';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../sim/week';
 import { initRelations } from '../sim/relations';
@@ -355,4 +355,111 @@ describe('laga mingguan memakai match engine', () => {
     }
     expect(checked).toBe(3);
   }, 120_000);
+});
+
+describe('match engine versi 10', () => {
+  const withRole = (t: ETeam, slot: string, role: string): ETeam => ({ ...t, xi: t.xi.map((e) => (e.slot === slot ? { ...e, role } : e)) });
+
+  it('setiap pemain mendapat peran yang cocok dengan tempatnya; peran favorit dipakai kalau cocok', () => {
+    const squad = squadOf(w, eng[2].id).filter((p) => !p.isYouth);
+    const { xi, bench } = pickXI(squad, undefined, false, '4-3-3');
+    const ok: Record<string, string[]> = {
+      GK: ['gk', 'sk'], RB: ['fb', 'wb', 'ifb', 'nfb', 'cwb', 'iwb'], LB: ['fb', 'wb', 'ifb', 'nfb', 'cwb', 'iwb'],
+      RCB: ['cd', 'bpd', 'ncb', 'wcb'], LCB: ['cd', 'bpd', 'ncb', 'wcb'], ST: ['af', 'p', 'cf', 'f9', 'dlf', 'tf', 'pf'],
+    };
+    for (const e of [...xi, ...bench]) expect(e.role).toBeTruthy();
+    for (const e of xi) if (ok[e.slot]) expect(ok[e.slot]).toContain(e.role);
+    const st = xi.find((e) => e.slot === 'ST')!;
+    const p = squad.find((q) => q.id === st.id)!;
+    if (['af', 'p', 'cf', 'f9', 'dlf', 'tf', 'pf'].includes(p.preferredRole)) expect(st.role).toBe(p.preferredRole);
+  });
+
+  it('wasit & dua asisten wasit: wasit dekat bola, asisten di garis samping sejajar bek kedua terakhir', () => {
+    const m = new Match({ seed: 'ref', home: team(eng[3].id), away: team(eng[13].id) });
+    let n = 0;
+    let near = 0;
+    while (!m.done && m.t < 120) {
+      m.step();
+      const [ref, ar1, ar2] = m.officials;
+      expect(ar1.y).toBeLessThan(0);
+      expect(ar2.y).toBeGreaterThan(68);
+      expect(ar1.x).toBeGreaterThanOrEqual(52.5 - 0.5);
+      expect(ar2.x).toBeLessThanOrEqual(52.5 + 0.5);
+      if (m.t > 10) {
+        n++;
+        if (Math.hypot(ref.x - m.ball.x, ref.y - m.ball.y) < 30) near++;
+      }
+    }
+    expect(near / n).toBeGreaterThan(0.75);
+  });
+
+  it('jam berhenti saat sepak pojok & tendangan bebas sampai semua pemain siap', () => {
+    let frozenSteps = 0;
+    let setups = 0;
+    for (let i = 0; i < 4; i++) {
+      const m = new Match({ seed: `freeze-${i}`, home: team(eng[i].id), away: team(eng[19 - i].id) });
+      while (!m.done) {
+        const r = m.restart;
+        const t0 = m.t;
+        m.step();
+        if (r && (r.kind === 'corner' || r.kind === 'free')) {
+          frozenSteps++;
+          expect(m.t).toBe(t0);
+        }
+        if (r && !m.restart && (r.kind === 'corner' || r.kind === 'free')) {
+          setups++;
+          expect(r.setup ?? 0).toBeLessThanOrEqual(8.2);
+        }
+        if (r?.kind === 'throw') expect(m.t).toBeGreaterThan(t0);
+      }
+    }
+    expect(setups).toBeGreaterThan(5);
+    expect(frozenSteps).toBeGreaterThan(setups * 5);
+  }, 30_000);
+
+  it('sweeper keeper berdiri lebih tinggi daripada kiper klasik; false 9 turun lebih dalam daripada advanced forward', () => {
+    const home = team(eng[5].id);
+    const away = team(eng[15].id);
+    const avg = (h: ETeam, slot: string, side: 0 | 1, inPoss: boolean) => {
+      const m = new Match({ seed: 'roles', home: h, away });
+      let sum = 0;
+      let n = 0;
+      while (!m.done) {
+        m.step();
+        if (m.restart || m.dead || (m.poss === side) !== inPoss) continue;
+        const b = m.bodies.find((x) => x.on && x.side === side && x.p.slot === slot);
+        if (!b) continue;
+        sum += m.fx(side, b.x);
+        n++;
+      }
+      return sum / n;
+    };
+    expect(avg(withRole(home, 'GK', 'sk'), 'GK', 0, true)).toBeGreaterThan(avg(withRole(home, 'GK', 'gk'), 'GK', 0, true) + 2);
+    const st = home.xi.find((e) => e.slot === 'ST' || e.slot === 'RS')!.slot;
+    expect(avg(withRole(home, st, 'f9'), st, 0, true)).toBeLessThan(avg(withRole(home, st, 'af'), st, 0, true) - 3);
+  }, 30_000);
+
+  it('pemain yang lolos sendirian tidak menembak dari jauh: tembakan open play kebanyakan dari dalam kotak', () => {
+    let inBox = 0;
+    let total = 0;
+    const P = Match.prototype as unknown as { shoot: (...a: unknown[]) => void };
+    const orig = P.shoot;
+    P.shoot = function (this: Match, ...a: unknown[]) {
+      const c = a[0] as Body;
+      if (!a[3] && !a[4]) {
+        total++;
+        const fx = this.fx(c.side, c.x);
+        const fy = this.fy(c.side, c.y);
+        if (fx > PITCH_W - 16.5 && Math.abs(fy - 34) < 20.16) inBox++;
+      }
+      return orig.apply(this, a);
+    };
+    try {
+      for (let i = 0; i < 8; i++) playEngine({ seed: `box-${i}`, home: team(eng[i].id), away: team(eng[10 + i].id) });
+    } finally {
+      P.shoot = orig;
+    }
+    expect(total).toBeGreaterThan(20);
+    expect(inBox / total).toBeGreaterThan(0.55);
+  }, 30_000);
 });

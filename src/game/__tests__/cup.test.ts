@@ -83,7 +83,10 @@ describe('piala domestik', () => {
     const mate = world.players.find((q) => q.contract?.clubId === club.id && !q.isYouth)!;
     world = {
       ...world,
-      players: world.players.map((q) => (q.isUser ? { ...q, isYouth: false, ca: 199, contract: { ...mate.contract! } } : q)),
+      // tidak rawan cedera: tes ini tentang laga piala, bukan cedera
+      players: world.players.map((q) =>
+        q.isUser ? { ...q, isYouth: false, ca: 199, contract: { ...mate.contract! }, hidden: { ...q.hidden, 'Injury Proneness': 1 } } : q,
+      ),
     };
     const cupGames: MatchRecord[] = [];
     let watched = 0;
