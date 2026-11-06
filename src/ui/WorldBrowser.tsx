@@ -6,6 +6,8 @@ import { SaveControls } from './SavePanel';
 import { CareerHome } from './CareerHome';
 import { LifeView } from './LifeView';
 import { ContinentalView } from './ContinentalView';
+import { ClubFormation } from './FormationView';
+import { clubFormation } from '../game/sim/formation';
 import { ClubFixtures, CupPanel, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { marketValue } from '../game/sim/transfer';
@@ -365,7 +367,7 @@ function ClubView({ clubId }: { clubId: string }) {
         <InfoCard label="Manajer">
           <Flag id={manager.nationalityId} /> {fullName(manager)}
           <div className="muted small">
-            Gaya: {manager.preferredStyle}
+            Gaya: {manager.preferredStyle} · Formasi {clubFormation(club)}
             {devMode && ` · MM ${manager.manManagement} · Youth ${manager.workingWithYoungsters} · Tak ${manager.tacticalKnowledge}`}
           </div>
         </InfoCard>
@@ -375,6 +377,8 @@ function ClubView({ clubId }: { clubId: string }) {
       </div>
 
       <ClubFixtures clubId={clubId} />
+
+      <ClubFormation club={club} squad={idx.squadByClub.get(clubId) ?? []} />
 
       <section className="panel">
         <div className="tabs">

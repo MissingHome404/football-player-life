@@ -18,6 +18,7 @@ import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, 
 import { nextFixture, shortDate } from './LeagueSeason';
 import { nextCupTie } from '../game/sim/cup';
 import { nextContGame } from '../game/sim/continental';
+import { PositionPlan } from './FormationView';
 import { roundDate } from '../game/sim/season';
 import { TransferPanel } from './TransferPanel';
 import { RelationsPanel } from './RelationsPanel';
@@ -228,6 +229,8 @@ function PlanPanel() {
           {career.injury && ' Kamu sedang cedera, jadi tidak bisa berlatih sampai pulih.'}
         </p>
       </div>
+
+      <PositionPlan />
 
       <div className="plan-group">
         <h3>Intensitas</h3>

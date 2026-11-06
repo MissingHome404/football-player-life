@@ -579,6 +579,8 @@ export interface WeekPlan {
   intensity: Intensity;
   activity: Activity;
   coaches: Record<CoachKind, boolean>;
+  /** posisi baru yang sedang dipelajari (keakraban naik tiap minggu latihan) */
+  learnPos?: Position | null;
 }
 
 export interface Injury {

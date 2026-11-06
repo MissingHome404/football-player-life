@@ -528,3 +528,22 @@ input { font: inherit; }
 .hof-score { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
 .hof-score b { font-family: var(--font-display); font-size: 22px; color: var(--accent); }
 @media (max-width: 600px) { .rt-score { align-items: flex-start; } }
+/* Formasi */
+.fm-panel { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 16px; align-items: start; }
+.fm-pitch { width: 100%; max-width: 230px; display: block; }
+.fm-grass { fill: #1d5a36; }
+.fm-line { stroke: rgba(255, 255, 255, .45); stroke-width: .5; fill: none; }
+.fm-dot { fill: #e8edf5; stroke: #0f1320; stroke-width: .6; }
+.fm-me .fm-dot { fill: var(--star, #f5c542); }
+.fm-pos { font-size: 3.1px; font-weight: 700; text-anchor: middle; fill: #0f1320; }
+.fm-name { font-size: 3.4px; text-anchor: middle; fill: #fff; paint-order: stroke; stroke: rgba(0, 0, 0, .6); stroke-width: .7px; }
+.fm-mine { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: start; margin-bottom: 6px; }
+.fm-mine .fm-pitch { max-width: 110px; }
+.fm-known { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.fm-chip { border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; color: var(--muted); }
+.fm-chip.nat { color: var(--text, #fff); border-color: var(--accent); }
+.fm-learn select { max-width: 100%; }
+@media (max-width: 640px) {
+  .fm-panel { grid-template-columns: 1fr; }
+  .fm-panel .fm-pitch { margin: 0 auto; }
+}

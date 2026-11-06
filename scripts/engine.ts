@@ -3,6 +3,9 @@
 import { generateWorld } from '../src/game/gen/world';
 import { squadOf } from '../src/game/sim/season';
 import { Match, TUNE, pickXI, type ETeam } from '../src/game/sim/engine';
+import { SLOT_LABEL, clubFormation, type FormationId } from '../src/game/sim/formation';
+// formasi bisa dipaksa untuk semua tim: F=4-4-2 npx tsx scripts/engine.ts
+const FORCE = process.env.F as FormationId | undefined;
 const N = Number(process.argv[2] ?? 200);
 // penyetel bisa diubah dari baris perintah, mis. shotK=1.1 shootW=18
 for (const arg of process.argv.slice(3)) {
@@ -13,8 +16,9 @@ const w = generateWorld({ seed: 'CAL' });
 const clubs = w.clubs.filter((c) => c.leagueId === 'ENG1' || c.leagueId === 'IDN1');
 const team = (id: string): ETeam => {
   const c = w.clubs.find((x) => x.id === id)!;
-  const { xi, bench } = pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false);
-  return { id, name: c.name, color: c.colors[0], color2: c.colors[1], style: c.playingStyle, xi, bench };
+  const formation = FORCE ?? clubFormation(c);
+  const { xi, bench } = pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false, formation);
+  return { id, name: c.name, color: c.colors[0], color2: c.colors[1], style: c.playingStyle, formation, xi, bench };
 };
 let played = 0;
 const kinds: number[][] = [];
@@ -26,13 +30,16 @@ const evK: Record<string, number> = {};
 const gBy: Record<string, number> = {}, aBy: Record<string, number> = {}, shBy: Record<string, number> = {};
 const styleP: Record<string, number[]> = {};
 const stylePts: Record<string, number[]> = {};
+const formPts: Record<string, number[]> = {};
+const formGoals: Record<string, number[]> = {};
 const pts = (x: number, y: number) => (x > y ? 3 : x === y ? 1 : 0);
 for (let i = 0; i < N; i++) {
   const a = clubs[(i * 7) % clubs.length], b = clubs[(i * 13 + 5) % clubs.length];
   if (a.id === b.id || a.leagueId !== b.leagueId) continue;
   played++;
   const t0 = performance.now();
-  const m = new Match({ seed: 'c' + i, home: team(a.id), away: team(b.id) });
+  const ta = team(a.id), tb = team(b.id);
+  const m = new Match({ seed: 'c' + i, home: ta, away: tb });
   const r = m.run();
   ms += performance.now() - t0;
   for (const e of r.events) evK[e.kind] = (evK[e.kind] ?? 0) + 1;
@@ -47,7 +54,11 @@ for (let i = 0; i < N; i++) {
   const exp = 1.4 + (a.reputation - b.reputation) * 0.03;
   (stylePts[a.playingStyle] ??= []).push(pts(r.score[0], r.score[1]) - exp);
   (stylePts[b.playingStyle] ??= []).push(pts(r.score[1], r.score[0]) - (2.8 - exp));
-  const slotOf = new Map([...m.bodies, ...m.bench].map((b) => [b.p.id, b.p.slot.replace(/^[LR](?=C)/, '').replace(/^[LR](?=[BW])/, 'F')]));
+  (formPts[ta.formation!] ??= []).push(pts(r.score[0], r.score[1]) - exp);
+  (formPts[tb.formation!] ??= []).push(pts(r.score[1], r.score[0]) - (2.8 - exp));
+  (formGoals[ta.formation!] ??= []).push(r.score[0], -r.score[1]);
+  (formGoals[tb.formation!] ??= []).push(r.score[1], -r.score[0]);
+  const slotOf = new Map([...m.bodies, ...m.bench].map((b) => [b.p.id, SLOT_LABEL[b.p.slot]]));
   kinds.push(Object.values(r.stats).reduce((a, s) => [a[0] + s.longGoals, a[1] + s.setGoals, a[2] + s.headGoals], [0, 0, 0]));
   for (const [id, s] of Object.entries(r.stats)) {
     const sl = slotOf.get(id)!;
@@ -69,3 +80,6 @@ console.log("goals", pct(gBy)); console.log('assists', pct(aBy), 'assist rate', 
 console.log('possession by style', Object.entries(styleP).map(([k, v]) => `${k}:${(v.reduce((a, b) => a + b, 0) / v.length).toFixed(1)}`).join(' '));
 console.log('points vs expected by style', Object.entries(stylePts).map(([k, v]) => `${k}:${(v.reduce((a, b) => a + b, 0) / v.length).toFixed(2)}(${v.length})`).join(' '));
 console.log('per match', Object.entries(evK).map(([k, v]) => k + ':' + (v / n).toFixed(2)).join(' '));
+const avg = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+console.log('points vs expected by formation', Object.entries(formPts).map(([k, v]) => `${k}:${avg(v).toFixed(2)}(${v.length})`).join(' '));
+console.log('goals for/against by formation', Object.entries(formGoals).map(([k, v]) => `${k}:${avg(v.filter((x) => x >= 0).map((x) => x) .concat([])).toFixed(2)}`).join(' '));

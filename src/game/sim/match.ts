@@ -10,13 +10,13 @@ import { lifeInjuryFactor } from './life';
 import { shortName } from '../gen/names';
 import { applyBadges } from './badges';
 import { afterGame, cardOf, serveBan } from './discipline';
+import { assignXI, clubFormation, type FormationId } from './formation';
 
 type Group = 'GK' | 'DEF' | 'MID' | 'ATT';
 const GROUP: Record<Position, Group> = {
   GK: 'GK', DR: 'DEF', DC: 'DEF', DL: 'DEF', WBR: 'DEF', WBL: 'DEF',
   DM: 'MID', MC: 'MID', MR: 'ATT', ML: 'ATT', AMR: 'ATT', AMC: 'ATT', AML: 'ATT', ST: 'ATT',
 };
-const STARTERS: Record<Group, number> = { GK: 1, DEF: 4, MID: 3, ATT: 3 };
 const BENCH: Record<Group, number> = { GK: 1, DEF: 2, MID: 2, ATT: 2 };
 
 // Peluang mencetak gol / memberi assist per gol tim, sesuai posisi
@@ -99,7 +99,7 @@ function performance(
 }
 
 /** Dipilih pelatih? Bandingkan dengan rekan seposisi (CA + sedikit acak) */
-export function selection(rng: Rng, p: Player, teammates: Player[], career: Career, bonus = 0): MatchStatus {
+export function selection(rng: Rng, p: Player, teammates: Player[], career: Career, bonus = 0, formation: FormationId = '4-3-3'): MatchStatus {
   if (career.injury) return 'Cedera';
   const g = GROUP[p.mainPosition];
   const form = recentForm(career, 3);
@@ -113,10 +113,14 @@ export function selection(rng: Rng, p: Player, teammates: Player[], career: Care
   mine += (career.rel.manager?.value ?? 0) / 15;
   const promised = career.cooldowns.promise_bonus;
   if (promised !== undefined && career.week - promised <= 8) mine += 6;
-  const rank = teammates.filter((q) => GROUP[q.mainPosition] === g && q.ca + rng.normal(0, 5) > mine).length;
-  if (rank < STARTERS[g]) return 'Inti';
-  if (rank < STARTERS[g] + BENCH[g]) return 'Cadangan';
-  return 'Tidak masuk skuad';
+  // pelatih menyusun XI sesuai formasinya: posisi yang cocok lebih penting daripada sekadar CA
+  const mates = teammates.filter((q) => q.id !== p.id);
+  const value = new Map<Player, number>(mates.map((q) => [q, q.ca + rng.normal(0, 5)]));
+  value.set(p, mine);
+  const xi = new Set(assignXI([p, ...mates], formation, (q) => value.get(q)!).values());
+  if (xi.has(p)) return 'Inti';
+  const rank = mates.filter((q) => GROUP[q.mainPosition] === g && !xi.has(q) && value.get(q)! > mine).length;
+  return rank < BENCH[g] ? 'Cadangan' : 'Tidak masuk skuad';
 }
 
 /** Cari baris statistik musim (buat kalau belum ada) */
@@ -145,6 +149,7 @@ export interface GameSide {
   squad: Player[];
   /** gaya main pelatih (klub) atau gaya tetap tim nasional */
   style?: PlayingStyle;
+  formation?: FormationId;
 }
 
 /**
@@ -167,7 +172,7 @@ export function engineGame(o: {
 }): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord>; result: EngineResult } {
   const { p, career, status, rng, home } = o;
   const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
-  const xiOurs = pickXI(o.ours.squad, p, status === 'Inti');
+  const xiOurs = pickXI(o.ours.squad, p, status === 'Inti', o.ours.formation);
   const user = xiOurs.xi.find((e) => e.user);
   if (user) {
     applyBadges(user.a, career.badges);
@@ -181,6 +186,7 @@ export function engineGame(o: {
     xi: xiOurs.xi,
     bench: xiOurs.bench,
     style: o.ours.style,
+    formation: o.ours.formation,
   };
   // risiko cedera pemain kita juga dipengaruhi gaya hidup (ahli gizi, fisio, dll.)
   if (user) user.a.inj = injuryRisk(p) * lifeInjuryFactor(career);
@@ -189,7 +195,7 @@ export function engineGame(o: {
     applyBadges(a, career.badges);
     for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
     a.inj = injuryRisk(p) * lifeInjuryFactor(career);
-    const slot = slotFor(p);
+    const slot = slotFor(p, o.ours.formation);
     const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a };
     if (rng.chance(0.45)) {
       const mins = rng.int(5, 35);
@@ -199,7 +205,7 @@ export function engineGame(o: {
       ourTeam.bench = [me, ...xiOurs.bench.filter((b) => b.id !== p.id)].map((b, i) => ({ ...b, num: 12 + i }));
     }
   }
-  const xiTheirs = pickXI(o.theirs.squad, undefined, false);
+  const xiTheirs = pickXI(o.theirs.squad, undefined, false, o.theirs.formation);
   const oppTeam: ETeam = {
     id: o.theirs.id,
     name: o.theirs.name,
@@ -208,6 +214,7 @@ export function engineGame(o: {
     xi: xiTheirs.xi,
     bench: xiTheirs.bench,
     style: o.theirs.style,
+    formation: o.theirs.formation,
   };
   const sim: EngineInput = { seed: o.seed, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
   if (o.neutral) sim.neutral = true;
@@ -300,7 +307,7 @@ export function userMatch(
     score = f.score;
     const seniors = squad.filter((q) => !q.isYouth);
     teamCA = topEleven(seniors.map((q) => q.ca));
-    status = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, seniors, career);
+    status = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, seniors, career, 0, clubFormation(club));
     ours = seniors;
     oppSquad = squadOf(world, f.opponentId).filter((q) => !q.isYouth && !q.isUser);
     fixture = { leagueId: f.leagueId, round: f.round, index: f.index, home: f.home };
@@ -322,7 +329,7 @@ export function userMatch(
     const oppCA = topEleven(oppSquad.map((q) => q.ca));
     const s = home ? simScore(rng, teamCA, oppCA) : simScore(rng, oppCA, teamCA);
     score = home ? s : [s[1], s[0]];
-    status = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, youth, career);
+    status = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, youth, career, 0, clubFormation(club));
   } else {
     const league = world.leagues.find((l) => l.countryId === p.nationalityId);
     if (!league || !week.leaguesPlayed.has(league.id)) return null;
@@ -352,13 +359,14 @@ export function userMatch(
       career,
       status,
       rng,
-      ours: { id: club.id, name: comp === 'U19' ? `${club.name} U19` : club.name, colors: club.colors, squad: ours, style: club.playingStyle },
+      ours: { id: club.id, name: comp === 'U19' ? `${club.name} U19` : club.name, colors: club.colors, squad: ours, style: club.playingStyle, formation: clubFormation(club) },
       theirs: {
         id: oppClub.id,
         name: comp === 'U19' ? `${oppClub.name} U19` : oppClub.name,
         colors: oppClub.colors,
         squad: oppSquad,
         style: oppClub.playingStyle,
+        formation: clubFormation(oppClub),
       },
       home,
       seed: `${career.characterSeed}:${date}:${club.id}`,

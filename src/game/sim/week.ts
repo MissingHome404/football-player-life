@@ -9,7 +9,7 @@ import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { ageOn } from '../gen/player';
 import { ACTIVITY_INFO, COACH_INFO, INTENSITY_INFO, econOf, weeklyBudget } from './economy';
-import { ageDecline, trainWeek } from './training';
+import { ageDecline, learnPositionWeek, trainWeek } from './training';
 import { MAX_AGE, retire } from './retire';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
@@ -216,7 +216,10 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     else if (last.minutes > 0) extra *= 1.05;
     else if (last.comp === 'Liga') extra *= 0.95;
   }
+  // belajar posisi baru menyita sebagian waktu latihan
+  if (plan.learnPos && plan.learnPos !== player.mainPosition) extra *= 0.85;
   const training = trainWeek(career, player, club, extra);
+  learnPositionWeek(career, player, notes);
   career.peakCA = Math.max(career.peakCA ?? 0, player.ca);
 
   // 3. Kebugaran

@@ -52,7 +52,7 @@ export function computeCA(
 }
 
 // Posisi yang wajar dimainkan sebagai posisi kedua
-const RELATED: Record<Position, Position[]> = {
+export const RELATED: Record<Position, Position[]> = {
   GK: [],
   DC: ['DM', 'DR', 'DL'],
   DR: ['WBR', 'DC', 'MR'],

@@ -18,10 +18,30 @@
 import type { Player, PlayingStyle } from '../types';
 import type { Position } from '../data/attributes';
 import { Rng, clamp } from '../rng';
+import {
+  FORMATIONS,
+  FORMATION_IDS,
+  assignXI,
+  bestSpot,
+  isBox,
+  isCB,
+  isCentralMid,
+  isDef,
+  isFB,
+  isHold,
+  isST,
+  isWideMid,
+  isWing,
+  slotGroup,
+  spotFamiliarity,
+  type FormationId,
+  type Slot,
+  type SlotGroup,
+} from './formation';
 import { shortName } from '../gen/names';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 6;
+export const ENGINE_VERSION = 7;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -46,6 +66,12 @@ export const TUNE = {
   headK: 0.45,
   /** tambahan peluang gol per meter kiper keluar dari posisi idealnya */
   gkOff: 0.12,
+  /** seberapa jauh wing back naik saat menyerang, dan posisi dasar gelandang sayap saat menyerang */
+  wbUp: 30,
+  wideUp: 58,
+  channel: 1,
+  /** striker kiri dari duet penyerang turun menjemput bola */
+  drop: 0,
   /** peluang cedera per benturan (tekel, dilanggar) untuk pemain dengan risiko rata-rata */
   injury: 0.026,
   /** nilai dasar mencoba melewati lawan dengan dribel */
@@ -104,37 +130,16 @@ export function nationStyle(countryId: string): PlayingStyle {
   return new Rng(`style:${countryId}`).pick(ALL_STYLES);
 }
 
-export type Slot = 'GK' | 'RB' | 'RCB' | 'LCB' | 'LB' | 'RCM' | 'CM' | 'LCM' | 'RW' | 'ST' | 'LW';
-export const SLOTS: Slot[] = ['GK', 'RB', 'RCB', 'LCB', 'LB', 'RCM', 'CM', 'LCM', 'RW', 'ST', 'LW'];
-const NUM: Record<Slot, number> = { GK: 1, RB: 2, LB: 3, LCB: 4, RCB: 5, CM: 6, RW: 7, RCM: 8, ST: 9, LCM: 10, LW: 11 };
-// posisi dasar dalam "bingkai tim": gawang sendiri di x = 0, menyerang ke x = 105
-const BASE: Record<Slot, [number, number]> = {
-  GK: [4, 34],
-  RB: [26, 58],
-  RCB: [19, 43],
-  LCB: [19, 25],
-  LB: [26, 10],
-  RCM: [42, 47],
-  CM: [36, 34],
-  LCM: [42, 21],
-  RW: [62, 59],
-  ST: [66, 34],
-  LW: [62, 9],
-};
-const DEF_SLOTS = new Set<Slot>(['RB', 'RCB', 'LCB', 'LB']);
+export type { Slot, FormationId } from './formation';
+// posisi dasar bawaan tiap tempat (dipakai kalau formasi tim tidak diketahui)
+const BASE = {} as Record<Slot, [number, number]>;
+for (const f of FORMATION_IDS) for (const spot of FORMATIONS[f].spots) BASE[spot.slot] ??= spot.base;
+/** bek murni (bek tengah dan bek sayap biasa); wing back dihitung penyerang saat timnya menyerang */
+const isBack = (x: Slot) => isCB(x) || x === 'RB' || x === 'LB';
+const isWB = (x: Slot) => x === 'RWB' || x === 'LWB';
 /** pergantian pemain per tim per laga */
 export const MAX_SUBS = 5;
-const SLOT_GROUP: Record<Slot, string> = {
-  GK: 'GK', RB: 'DEF', RCB: 'DEF', LCB: 'DEF', LB: 'DEF', RCM: 'MID', CM: 'MID', LCM: 'MID', RW: 'ATT', ST: 'ATT', LW: 'ATT',
-};
-const GROUP_SLOTS = { GK: ['GK'], DEF: ['RB', 'RCB', 'LCB', 'LB'], MID: ['RCM', 'CM', 'LCM'], ATT: ['RW', 'ST', 'LW'] } as const;
-const PREF: Partial<Record<Position, Slot[]>> = {
-  GK: ['GK'],
-  DR: ['RB'], WBR: ['RB'], DL: ['LB'], WBL: ['LB'], DC: ['RCB', 'LCB'],
-  DM: ['CM', 'RCM', 'LCM'], MC: ['RCM', 'LCM', 'CM'],
-  MR: ['RW'], AMR: ['RW'], ML: ['LW'], AML: ['LW'], AMC: ['ST', 'RW', 'LW'], ST: ['ST'],
-};
-const GROUP_OF: Record<Position, keyof typeof GROUP_SLOTS> = {
+const GROUP_OF: Record<Position, SlotGroup> = {
   GK: 'GK', DR: 'DEF', DC: 'DEF', DL: 'DEF', WBR: 'DEF', WBL: 'DEF',
   DM: 'MID', MC: 'MID', MR: 'ATT', ML: 'ATT', AMR: 'ATT', AMC: 'ATT', AML: 'ATT', ST: 'ATT',
 };
@@ -175,6 +180,8 @@ export interface ETeam {
   bench?: EP[];
   /** gaya main pelatih */
   style?: PlayingStyle;
+  /** formasi pelatih (bawaan 4-3-3) */
+  formation?: FormationId;
 }
 
 export interface EngineInput {
@@ -224,50 +231,48 @@ function fullAttrs(a: Partial<EAttrs>): EAttrs {
   };
 }
 
-/** Susun 11 pemain (4-3-3) dari skuad. Pemain kita masuk kalau `userStarts`. */
-export function pickXI(squad: Player[], user: Player | undefined, userStarts: boolean): { xi: EP[]; userSlot?: Slot; bench: EP[] } {
-  const taken = new Set<Slot>();
+/** Pemain bermain di luar posisinya: membaca permainan sedikit lebih lambat */
+function outOfPosition(a: EAttrs, fam: number): EAttrs {
+  if (fam >= 15) return a;
+  const d = (15 - fam) * 0.2;
+  for (const k of ['pos', 'dec', 'ant', 'otb'] as const) a[k] = Math.max(1, a[k] - d);
+  return a;
+}
+
+/** Susun 11 pemain sesuai formasi pelatih. Pemain kita masuk kalau `userStarts`. */
+export function pickXI(
+  squad: Player[],
+  user: Player | undefined,
+  userStarts: boolean,
+  formation: FormationId = '4-3-3',
+): { xi: EP[]; userSlot?: Slot; bench: EP[] } {
+  const spots = FORMATIONS[formation].spots;
+  const others = squad.filter((p) => !p.isUser);
+  const fixed = user && userStarts ? user : undefined;
+  const chosen = assignXI(fixed ? [fixed, ...others] : others, formation, (p) => p.ca, fixed);
   const xi: EP[] = [];
-  const place = (p: Player, isUser = false): Slot | undefined => {
-    const group = GROUP_OF[p.mainPosition];
-    const options = [...(PREF[p.mainPosition] ?? []), ...GROUP_SLOTS[group]] as Slot[];
-    const slot = options.find((s) => !taken.has(s));
-    if (!slot) return undefined;
-    taken.add(slot);
-    xi.push({ id: p.id, name: shortName(p), num: NUM[slot], slot, user: isUser || undefined, a: engineAttrs(p) });
-    return slot;
-  };
   let userSlot: Slot | undefined;
-  if (user && userStarts) userSlot = place(user, true);
-  const others = squad.filter((p) => !p.isUser).sort((a, b) => b.ca - a.ca);
-  for (const p of others) {
-    if (xi.length >= 11) break;
-    place(p);
-  }
-  // kalau ada slot kosong (skuad tidak lengkap), isi dengan siapa saja
-  for (const s of SLOTS) {
-    if (taken.has(s)) continue;
-    const p = others.find((q) => !xi.some((e) => e.id === q.id));
-    if (!p) break;
-    taken.add(s);
-    xi.push({ id: p.id, name: shortName(p), num: NUM[s], slot: s, a: engineAttrs(p) });
-  }
-  xi.sort((a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot));
+  spots.forEach((spot, i) => {
+    const p = chosen.get(i);
+    if (!p) return;
+    const isUser = p === fixed;
+    if (isUser) userSlot = spot.slot;
+    xi.push({ id: p.id, name: shortName(p), num: spot.num, slot: spot.slot, user: isUser || undefined, a: outOfPosition(engineAttrs(p), spotFamiliarity(p, spot)) });
+  });
   // bangku cadangan: 1 kiper, 2 bek, 2 gelandang, 2 penyerang (yang terbaik dari sisa skuad)
   const bench: EP[] = [];
-  const rest = others.filter((q) => !xi.some((e) => e.id === q.id));
+  const rest = others.filter((q) => !xi.some((e) => e.id === q.id)).sort((a, b) => b.ca - a.ca);
   for (const [group, n] of [['GK', 1], ['DEF', 2], ['MID', 2], ['ATT', 2]] as const) {
     for (const p of rest.filter((q) => GROUP_OF[q.mainPosition] === group).slice(0, n)) {
-      const slot = (PREF[p.mainPosition] ?? GROUP_SLOTS[group])[0] as Slot;
-      bench.push({ id: p.id, name: shortName(p), num: 12 + bench.length, slot, a: engineAttrs(p) });
+      bench.push({ id: p.id, name: shortName(p), num: 12 + bench.length, slot: spots[bestSpot(p, formation)].slot, a: engineAttrs(p) });
     }
   }
   return { xi, userSlot, bench };
 }
 
-/** Slot untuk pemain kita saat masuk dari bangku (sesuai posisinya) */
-export function slotFor(p: Player): Slot {
-  return (PREF[p.mainPosition] ?? GROUP_SLOTS[GROUP_OF[p.mainPosition]])[0] as Slot;
+/** Tempat untuk pemain kita saat masuk dari bangku (posisi terbaiknya di formasi) */
+export function slotFor(p: Player, formation: FormationId = '4-3-3'): Slot {
+  return FORMATIONS[formation].spots[bestSpot(p, formation)].slot;
 }
 
 export interface PStats {
@@ -458,8 +463,14 @@ export class Match {
   /** bola baru saja dibuang tim ini ke luar: rekan setim (termasuk kiper) tidak menjemputnya */
   private noTouch: { side: 0 | 1; until: number } | null = null;
 
+  /** posisi dasar tiap tempat, per tim (dari formasi pelatih) */
+  private bases: [Record<string, [number, number]>, Record<string, [number, number]>] = [{}, {}];
+
   constructor(input: EngineInput) {
     this.input = input;
+    [input.home, input.away].forEach((t, i) => {
+      for (const spot of FORMATIONS[t.formation ?? '4-3-3'].spots) this.bases[i][spot.slot] = spot.base;
+    });
     this.rng = new Rng(`engine2:${input.seed}`);
     const teams = [input.home, input.away];
     this.k = [STYLE_K[input.home.style!] ?? NEUTRAL_K, STYLE_K[input.away.style!] ?? NEUTRAL_K];
@@ -544,11 +555,16 @@ export class Match {
     return this.onPitch[side].find((b) => b.p.slot === 'GK');
   }
 
+  /** Posisi dasar pemain di formasi timnya */
+  private baseOf(b: Body): [number, number] {
+    return this.bases[b.side][b.p.slot] ?? BASE[b.p.slot];
+  }
+
   /** Posisi awal babak / setelah gol (pemain berdiri di separuh lapangan sendiri) */
   private kickoffSpot(b: Body): [number, number] {
-    const [bx, by] = BASE[b.p.slot];
+    const [bx, by] = this.baseOf(b);
     let x = Math.min(bx * 0.72, 49);
-    if (b.p.slot === 'ST' && this.restart?.kind === 'kickoff' && this.restart.side === b.side) x = 51.5;
+    if (isST(b.p.slot) && this.restart?.kind === 'kickoff' && this.restart.side === b.side) x = b.p.slot === 'LS' ? 50 : 51.5;
     return [this.wx(b.side, x), this.wy(b.side, by)];
   }
 
@@ -709,7 +725,7 @@ export class Match {
         b.oy = clamp(b.oy * 0.85 + this.rng.normal(0, 0.9), -3, 3);
         if (this.rng.chance(0.05)) b.lean = this.rng.normal(0, 1) * (22 - (a.otb + a.ant + a.dec) / 3) * 0.07;
         const slot = b.p.slot;
-        const [bx, by] = BASE[slot];
+        const [bx, by] = this.baseOf(b);
         let x: number;
         let y: number;
         let sprint = false;
@@ -721,26 +737,30 @@ export class Match {
           x += b.ox * gerr * 0.5;
           y += b.oy * gerr * 0.9;
         } else if (inPoss) {
-          const isDef = DEF_SLOTS.has(slot);
-          const wing = slot === 'RW' || slot === 'LW';
-          if (isDef) {
-            const fb = slot === 'RB' || slot === 'LB';
+          // wing back menyerang seperti pemain sayap saat timnya menguasai bola
+          const wb = isWB(slot);
+          const def = isDef(slot) && !wb;
+          // striker kanan dari duet penyerang bergerak ke celah antara bek tengah dan bek sayap
+          const wing = isWing(slot) || isWideMid(slot) || wb || (TUNE.channel > 0 && slot === 'RS');
+          if (def) {
+            const fb = isFB(slot);
             x = fb ? clamp(bfx - 12 + 12 * adv, 16, 75) : line;
             y = 34 + (by - 34) * (fb ? 1.15 : 1.25) + (bfy - 34) * 0.12;
           } else {
-            const shift = (bfx - 45) * (slot === 'RCM' || slot === 'LCM' ? 0.75 : 0.6);
-            x = bx + shift + 7;
+            const shift = (bfx - 45) * (isBox(slot) || slot === 'AM' ? 0.75 : 0.6);
+            // gelandang sayap dan wing back ikut naik sejajar penyerang
+            x = (wb ? bx + TUNE.wbUp * clamp((bfx - 35) / 30, 0, 1) : isWideMid(slot) ? Math.max(bx, TUNE.wideUp) : bx) + shift + 7;
             y = 34 + (by - 34) * 1.1 + (bfy - 34) * 0.12;
             if (wing) {
               // sayap sisi jauh menyerang tiang jauh, sayap sisi bola memberi lebar
               const far = (by - 34) * (bfy - 34) < 0;
               y += (34 - y) * (far ? 0.75 : 0.35) * adv;
               x += (far ? 10 : 5) * adv;
-            } else if (slot === 'CM') x += 6 * adv;
-            else if (slot.endsWith('CM')) {
+            } else if (isHold(slot)) x += 6 * adv;
+            else if (isBox(slot) || slot === 'AM') {
               x = Math.max(x + 13 * adv, bfx - 14 + 10 * adv);
               y += (34 - y) * 0.35 * adv;
-            } else if (slot === 'ST' && b.run <= 0) x = Math.min(x, bfx + 12);
+            } else if (isST(slot) && b.run <= 0) x = Math.min(x, bfx + 12) - (slot === 'LS' ? TUNE.drop : 0);
             if (b.run > 0) {
               x = Math.min(100, oppLine + 5);
               y = clamp(y + (34 - y) * (wing ? 0.55 : 0.35), 6, 62);
@@ -761,38 +781,38 @@ export class Match {
           y += b.oy * err;
           // umpan silang sedang melayang: penyerang menyerbu kotak
           const cr = this.pass;
-          if (cr?.cross && cr.from.side === side && cr.from !== b && !isDef && cr.to !== b) {
-            x = Math.max(x, slot === 'ST' ? 95 : wing ? 93 : 89);
+          if (cr?.cross && cr.from.side === side && cr.from !== b && !def && cr.to !== b) {
+            x = Math.max(x, isST(slot) ? 95 : wing ? 93 : 89);
             y = 34 + (y - 34) * 0.45;
             sprint = true;
           }
         } else {
           // bertahan: tiga lini bergeser bersama
-          const isDef = DEF_SLOTS.has(slot);
-          const mid = slot.endsWith('CM');
-          if (isDef) {
-            const fb = slot === 'RB' || slot === 'LB';
+          const def = isDef(slot);
+          const mid = isCentralMid(slot) || isWideMid(slot);
+          if (def) {
+            const fb = isFB(slot);
             x = line + (fb ? 1 : 0);
             y = 34 + (by - 34) * (fb ? 0.78 : 0.62) + (bfy - 34) * 0.32;
           } else if (mid) {
-            x = line + (slot === 'CM' ? 9 : 12);
+            x = line + (isHold(slot) ? 9 : slot === 'AM' ? 16 : 12);
             y = 34 + (by - 34) * 0.72 + (bfy - 34) * 0.4;
           } else {
-            x = Math.min(line + (slot === 'ST' ? 30 : 24), 64);
+            x = Math.min(line + (isST(slot) ? 30 : 24), 64);
             y = 34 + (by - 34) * 0.78 + (bfy - 34) * 0.3;
           }
           // disiplin posisi: positioning & konsentrasi rendah = sering tidak sejajar
           const err = (21 - (a.pos + a.con) / 2) / 20;
-          x += b.ox * err * (isDef ? 0.8 : 1);
+          x += b.ox * err * (def ? 0.8 : 1);
           y += b.oy * err;
-          if (isDef) {
+          if (def) {
             const m = this.markAdjust(b, side, line, x, y);
             x = m[0];
             y = m[1];
             sprint = m[2];
           }
-          if (slot === 'CM') {
-            const runner = opps.find((o) => o.run > 0 && o.p.slot.endsWith('CM'));
+          if (isHold(slot)) {
+            const runner = opps.find((o) => o.run > 0 && (isBox(o.p.slot) || o.p.slot === 'AM'));
             if (runner) {
               x = this.fx(side, runner.x) - 2;
               y = this.fy(side, runner.y);
@@ -883,7 +903,7 @@ export class Match {
       }
       // penekan kedua: pekerja keras, atau selalu kalau timnya gegenpress
       const keen = second ? k.press > 1.3 || second.p.a.wor + second.p.a.tea > 22 / k.press : false;
-      if (second && !deep && keen && !DEF_SLOTS.has(second.p.slot)) {
+      if (second && !deep && keen && !isDef(second.p.slot)) {
         const gx = this.wx(def, 0);
         second.tx = (owner.x * 2 + gx) / 3;
         second.ty = (owner.y * 2 + 34) / 3;
@@ -1024,14 +1044,24 @@ export class Match {
     const corner = r.kind === 'corner';
     // sisi bola: pemain menyebar dari tiang dekat ke tiang jauh
     const near = Math.sign(this.fy(att, r.y) - 34) || 1;
-    const spots: [Slot, number, number][] = corner
-      ? [['RCB', 95, 34 + near * 2], ['LCB', 94.5, 34 - near * 4], ['ST', 97.5, 34 + near * 4.5], ['CM', 92, 34 - near * 1], ['LW', 96.5, 34 - near * 7.5], ['RW', 88, 34 + near * 6]]
-      : [['RCB', 91, 34 + near * 2], ['LCB', 90.5, 34 - near * 4], ['ST', 92, 34 + near * 5], ['CM', 88, 34 - near * 1], ['LW', 91, 34 - near * 8], ['RW', 85, 34 + near * 8]];
+    // tempat di kotak, diisi menurut urutan tempat formasi yang cocok (formasi apa pun)
+    const spots: [Slot[], number, number][] = corner
+      ? [[['RCB', 'CB', 'LCB'], 95, 34 + near * 2], [['LCB', 'CB', 'RCB'], 94.5, 34 - near * 4], [['ST', 'RS', 'LS'], 97.5, 34 + near * 4.5], [['CM', 'RDM', 'LDM', 'RCM', 'LCM'], 92, 34 - near * 1], [['LW', 'LS', 'LM', 'AM'], 96.5, 34 - near * 7.5], [['RW', 'RM', 'AM', 'RCM'], 88, 34 + near * 6]]
+      : [[['RCB', 'CB', 'LCB'], 91, 34 + near * 2], [['LCB', 'CB', 'RCB'], 90.5, 34 - near * 4], [['ST', 'RS', 'LS'], 92, 34 + near * 5], [['CM', 'RDM', 'LDM', 'RCM', 'LCM'], 88, 34 - near * 1], [['LW', 'LS', 'LM', 'AM'], 91, 34 - near * 8], [['RW', 'RM', 'AM', 'RCM'], 85, 34 + near * 8]];
     const taker = this.restartTaker();
     const up: Body[] = [];
-    for (const [slot, x, y] of spots) {
-      const b = this.mates(att).find((q) => q.p.slot === slot);
-      if (!b || b === taker) continue;
+    const pick = (team: Body[], prefs: Slot[], used: Set<Body>) => {
+      for (const sl of prefs) {
+        const b = team.find((q) => q.p.slot === sl && !used.has(q));
+        if (b) return b;
+      }
+      return undefined;
+    };
+    const taken = new Set<Body>(taker ? [taker] : []);
+    for (const [prefs, x, y] of spots) {
+      const b = pick(this.mates(att), prefs, taken);
+      if (!b) continue;
+      taken.add(b);
       b.tx = this.wx(att, x);
       b.ty = this.wy(att, y);
       b.sprint = Math.hypot(b.x - b.tx, b.y - b.ty) > 5;
@@ -1039,19 +1069,20 @@ export class Match {
     }
     // bertahan: tiga pemain menjaga zona, sisanya menempel penyerang di sisi gawang
     const defs = this.mates(def).filter((b) => b.p.slot !== 'GK');
-    const zone: [Slot, number, number][] = corner
-      ? [['CM', 5.5, 34 + near * 2.5], ['RCM', 6, 34 - near * 1.5], ['LCM', 4.5, 34 + near * 6]]
-      : [['CM', 13, 34], ['RCM', 13, 34 - near * 6], ['LCM', 13, 34 + near * 6]];
+    const zone: [number, number][] = corner
+      ? [[5.5, 34 + near * 2.5], [6, 34 - near * 1.5], [4.5, 34 + near * 6]]
+      : [[13, 34], [13, 34 - near * 6], [13, 34 + near * 6]];
+    const zoneOrder: Slot[] = ['CM', 'RCM', 'LCM', 'RDM', 'LDM', 'AM', 'RM', 'LM'];
     const used = new Set<Body>();
-    for (const [slot, x, y] of zone) {
-      const b = defs.find((q) => q.p.slot === slot);
+    for (const [x, y] of zone) {
+      const b = pick(defs, zoneOrder, used);
       if (!b) continue;
       b.tx = this.wx(def, x);
       b.ty = this.wy(def, y);
       b.sprint = Math.hypot(b.x - b.tx, b.y - b.ty) > 6;
       used.add(b);
     }
-    const markers = defs.filter((b) => !used.has(b) && !['RW', 'LW'].includes(b.p.slot) && (b.p.slot !== 'ST' || corner));
+    const markers = defs.filter((b) => !used.has(b) && !isWing(b.p.slot) && (!isST(b.p.slot) || corner));
     for (const a of up) {
       // penjaga terkuat di udara menempel penyerang paling berbahaya
       let mk: Body | null = null;
@@ -1179,7 +1210,7 @@ export class Match {
       const wide = fx > 72 && Math.abs(fy - 34) > 12;
       const inBox = mfx > 87 && Math.abs(mfy - 34) < 18;
       // penyerang di depan kotak bisa dicari dengan umpan silang ke ruang di depannya
-      const runner = mfx > 76 && Math.abs(mfy - 34) < 17 && !DEF_SLOTS.has(m.p.slot) && m.p.slot !== 'GK';
+      const runner = mfx > 76 && Math.abs(mfy - 34) < 17 && !isBack(m.p.slot) && m.p.slot !== 'GK';
       const cross = wide && (inBox || runner);
       const air = cross || d > 30 || (risk > 0.8 && d > 18 && (a.pas + a.tec) / 2 > 11);
       // di sepertiga akhir, umpan ke belakang tidak terlalu dihukum: yang penting peluang si penerima
@@ -1209,14 +1240,14 @@ export class Match {
       if (pressure > 0 && fx > 75 && open > 5 && mfx > 65) v += 0.15 * pressure * 2;
       if (fx > 92 && Math.abs(fy - 34) > 9 && mfx > 78 && mfx < 96 && Math.abs(mfy - 34) < 13 && progress < 0) v += 0.3;
       // kiper: umpan pendek ke bek kalau aman, selain itu tendang jauh
-      if (keeper) v += DEF_SLOTS.has(m.p.slot) && open > 8 ? 0.3 : d > 35 ? (a.kic - 10) * 0.02 : 0;
+      if (keeper) v += isDef(m.p.slot) && open > 8 ? 0.3 : d > 35 ? (a.kic - 10) * 0.02 : 0;
       // rekan berdiri offside: pengumpan dengan visi & keputusan bagus tidak memberi bola
       if (this.isOffside(m, oppLine, fx) && m.run <= 0 && this.rng.chance(0.45 + (a.vis + a.dec) * 0.0125)) v -= 1;
       options.push([v + noise(), () => this.passTo(c, m, air, false, 0, cross)]);
 
       // umpan terobosan (killer ball) ke ruang di belakang garis pertahanan untuk rekan yang berlari
       const runs = m.run > 0 || mfx > oppLine - 5;
-      if (keeper || fx < 30 || DEF_SLOTS.has(m.p.slot) || m.p.slot === 'GK' || !runs || oppLine > 95) continue;
+      if (keeper || fx < 30 || isBack(m.p.slot) || m.p.slot === 'GK' || !runs || oppLine > 95) continue;
       if (this.isOffside(m, oppLine, fx)) continue;
       // pengumpan bervisi tinggi jauh lebih sering melihat celahnya
       if (!this.rng.chance(clamp(0.06 + (a.vis - 6) * 0.05, 0.03, 0.8))) continue;
@@ -1429,7 +1460,7 @@ export class Match {
     const side = c.side;
     const fx = this.fx(side, c.x);
     const fy = this.fy(side, c.y);
-    const cutIn = (c.p.slot === 'RW' || c.p.slot === 'LW') && fx > 62 ? 0.15 + c.p.a.dri * 0.012 : 0.25;
+    const cutIn = (isWing(c.p.slot) || isWideMid(c.p.slot) || isWB(c.p.slot)) && fx > 62 ? 0.15 + c.p.a.dri * 0.012 : 0.25;
     let ty = fy + (34 - fy) * cutIn + this.rng.normal(0, 3);
     // menghindari lawan terdekat
     const [o, od] = this.nearest(this.opponents(side), c.x, c.y);
@@ -2057,12 +2088,12 @@ export class Match {
     const team = this.mates(r.side);
     const restart = this.restart;
     if (r.kind === 'goalkick') return this.keeper(r.side) ?? this.nearest(team, r.x, r.y)[0];
-    if (r.kind === 'kickoff') return team.find((b) => b.p.slot === 'ST') ?? team[team.length - 1];
+    if (r.kind === 'kickoff') return team.find((b) => isST(b.p.slot)) ?? team[team.length - 1];
     const crosser = (list: Body[]) => this.best(list, (a) => a.cro * 2 + a.fk) ?? this.best(team, (a) => a.cro);
-    if (r.kind === 'corner') return crosser(team.filter((b) => ['RW', 'LW', 'RCM', 'LCM', 'RB', 'LB'].includes(b.p.slot)));
+    if (r.kind === 'corner') return crosser(team.filter((b) => isWing(b.p.slot) || isWideMid(b.p.slot) || isBox(b.p.slot) || b.p.slot === 'AM' || isFB(b.p.slot)));
     if (r.kind === 'penalty') return this.best(team, (a) => a.pen * 2 + a.cmp);
     if (restart?.direct) return this.best(team, (a) => a.fk * 2 + a.lon);
-    if (restart?.cross) return crosser(team.filter((b) => !['RCB', 'LCB', 'ST', 'CM'].includes(b.p.slot)));
+    if (restart?.cross) return crosser(team.filter((b) => !isCB(b.p.slot) && !isST(b.p.slot) && !isHold(b.p.slot)));
     return this.nearest(team.filter((b) => b.p.slot !== 'GK'), r.x, r.y)[0];
   }
 
@@ -2084,7 +2115,7 @@ export class Match {
     if (r.wait > 0 || (d > 1 && r.wait > -3)) return;
     if ((r.kind === 'corner' || r.cross) && r.wait > -4) {
       // tunggu bek tengah naik ke kotak
-      for (const cb of team) if ((cb.p.slot === 'RCB' || cb.p.slot === 'LCB') && Math.hypot(cb.x - cb.tx, cb.y - cb.ty) > 3) return;
+      for (const cb of team) if (isCB(cb.p.slot) && Math.hypot(cb.x - cb.tx, cb.y - cb.ty) > 3) return;
     }
     taker.x = taker.tx;
     taker.y = taker.ty;
@@ -2096,7 +2127,7 @@ export class Match {
     this.poss = r.side;
     if (r.kind === 'kickoff') {
       this.log('kickoff', r.side);
-      const mate = team.filter((b) => b !== taker && b.p.slot.endsWith('CM')).sort((p, q) => Math.hypot(p.x - 52.5, p.y - 34) - Math.hypot(q.x - 52.5, q.y - 34))[0];
+      const mate = team.filter((b) => b !== taker && (isCentralMid(b.p.slot) || isST(b.p.slot))).sort((p, q) => Math.hypot(p.x - 52.5, p.y - 34) - Math.hypot(q.x - 52.5, q.y - 34))[0];
       if (mate) this.passTo(taker, mate, false, true);
       else this.gain(taker);
     } else if (r.kind === 'penalty') {
@@ -2229,8 +2260,8 @@ export class Match {
   private reserveFor(out: Body): Body | undefined {
     if (this.subs[out.side] >= MAX_SUBS) return undefined;
     const pool = this.reserves.filter((r) => r.side === out.side && r.st.on < 0);
-    const group = SLOT_GROUP[out.p.slot];
-    const same = pool.find((r) => SLOT_GROUP[r.p.slot] === group);
+    const group = slotGroup(out.p.slot);
+    const same = pool.find((r) => slotGroup(r.p.slot) === group);
     if (out.p.slot === 'GK') return same;
     return same ?? pool.find((r) => r.p.slot !== 'GK');
   }
@@ -2308,7 +2339,7 @@ export class Match {
       const out =
         this.bodies.find((b) => b.on && b.side === sub.side && b.p.slot === team.sub!.slot) ??
         // pemain di slot itu dikartu merah: pelatih menarik pemain lain
-        this.bodies.find((b) => b.on && b.side === sub.side && b.p.slot !== 'GK' && SLOT_GROUP[b.p.slot] === SLOT_GROUP[team.sub!.slot]);
+        this.bodies.find((b) => b.on && b.side === sub.side && b.p.slot !== 'GK' && slotGroup(b.p.slot) === slotGroup(team.sub!.slot));
       if (!out) continue;
       out.on = false;
       out.st.off = this.t;
@@ -2344,14 +2375,14 @@ export class Match {
       if (b.dive > 0) b.dive -= DT;
       if (b.run > 0) b.run -= DT;
       else if (this.poss === b.side && this.owner && b.p.slot !== 'GK' && b !== this.owner && this.rng.chance(b.p.a.otb * TUNE.runRate)) {
-        const mid = b.p.slot.endsWith('CM');
-        const fwd = b.p.slot === 'ST' || b.p.slot === 'RW' || b.p.slot === 'LW';
+        const mid = isCentralMid(b.p.slot) && !isHold(b.p.slot);
+        const fwd = isST(b.p.slot) || isWing(b.p.slot) || isWideMid(b.p.slot) || isWB(b.p.slot);
         const bfx = this.fx(b.side, this.ball.x);
         // pemain cerdas mulai lari saat masih onside
         const onside = this.fx(b.side, b.x) < this.offsideLine(b.side) || this.rng.chance(0.25 - b.p.a.dec * 0.01);
         if (onside) {
-          if (fwd) b.run = b.p.slot === 'ST' ? 2.5 : 3.2;
-          else if (mid && bfx > 55 && b.p.slot !== 'CM') b.run = 4.5;
+          if (fwd) b.run = isST(b.p.slot) ? 2.5 : 3.2;
+          else if (mid && bfx > 55) b.run = 4.5;
           if (b.run > 0) b.think = 0;
         }
       }
@@ -2490,7 +2521,7 @@ function rate(b: Body, score: [number, number]): number {
   r += s.tackles * 0.12 + s.interceptions * 0.1 + s.dribbles * 0.05 - s.lost * 0.06 - s.offsides * 0.05;
   r += my > their ? 0.3 : my < their ? -0.3 : 0;
   if (b.p.slot === 'GK') r += s.saves * 0.3 - s.conceded * 0.35 + (their === 0 ? 0.6 : 0);
-  else if (DEF_SLOTS.has(b.p.slot)) r += (their === 0 ? 0.4 : 0) - their * 0.12;
+  else if (isDef(b.p.slot)) r += (their === 0 ? 0.4 : 0) - their * 0.12;
   r -= s.yellow * 0.3 + s.fouls * 0.04;
   r = 6.5 + (r - 6.5) * (0.4 + 0.6 * Math.min(1, mins));
   r -= s.red * 2;

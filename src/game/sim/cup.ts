@@ -2,6 +2,7 @@
 // Laga tengah pekan (Rabu), final hari Minggu di tempat netral, adu penalti kalau imbang.
 // Undian tiap babak dilakukan setelah babak sebelumnya selesai.
 
+import { clubFormation } from './formation';
 import type { Career, Competition, Cup, CupHonour, CupRound, CupTie, League, LeagueSeason, MatchRecord, MatchStatus, Player, World } from '../types';
 import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
@@ -206,7 +207,7 @@ export function playClubGame(o: {
   const opp = world.clubs.find((c) => c.id === o.oppId)!;
   const seniors = squadOf(world, clubId).filter((q) => !q.isUser && !q.isYouth);
   const theirs = squadOf(world, o.oppId).filter((q) => !q.isUser && !q.isYouth);
-  const status: MatchStatus = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, seniors, career, o.bonus);
+  const status: MatchStatus = serveBan(career, 'club') ? 'Skorsing' : selection(rng, p, seniors, career, o.bonus, clubFormation(club));
   let score = o.quick;
   let perf: Partial<MatchRecord> = {};
   let sim: EngineInput | undefined;
@@ -216,8 +217,8 @@ export function playClubGame(o: {
       career,
       status,
       rng,
-      ours: { id: club.id, name: club.name, colors: club.colors, squad: seniors, style: club.playingStyle },
-      theirs: { id: opp.id, name: opp.name, colors: opp.colors, squad: theirs, style: opp.playingStyle },
+      ours: { id: club.id, name: club.name, colors: club.colors, squad: seniors, style: club.playingStyle, formation: clubFormation(club) },
+      theirs: { id: opp.id, name: opp.name, colors: opp.colors, squad: theirs, style: opp.playingStyle, formation: clubFormation(opp) },
       home: o.home,
       neutral: o.neutral,
       seed: `${career.characterSeed}:${o.date}:${club.id}:${o.tag}`,

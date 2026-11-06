@@ -3,6 +3,7 @@
 // di antaranya (2028, 2032, ...). Laga timnasmu saat kamu dipanggil dimainkan match engine 2D,
 // laga negara lain disimulasikan cepat dari kekuatan skuadnya.
 
+import { nationFormation } from './formation';
 import type {
   Career,
   Confederation,
@@ -435,8 +436,8 @@ export function nationalWeek(
       career,
       status,
       rng,
-      ours: { id: country, name: `${cname}${suffix}`, colors: kitOf(country), squad, style: nationStyle(country) },
-      theirs: { id: opp, name: `${countryName(opp)}${suffix}`, colors: kitOf(opp), squad: theirs, style: nationStyle(opp) },
+      ours: { id: country, name: `${cname}${suffix}`, colors: kitOf(country), squad, style: nationStyle(country), formation: nationFormation(country, nationStyle(country)) },
+      theirs: { id: opp, name: `${countryName(opp)}${suffix}`, colors: kitOf(opp), squad: theirs, style: nationStyle(opp), formation: nationFormation(opp, nationStyle(opp)) },
       home,
       neutral,
       seed: `${career.characterSeed}:${f.date}:${country}:${team}`,

@@ -1,6 +1,7 @@
 // Layar pertandingan 2D. Laga diputar ulang dari input match engine yang sama dengan
 // simulasi mingguan, jadi skor dan statistik di layar identik dengan yang tercatat.
 
+import { SLOT_LABEL } from '../game/sim/formation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from './store';
 import {
@@ -216,19 +217,6 @@ function MatchViewer({ input }: { input: EngineInput }) {
 
 // --- susunan pemain ------------------------------------------------------------------
 
-const SLOT_LABEL: Record<string, string> = {
-  GK: 'GK',
-  RB: 'DR',
-  RCB: 'DC',
-  LCB: 'DC',
-  LB: 'DL',
-  RCM: 'MC',
-  CM: 'DM',
-  LCM: 'MC',
-  RW: 'AMR',
-  ST: 'ST',
-  LW: 'AML',
-};
 
 function Lineup({
   input,
@@ -263,13 +251,14 @@ function Lineup({
             <h3>
               <span className="mv-kit" style={{ background: colors[side] }} aria-hidden />
               {t.name} <span className="muted">{side === 0 ? '(kandang)' : '(tandang)'}</span>
+              {t.formation && <span className="muted small"> · {t.formation}</span>}
             </h3>
             <ol>
               {t.xi.map((p) => (
                 <li key={p.id} className={p.user ? 'me' : ''}>
                   <span className="num mv-n">{p.num}</span>
                   <span>{p.name}</span>
-                  <span className="muted small">{SLOT_LABEL[p.slot]}</span>
+                  <span className="muted small">{SLOT_LABEL[p.slot] ?? p.slot}</span>
                 </li>
               ))}
             </ol>

@@ -2,11 +2,12 @@
 // lalu terkumpul di career.progress. Atribut naik 1 setiap progress-nya mencapai 1.
 // Pemain tidak bisa melewati PA (potensi).
 
-import { GOALKEEPING, MENTAL, PHYSICAL, TECHNICAL, type VisibleAttr } from '../data/attributes';
+import { GOALKEEPING, MENTAL, PHYSICAL, POSITION_LABEL, TECHNICAL, type VisibleAttr } from '../data/attributes';
 import { ROLES } from '../data/roles';
 import { attrWeight, computeCA, ageOn } from '../gen/player';
 import type { Career, Club, Player } from '../types';
 import { INTENSITY_INFO } from './economy';
+import { familiarity } from './formation';
 import { clamp, type Rng } from '../rng';
 
 const GROUP_OF: Record<string, 'technical' | 'mental' | 'physical' | 'goalkeeping'> = {};
@@ -190,4 +191,36 @@ export function ageDecline(p: Player, age: number, rng: Rng): Record<string, num
   }
   p.ca = clamp(computeCA(p), 1, 200);
   return changes;
+}
+
+/**
+ * Latihan posisi baru: keakraban naik pelan-pelan (lebih cepat kalau Versatility tinggi dan latihan berat).
+ * Mengubah `player` dan `career` langsung. Mengembalikan true kalau posisinya sudah dikuasai penuh.
+ */
+export function learnPositionWeek(career: Career, player: Player, notes?: string[]): boolean {
+  const pos = career.plan.learnPos;
+  if (!pos || career.injury || career.plan.focus === 'istirahat' || pos === player.mainPosition) return false;
+  const key = `pos:${pos}`;
+  const rate = (0.2 + player.hidden.Versatility / 50) * INTENSITY_INFO[career.plan.intensity].growth;
+  career.progress[key] = (career.progress[key] ?? 0) + rate;
+  let fam = familiarity(player, pos);
+  while (career.progress[key] >= 1 && fam < 20) {
+    career.progress[key] -= 1;
+    fam += 1;
+  }
+  player.positions = { ...player.positions, [pos]: fam };
+  if (fam >= 20) {
+    delete career.progress[key];
+    career.plan = { ...career.plan, learnPos: null };
+    notes?.push(`Kamu sekarang menguasai posisi ${POSITION_LABEL[pos].toLowerCase()} sepenuhnya.`);
+    career.inbox.unshift({
+      id: `w${career.week}-pos-${pos}`,
+      date: career.currentDate,
+      from: 'Staf pelatih',
+      title: `Posisi baru dikuasai: ${POSITION_LABEL[pos]}`,
+      body: `Latihan posisimu berhasil. Pelatih sekarang bisa memainkanmu sebagai ${POSITION_LABEL[pos].toLowerCase()} tanpa penurunan performa.`,
+    });
+    return true;
+  }
+  return false;
 }

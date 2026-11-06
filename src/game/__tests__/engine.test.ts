@@ -187,7 +187,7 @@ describe('match engine', () => {
     // median jarak kiper dari titik idealnya saat lawan menguasai bola di dekat gawang
     const off = (v: number) => {
       const ds: number[] = [];
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 8; i++) {
         const home = team(eng[i].id);
         home.xi = home.xi.map((p) => (p.slot === 'GK' ? { ...p, a: { ...p.a, pos: v, con: v, ant: v } } : p));
         const m = new Match({ seed: `gk-${i}`, home, away: team(eng[10 + i].id) });
@@ -203,7 +203,7 @@ describe('match engine', () => {
       return ds[Math.floor(ds.length / 2)];
     };
     expect(off(20)).toBeLessThan(off(4) * 0.6);
-  }, 30_000);
+  }, 60_000);
 
   it('pemain cadangan masuk di menit yang ditentukan', () => {
     const home = team(eng[2].id);
