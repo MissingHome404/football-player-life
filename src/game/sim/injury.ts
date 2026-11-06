@@ -31,7 +31,7 @@ export const PLAN_INFO: Record<InjuryPlan, { label: string; speed: number; fragi
 };
 
 /** Biaya fisioterapi intensif untuk cedera ini */
-export function physioCost(career: Career, player: Player, weeks: number): number {
+export function physioCost(player: Player, weeks: number): number {
   return Math.round(Math.max(150, 140 * weeks) * econOf(player.nationalityId));
 }
 
@@ -90,7 +90,7 @@ export function injure(career: Career, rng: Rng, where: 'latihan' | 'pertandinga
     career.inbox.unshift(msg);
     return;
   }
-  const cost = player ? physioCost(career, player, weeks) : 0;
+  const cost = player ? physioCost(player, weeks) : Math.max(150, 140 * weeks);
   const fast = Math.max(1, Math.round(weeks * PLAN_INFO.cepat.speed));
   const physio = Math.max(1, Math.round(weeks * PLAN_INFO.fisio.speed));
   career.inbox.unshift({

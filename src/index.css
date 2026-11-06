@@ -547,3 +547,8 @@ input { font: inherit; }
   .fm-panel { grid-template-columns: 1fr; }
   .fm-panel .fm-pitch { margin: 0 auto; }
 }
+
+/* sifat bawaan pemain */
+.traits { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.trait { font-size: 11px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; cursor: help; }
+.inj-history td { white-space: nowrap; }

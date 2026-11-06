@@ -14,6 +14,7 @@ import {
   weeklyBudget,
 } from '../game/sim/economy';
 import { pendingChoices, stressTarget } from '../game/sim/week';
+import { PLAN_INFO } from '../game/sim/injury';
 import type { Activity, CoachKind, Intensity, MatchRecord, Message, SeasonStat, TrainingFocus } from '../game/types';
 import { nextFixture, shortDate } from './LeagueSeason';
 import { nextCupTie } from '../game/sim/cup';
@@ -102,10 +103,17 @@ export function CareerHome({ children }: { children: ReactNode }) {
           <span className="muted small">
             {career.injury ? (
               <span className="loss">
-                Cedera: {career.injury.name} ({career.injury.weeksLeft} mg lagi)
+                Cedera: {career.injury.name} ({career.injury.weeksLeft} mg lagi
+                {career.injury.plan ? ` · ${PLAN_INFO[career.injury.plan].label.toLowerCase()}` : ''})
               </span>
             ) : (
               `${career.fitness} / 100 · ${fitLabel(career.fitness)}`
+            )}
+            {!career.injury && career.fragile && (
+              <span className="warn" title="Baru pulih dari cedera: risiko cedera lebih tinggi, terutama di bagian yang sama.">
+                {' '}
+                · Rawan kambuh {career.fragile.weeks} mg lagi ({career.fragile.part})
+              </span>
             )}
             {(career.ban?.club ?? 0) > 0 && <span className="loss"> · Skorsing klub {career.ban!.club} laga</span>}
             {(career.ban?.nat ?? 0) > 0 && <span className="loss"> · Skorsing timnas {career.ban!.nat} laga</span>}

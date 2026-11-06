@@ -41,7 +41,7 @@ import {
 import { shortName } from '../gen/names';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 8;
+export const ENGINE_VERSION = 9;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -58,7 +58,7 @@ const BOX_Y = 20.16;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 11, shootW: 28, progW: 45, xgPassW: 4, foul: 0.55, dribZone: 0.15, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 11.8, shootW: 28, progW: 45, xgPassW: 4, foul: 0.55, dribZone: 0.15, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.2, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 0.7,
@@ -94,7 +94,7 @@ export const TUNE = {
   /** jarak garis bek di belakang bola saat timnya menguasai bola */
   backLine: 27,
   /** keunggulan kandang (poin atribut mental & teknik) */
-  home: 0.7,
+  home: 1.1,
   /** performa harian: simpangan tim & pemain (poin atribut) */
   formTeam: 0.3, formPlayer: 0.3,
   /** peluang kartu kuning per pelanggaran */
@@ -104,6 +104,9 @@ export const TUNE = {
   mental: 1,
   /** pengaruh mentalitas pada tiap kecenderungan (per satuan -1..1) */
   mRisk: 0.45, mHold: 0.4, mProg: 0.12, mLong: 0.06, mLine: 2.5, mPress: 0.15, mKeep: 0.5,
+  /** sifat bawaan: peluang memakai kaki lemah, dan poin duel udara per cm tinggi di atas 180 */
+  weakUse: 0.35,
+  height: 0.12,
   /** kekuatan efek skor (unggul bertahan, tertinggal menyerang) di akhir laga */
   gameState: 1,
 };
@@ -174,6 +177,10 @@ export interface EAttrs {
   fla: number; bra: number;
   /** pengali risiko cedera (1 = rata-rata; dari Injury Proneness, untuk pemain kita juga gaya hidup) */
   inj: number;
+  /** tinggi badan (cm): pemain jangkung unggul di duel udara */
+  hgt: number;
+  /** kaki lemah (1-20): tembakan & umpan dengan kaki lemah kurang akurat */
+  wf: number;
   /** rata-rata atribut kiper (3 untuk pemain lapangan) */
   gk: number;
   ref: number; han: number; ono: number; aer: number; cmd: number; kic: number; rus: number;
@@ -229,6 +236,8 @@ export function engineAttrs(p: Player): EAttrs {
     cmp: m.Composure, dec: m.Decisions, pos: m.Positioning, ant: m.Anticipation, otb: m['Off the Ball'],
     wor: m['Work Rate'], tea: m.Teamwork, con: m.Concentration, agg: m.Aggression, fla: m.Flair, bra: m.Bravery,
     inj: injuryRisk(p),
+    hgt: p.heightCm,
+    wf: Math.min(p.leftFoot, p.rightFoot),
     gk: keeper ? (g.Handling + g.Reflexes + g['One on Ones'] + g['Command of Area']) / 4 : 3,
     ref: keeper ? g.Reflexes : 3, han: keeper ? g.Handling : 3, ono: keeper ? g['One on Ones'] : 3,
     aer: keeper ? g['Aerial Reach'] : 3, cmd: keeper ? g['Command of Area'] : 3, kic: keeper ? g.Kicking : 3,
@@ -245,7 +254,7 @@ function fullAttrs(a: Partial<EAttrs>): EAttrs {
     pas: d(a.pas), vis: d(a.vis), tec: d(a.tec), dri: d(a.dri), ft: d(a.ft), fin: d(a.fin), lon: d(a.lon),
     cro: d(a.cro), hea: d(a.hea), tck: d(a.tck), mar: d(a.mar), fk: d(a.fk, d(a.lon)), pen: d(a.pen, d(a.fin)),
     cmp: d(a.cmp), dec: d(a.dec), pos: d(a.pos), ant: d(a.ant), otb: d(a.otb), wor: d(a.wor), tea: d(a.tea),
-    con: d(a.con), agg: d(a.agg), fla: d(a.fla), bra: d(a.bra), inj: d(a.inj, 1), gk,
+    con: d(a.con), agg: d(a.agg), fla: d(a.fla), bra: d(a.bra), inj: d(a.inj, 1), hgt: d(a.hgt, 180), wf: d(a.wf, 12), gk,
     ref: d(a.ref, gk), han: d(a.han, gk), ono: d(a.ono, gk), aer: d(a.aer, gk), cmd: d(a.cmd, gk), kic: d(a.kic, 10),
     rus: d(a.rus, 10),
   };
@@ -1514,7 +1523,9 @@ export class Match {
     }
     const [, pd] = this.nearest(this.opponents(c.side), c.x, c.y);
     // ditekan dari dekat: pemain yang tenang (composure) tetap mengumpan dengan akurat
-    const err = ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1);
+    // kaki lemah membuat umpan (terutama umpan jauh dan umpan silang) kurang akurat
+    const weak = !setPiece && this.rng.chance(TUNE.weakUse * 0.8) ? 1 + (20 - a.wf) * (air ? 0.06 : 0.04) : 1;
+    const err = ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1) * weak;
     // offside dinilai saat bola dimainkan
     const offside: Body[] = [];
     if (!setPiece) {
@@ -1631,7 +1642,9 @@ export class Match {
     }
     const skill = setPiece && dist > 14 ? a.fk : setPiece ? a.pen : header ? a.hea : dist < 18 ? a.fin : a.lon;
     const gkSkill = gk ? (gk.p.a.ref * 2 + gk.p.a.ono + gk.p.a.han + gk.p.a.pos) / 5 : 8;
-    let p = xg * (0.7 + skill * 0.025) * (0.9 + a.cmp * 0.008) * (1 - pressure * 0.25);
+    // kaki lemah: tidak selalu sempat memindahkan bola ke kaki terkuat (pemain dua kaki tidak terpengaruh)
+    const foot = !header && !setPiece && this.rng.chance(TUNE.weakUse) ? Math.min(1, 0.45 + a.wf * 0.0275) : 1;
+    let p = xg * (0.7 + skill * 0.025) * (0.9 + a.cmp * 0.008) * (1 - pressure * 0.25) * foot;
     p *= 1.3 - gkSkill * 0.03;
     // kiper yang salah posisi (jauh dari titik idealnya) lebih mudah dibobol
     if (gk) {
@@ -1645,7 +1658,7 @@ export class Match {
     if (!setPiece && this.t < this.spUntil && this.spSide === side) p *= TUNE.spK;
     // penalti & tendangan bebas langsung: peluangnya sudah berupa persentase nyata (tanpa pengali tembakan)
     p = clamp(setPiece ? p : p * TUNE.shotK, 0.004, 0.85);
-    const onTarget = clamp(Math.max(p + 0.12, TUNE.onT + skill * 0.017 - dist * 0.004 - pressure * 0.08), 0, 0.95);
+    const onTarget = clamp(Math.max(p + 0.12, TUNE.onT + skill * foot * 0.017 - dist * 0.004 - pressure * 0.08), 0, 0.95);
     const r = this.rng.next();
     const outcome: Shot['outcome'] = blocker ? 'miss' : r < p ? 'goal' : r < onTarget ? 'save' : 'miss';
 
@@ -1900,8 +1913,10 @@ export class Match {
       if (b.side === nt) continue;
       if (b.cool > (b.p.slot === 'GK' ? 1 : 0.5)) continue; // baru saja dilewati / kiper masih terjatuh
       const hands = b.p.slot === 'GK' && this.inBox(b.side, b.x, b.y);
-      const reach = hands ? 1.5 + b.p.a.aer * 0.02 : 1.0 + b.p.a.agi * 0.01;
-      const zMax = hands ? 2.4 + b.p.a.aer * 0.03 : 1.3 + (b.p.a.hea + b.p.a.jmp) * 0.025;
+      // tinggi badan menambah jangkauan: pemain jangkung menyundul bola yang lewat di atas kepala pemain lain
+      const tall = (b.p.a.hgt - (hands ? 188 : 180)) * 0.01;
+      const reach = hands ? 1.5 + b.p.a.aer * 0.02 + tall * 0.8 : 1.0 + b.p.a.agi * 0.01;
+      const zMax = hands ? 2.4 + b.p.a.aer * 0.03 + tall : 1.3 + (b.p.a.hea + b.p.a.jmp) * 0.025 + tall;
       if (ball.z > zMax) continue;
       // jarak ke lintasan bola selama langkah ini (bola cepat tidak boleh "menembus" pemain)
       const d = segDist(px, py, ball.x, ball.y, b.x, b.y);
@@ -1919,11 +1934,11 @@ export class Match {
     // duel udara: lawan di dekatnya ikut melompat, yang lebih kuat di udara menang
     let duel = false;
     if (ball.z > 1.3 && best.p.slot !== 'GK') {
-      const aerial = (b: Body) => b.p.a.hea + b.p.a.jmp * 0.7 + b.p.a.str * 0.3 + b.p.a.bra * 0.25;
+      const aerial = (b: Body) => b.p.a.hea + b.p.a.jmp * 0.7 + b.p.a.str * 0.3 + b.p.a.bra * 0.25 + (b.p.a.hgt - 180) * TUNE.height;
       for (const o of this.opponents(best.side)) {
         if (o.p.slot === 'GK' || o.cool > 0.5 || o.side === nt) continue;
         if (segDist(px, py, ball.x, ball.y, o.x, o.y) > 1.9) continue;
-        if (ball.z > 1.3 + (o.p.a.hea + o.p.a.jmp) * 0.025) continue;
+        if (ball.z > 1.3 + (o.p.a.hea + o.p.a.jmp) * 0.025 + (o.p.a.hgt - 180) * 0.01) continue;
         // pembela menghadap bola: sedikit lebih unggul
         const defBonus = pass && o.side !== pass.from.side ? 0.08 : pass && best.side !== pass.from.side ? -0.08 : 0;
         if (this.rng.chance(clamp(0.5 + (aerial(o) - aerial(best)) * 0.025 + defBonus, 0.15, 0.85))) {
@@ -2268,7 +2283,7 @@ export class Match {
       const box = team.filter((b) => b !== taker && b.p.slot !== 'GK' && this.fx(r.side, b.x) > 84);
       let total = 0;
       const w = box.map((b) => {
-        const v = (b.p.a.hea + b.p.a.jmp / 2 + b.p.a.str / 2) ** 2;
+        const v = Math.max(1, b.p.a.hea + b.p.a.jmp / 2 + b.p.a.str / 2 + (b.p.a.hgt - 180) * TUNE.height) ** 2;
         total += v;
         return v;
       });

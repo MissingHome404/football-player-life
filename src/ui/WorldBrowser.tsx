@@ -12,6 +12,7 @@ import { ClubFixtures, CupPanel, SeasonPanel } from './LeagueSeason';
 import { pendingChoices } from '../game/sim/week';
 import { marketValue } from '../game/sim/transfer';
 import { badgeValue } from '../game/sim/badges';
+import { innateTraits } from '../game/sim/injury';
 import { COUNTRY_BY_ID } from '../game/data/countries';
 import {
   TECHNICAL,
@@ -523,6 +524,16 @@ function PlayerView({ playerId }: { playerId: string }) {
           <div className="muted small">
             Kaki kiri: {foot(p.leftFoot)} · kanan: {foot(p.rightFoot)}
           </div>
+          <div className="traits">
+            {/* rawan / tahan cedera hanya diketahui untuk pemain kita sendiri */}
+            {innateTraits(p)
+              .filter((t) => p.isUser || !t.label.includes('cedera'))
+              .map((t) => (
+                <span key={t.label} className="trait" title={t.desc}>
+                  {t.label}
+                </span>
+              ))}
+          </div>
         </InfoCard>
         <InfoCard label="Kontrak">
           {p.contract ? (
@@ -575,6 +586,32 @@ function PlayerView({ playerId }: { playerId: string }) {
           )}
         </div>
       </section>
+
+      {p.isUser && !!career?.injuries?.length && (
+        <section className="panel">
+          <h2>Riwayat cedera</h2>
+          <table className="tbl inj-history">
+            <thead>
+              <tr>
+                <th className="left">Tanggal</th>
+                <th className="left">Cedera</th>
+                <th className="left">Saat</th>
+                <th>Absen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {career.injuries.map((r, i) => (
+                <tr key={`${r.date}-${i}`}>
+                  <td className="left muted">{r.date}</td>
+                  <td className={`left ${r.severity === 'berat' ? 'loss strong' : ''}`}>{r.name}</td>
+                  <td className="left muted">{r.where}</td>
+                  <td className="num">{r.weeks} mg</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {devMode && (
         <section className="panel attrs dev">
