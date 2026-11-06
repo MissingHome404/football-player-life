@@ -397,6 +397,10 @@ export interface Career {
   week: number; // jumlah minggu yang sudah dijalani
   fitness: number; // kebugaran 0-100
   injury: Injury | null;
+  /** riwayat cedera (terbaru di depan) */
+  injuries?: InjuryRecord[];
+  /** masa rawan setelah kembali dari cedera: sisa minggu, pengali risiko cedera, bagian tubuh */
+  fragile?: { weeks: number; factor: number; part: InjuryPart };
   /** sisa laga skorsing: klub (liga/U19/amatir) dan timnas */
   ban?: { club: number; nat: number };
   plan: WeekPlan;
@@ -583,9 +587,36 @@ export interface WeekPlan {
   learnPos?: Position | null;
 }
 
+export type InjuryPart =
+  | 'paha'
+  | 'pergelangan kaki'
+  | 'punggung'
+  | 'hamstring'
+  | 'betis'
+  | 'pangkal paha'
+  | 'lutut'
+  | 'kaki';
+/** Rencana pemulihan: sesuai jadwal, dipaksakan lebih cepat, atau fisioterapi intensif */
+export type InjuryPlan = 'aman' | 'cepat' | 'fisio';
+
 export interface Injury {
   name: string;
   weeksLeft: number;
+  /** perkiraan awal lama absen (minggu) */
+  weeks?: number;
+  part?: InjuryPart;
+  severity?: 'ringan' | 'sedang' | 'berat';
+  plan?: InjuryPlan;
+}
+
+/** Riwayat cedera pemain kita */
+export interface InjuryRecord {
+  name: string;
+  part: InjuryPart;
+  date: string;
+  weeks: number;
+  where: 'latihan' | 'pertandingan';
+  severity: 'ringan' | 'sedang' | 'berat';
 }
 
 export interface MessageChoice {

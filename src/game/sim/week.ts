@@ -14,14 +14,14 @@ import { MAX_AGE, retire } from './retire';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
 import { recentForm, userMatch } from './match';
-import { injure } from './discipline';
+import { injure, injuryFactor, recoverWeek } from './injury';
 import { cupWeek } from './cup';
 import { continentalWeek } from './continental';
 import { nationalWeek } from './national';
 import { ledgerWeek, seasonAwards, tallyNational, worldAwardDay, worldAwards } from './awards';
 import { newBadges } from './badges';
 import { TRANSFER_EVENTS, contractWeek } from './transfer';
-import { defaultLife, lifeFitness, lifeInjuryFactor, lifeStress, lifeWeek } from './life';
+import { defaultLife, lifeFitness, lifeStress, lifeWeek } from './life';
 import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, relationsWeek } from './relations';
 
 const ALL_EVENTS = [...EVENTS, ...RELATION_EVENTS];
@@ -235,13 +235,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   career.fitness = clamp(career.fitness + lifeFitness(career), 0, 100);
 
   // 4. Cedera
-  if (career.injury) {
-    career.injury.weeksLeft -= 1;
-    if (career.injury.weeksLeft <= 0) {
-      notes.push(`Kamu sudah pulih dari ${career.injury.name.toLowerCase()}.`);
-      career.injury = null;
-    }
-  } else if (!resting) {
+  if (career.injury || career.fragile) recoverWeek(career, player, rng.fork('recover'), notes);
+  if (!injuredBefore && !resting) {
     const proneness = 1 + (player.hidden['Injury Proneness'] - 10) / 10;
     const chance =
       0.008 *
@@ -250,8 +245,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       (career.fitness < 40 ? 2 : 1) *
       (career.fitness < 20 ? 1.5 : 1) *
       (plan.coaches.fisik ? 0.7 : 1) *
-      lifeInjuryFactor(career);
-    if (rng.chance(chance)) injure(career, rng, 'latihan', notes);
+      injuryFactor(career);
+    if (rng.chance(chance)) injure(career, rng, 'latihan', notes, player);
   }
   const abroad = !!club && club.countryId !== player.nationalityId;
   lifeWeek(career, abroad, () => rng.chance(0.4));
@@ -300,8 +295,8 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
       }
       // laga match engine: cedera terjadi di dalam laga (lihat discipline.ts); laga simulasi cepat diundi di sini
       const proneness = Math.max(0.15, 1 + (player.hidden['Injury Proneness'] - 10) / 10);
-      if (!played?.sim && !career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness * lifeInjuryFactor(career))) {
-        injure(career, rng, 'pertandingan', notes);
+      if (!played?.sim && !career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness * injuryFactor(career))) {
+        injure(career, rng, 'pertandingan', notes, player);
       }
     }
   }

@@ -1,39 +1,14 @@
 // Kartu, skorsing, dan cedera pemain kita setelah pertandingan.
 // Skorsing klub (liga, U19, amatir) dan skorsing timnas dihitung terpisah.
 
-import type { Career, Competition, MatchRecord, SeasonStat } from '../types';
-import { Rng, clamp } from '../rng';
-import { addDays } from '../date';
-
-export const INJURIES: [name: string, min: number, max: number, weight: number][] = [
-  ['Memar di paha', 1, 2, 5],
-  ['Keseleo pergelangan kaki', 2, 4, 4],
-  ['Cedera hamstring', 3, 6, 3],
-  ['Cedera otot betis', 2, 5, 3],
-  ['Cedera lutut ringan', 4, 8, 2],
-  ['Patah tulang kaki', 12, 20, 0.3],
-  ['Robek ligamen lutut (ACL)', 24, 36, 0.25],
-];
+import type { Career, Competition, MatchRecord, Player, SeasonStat } from '../types';
+import type { Rng } from '../rng';
+import { injure } from './injury';
 
 /** Kartu kuning yang terkumpul di satu musim liga sebelum skorsing 1 laga */
 export const YELLOW_LIMIT = 5;
 /** Kompetisi liga: hanya kartu kuning di sini yang dihitung untuk akumulasi */
 const LEAGUE_COMPS = new Set<Competition>(['Liga', 'U19', 'Amatir']);
-
-export function injure(career: Career, rng: Rng, where: 'latihan' | 'pertandingan', notes?: string[]) {
-  const [name, min, max] = rng.weighted(INJURIES.map((x) => [x, x[3]] as const));
-  const weeks = rng.int(min, max);
-  career.injury = { name, weeksLeft: weeks };
-  career.fitness = clamp(career.fitness - 15, 0, 100);
-  notes?.push(`Kamu cedera saat ${where}: ${name.toLowerCase()}, perkiraan absen ${weeks} minggu.`);
-  career.inbox.unshift({
-    id: `w${career.week}-injury-${where}`,
-    date: addDays(career.currentDate, 7),
-    from: 'Tim medis',
-    title: `Cedera: ${name}`,
-    body: `Kamu mengalami ${name.toLowerCase()} saat ${where} dan harus absen sekitar ${weeks} minggu. Selama cedera kamu tidak bisa berlatih atau bermain.`,
-  });
-}
 
 export type BanScope = 'club' | 'nat';
 
@@ -58,7 +33,15 @@ export function cardOf(yellow: number, red: number): MatchRecord['card'] {
  * Setelah laga: kartu dicatat di statistik musim dan bisa berujung skorsing, cedera di laga
  * langsung membuatmu absen (laga berikutnya di minggu yang sama juga).
  */
-export function afterGame(career: Career, rec: MatchRecord, rng: Rng, scope: BanScope, row: SeasonStat | undefined, notes?: string[]) {
+export function afterGame(
+  career: Career,
+  rec: MatchRecord,
+  rng: Rng,
+  scope: BanScope,
+  row: SeasonStat | undefined,
+  notes?: string[],
+  player?: Player,
+) {
   if (rec.card) {
     if (row) {
       if (rec.card === 'Y') row.yellow = (row.yellow ?? 0) + 1;
@@ -95,5 +78,5 @@ export function afterGame(career: Career, rec: MatchRecord, rng: Rng, scope: Ban
       });
     }
   }
-  if (rec.injured && !career.injury) injure(career, rng, 'pertandingan', notes);
+  if (rec.injured && !career.injury) injure(career, rng, 'pertandingan', notes, player);
 }

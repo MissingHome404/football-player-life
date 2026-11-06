@@ -458,7 +458,7 @@ export function nationalWeek(
       ...g.extra,
     };
     if (knockout && g.score[0] === g.score[1]) rec.pens = penalties(rng, country, opp, world);
-    afterGame(career, rec, rng, 'nat', addStats(career, rec), notes);
+    afterGame(career, rec, rng, 'nat', addStats(career, rec), notes, p);
     if (rec.minutes > 0) {
       if (team === 'senior') {
         nc.caps++;

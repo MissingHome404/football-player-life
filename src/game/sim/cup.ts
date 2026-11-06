@@ -248,8 +248,8 @@ export function playClubGame(o: {
 }
 
 /** Catat laga klubmu ke statistik musim, lalu kartu dan cedera */
-export function recordClubGame(career: Career, rec: MatchRecord, clubId: string, rng: Rng, notes?: string[]) {
-  afterGame(career, rec, rng, 'club', addStats(career, rec, clubId), notes);
+export function recordClubGame(career: Career, rec: MatchRecord, clubId: string, rng: Rng, notes?: string[], player?: Player) {
+  afterGame(career, rec, rng, 'club', addStats(career, rec, clubId), notes, player);
 }
 
 /** Laga piala klubmu (rotasi pelatih di babak awal) */
@@ -292,7 +292,7 @@ function userTie(
     tie.pens = pens;
     g.rec.pens = home ? pens : [pens[1], pens[0]];
   }
-  recordClubGame(career, g.rec, clubId, rng, notes);
+  recordClubGame(career, g.rec, clubId, rng, notes, p);
   return g;
 }
 

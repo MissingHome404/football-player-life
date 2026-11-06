@@ -13,6 +13,7 @@ import { recentForm } from './match';
 import { squadOf } from './season';
 import { startSpell } from './transfer';
 import { setMate } from './relations';
+import { injuryPlanEvent } from './injury';
 
 export interface EventCtx {
   world: World;
@@ -459,6 +460,8 @@ export const EVENTS: EventDef[] = [
       return 'Kamu memaksakan diri. Semoga tubuhmu kuat.';
     },
   },
+  // rencana pemulihan cedera (pesan dibuat oleh injury.ts, tidak muncul acak)
+  injuryPlanEvent,
 ];
 
 export const EVENT_BY_ID: Record<string, EventDef> = Object.fromEntries(EVENTS.map((e) => [e.id, e]));

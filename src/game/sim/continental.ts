@@ -344,7 +344,7 @@ export function continentalWeek(
     const pending: CupGame[] = [];
     const settle = () => {
       for (const g of pending.splice(0)) {
-        recordClubGame(career, g.rec, myClubId!, rng, notes);
+        recordClubGame(career, g.rec, myClubId!, rng, notes, p);
         // bonus menang untuk pemain yang ikut main
         if (g.rec.minutes > 0 && wage > 0) {
           const won = g.rec.score[0] > g.rec.score[1] || (g.rec.pens && g.rec.pens[0] > g.rec.pens[1]);

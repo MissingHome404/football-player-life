@@ -6,7 +6,7 @@ import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, Playi
 import { Rng, clamp } from '../rng';
 import { simScore, squadOf, topEleven, type WeekMatches } from './season';
 import { FULL, engineAttrs, injuryRisk, minutesPlayed, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type EP, type ETeam } from './engine';
-import { lifeInjuryFactor } from './life';
+import { injuryFactor } from './injury';
 import { shortName } from '../gen/names';
 import { applyBadges } from './badges';
 import { afterGame, cardOf, serveBan } from './discipline';
@@ -189,12 +189,12 @@ export function engineGame(o: {
     formation: o.ours.formation,
   };
   // risiko cedera pemain kita juga dipengaruhi gaya hidup (ahli gizi, fisio, dll.)
-  if (user) user.a.inj = injuryRisk(p) * lifeInjuryFactor(career);
+  if (user) user.a.inj = injuryRisk(p) * injuryFactor(career);
   if (status === 'Cadangan') {
     const a = engineAttrs(p);
     applyBadges(a, career.badges);
     for (const k of ['pace', 'acc', 'sta'] as const) a[k] *= fit;
-    a.inj = injuryRisk(p) * lifeInjuryFactor(career);
+    a.inj = injuryRisk(p) * injuryFactor(career);
     const slot = slotFor(p, o.ours.formation);
     const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a };
     if (rng.chance(0.45)) {
@@ -384,6 +384,6 @@ export function userMatch(
   }
   const rec: MatchRecord = { date, comp, season, team, opponent, opponentId, home, score, status, ...perf, ...extra };
   const row = addStats(career, rec, club?.id);
-  afterGame(career, rec, rng, 'club', row, notes);
+  afterGame(career, rec, rng, 'club', row, notes, p);
   return { rec, sim, engine };
 }
