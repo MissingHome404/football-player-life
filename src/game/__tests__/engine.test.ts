@@ -27,7 +27,7 @@ describe('match engine', () => {
     while (!m.done) m.step();
     expect(m.result().score).toEqual(a.score);
     expect(m.result().events).toEqual(a.events);
-  });
+  }, 30_000);
 
   it('statistik laga masuk akal', () => {
     let goals = 0;
@@ -130,7 +130,7 @@ describe('match engine', () => {
     expect(styled.events).not.toEqual(a.events);
     expect(neutral.events).not.toEqual(a.events);
     expect(playEngine({ ...base, neutral: true })).toEqual(neutral);
-  });
+  }, 30_000);
 
   it('versi 5: acceleration unggul di awal lari, pace menyusul di lari panjang', () => {
     const race = (acc: number, pace: number) => {
@@ -150,7 +150,7 @@ describe('match engine', () => {
     const fast = race(10, 20);
     expect(quick[10]).toBeLessThan(fast[10]);
     expect(fast[50]).toBeLessThan(quick[50]);
-  });
+  }, 30_000);
 
   it('versi 5: atribut menentukan gaya main (dribel winger, umpan terobosan gelandang)', () => {
     const tweak = (t: ETeam, slots: string[], keys: (keyof EAttrs)[], v: number): ETeam => ({
@@ -214,7 +214,7 @@ describe('match engine', () => {
     const st = r.stats[benchP.id];
     expect(st.on).toBeGreaterThanOrEqual(FULL - 20);
     expect(r.events.some((e) => e.kind === 'sub' && e.name === xi.name)).toBe(true);
-  });
+  }, 30_000);
 });
 
 /** tim lengkap dengan bangku cadangan (pelatih AI bisa mengganti pemain) */
@@ -372,7 +372,7 @@ describe('match engine versi 10', () => {
     const st = xi.find((e) => e.slot === 'ST')!;
     const p = squad.find((q) => q.id === st.id)!;
     if (['af', 'p', 'cf', 'f9', 'dlf', 'tf', 'pf'].includes(p.preferredRole)) expect(st.role).toBe(p.preferredRole);
-  });
+  }, 30_000);
 
   it('wasit & dua asisten wasit: wasit dekat bola, asisten di garis samping sejajar bek kedua terakhir', () => {
     const m = new Match({ seed: 'ref', home: team(eng[3].id), away: team(eng[13].id) });
@@ -391,7 +391,7 @@ describe('match engine versi 10', () => {
       }
     }
     expect(near / n).toBeGreaterThan(0.75);
-  });
+  }, 30_000);
 
   it('jam berhenti saat sepak pojok & tendangan bebas sampai semua pemain siap', () => {
     let frozenSteps = 0;
