@@ -3377,12 +3377,13 @@ export function minutesPlayed(st: PStats): number {
   return Math.max(0, (((st.off ?? FULL) - st.on) / FULL) * 90);
 }
 
-function possessionPct(t: [number, number]): [number, number] {
+export function possessionPct(t: [number, number]): [number, number] {
   const home = Math.round((t[0] / (t[0] + t[1] || 1)) * 100);
   return [home, 100 - home];
 }
 
-function rate(b: Body, score: [number, number]): number {
+/** Rating pemain (juga dipakai untuk rating langsung selama laga di layar pertandingan) */
+export function rate(b: Body, score: [number, number]): number {
   const s = b.st;
   const mins = minutesPlayed(s) / 90;
   const my = score[b.side];

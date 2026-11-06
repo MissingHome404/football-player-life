@@ -1,7 +1,7 @@
 // Layar pertandingan 2D. Laga diputar ulang dari input match engine yang sama dengan
 // simulasi mingguan, jadi skor dan statistik di layar identik dengan yang tercatat.
 
-import { SLOT_LABEL } from '../game/sim/formation';
+import { FORMATIONS, SLOT_LABEL, type FormationId, type Slot } from '../game/sim/formation';
 import { ROLES } from '../game/data/roles';
 import { DUTY_LABEL, mentalityLabel } from '../game/sim/tactics';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -14,6 +14,8 @@ import {
   PITCH_H,
   PITCH_W,
   minutesPlayed,
+  possessionPct,
+  rate,
   type Body,
   type EngineInput,
   type EngineResult,
@@ -176,7 +178,7 @@ function MatchViewer({ input }: { input: EngineInput }) {
 
   return (
     <div className="mv" role="dialog" aria-modal="true" aria-label={`${names[0]} lawan ${names[1]}`}>
-      <div className="mv-inner">
+      <div className={`mv-inner ${phase === 'play' ? 'wide' : ''}`}>
         <button className="icon mv-close" onClick={close} aria-label="Tutup layar pertandingan">
           ✕
         </button>
@@ -349,6 +351,7 @@ function Live({
   const [paused, setPaused] = useState(false);
   const [hud, setHud] = useState({ min: "1'", half: 1, score: [0, 0] as [number, number], events: 0, rs: null as string | null });
   const [banner, setBanner] = useState<string | null>(null);
+  const [tab, setTab] = useState<'home' | 'away' | 'stats' | 'events'>(mySide ? 'away' : 'home');
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
   speedRef.current = speed;
@@ -380,7 +383,8 @@ function Live({
       const w = wrap.clientWidth;
       const vertical = w < 560;
       // lapangan dibuat sebesar mungkin supaya jarak antarpemain terasa seperti lapangan 105×68 m sungguhan
-      const maxH = Math.max(300, window.innerHeight * (vertical ? 0.72 : 0.8));
+      // layar lebar: lapangan + papan skor + teks kejadian harus muat tanpa menggulir
+      const maxH = Math.max(300, vertical ? window.innerHeight * 0.72 : Math.min(window.innerHeight * 0.8, window.innerHeight - 150));
       const pad = 6;
       const long = PITCH_W + 2 * EDGE; // ruang untuk gawang & bola yang keluar lapangan
       const short = PITCH_H + 2 * EDGE;
@@ -701,48 +705,267 @@ function Live({
   const feed = match.events
     .map((e) => ({ e, text: SHOWN.has(e.kind) ? eventText(e, names) : null }))
     .filter((x) => x.text)
-    .slice(-5)
     .reverse();
   const progress = Math.min(1, match.t / match.length());
+  const ticker = banner ?? hud.rs ?? feed[0]?.text ?? 'Kick-off!';
 
   return (
-    <div className="mv-live">
-      <Scoreboard names={names} colors={colors} score={hud.score} mySide={mySide}>
-        <span className="mv-clock num">{match.done ? 'Selesai' : hud.min}</span>
-        <span className="muted small">{match.half === 2 ? 'Babak 2' : 'Babak 1'}</span>
-      </Scoreboard>
+    <div className={`mv-live tab-${tab}`}>
+      <div className="mv-top">
+        <Scoreboard names={names} colors={colors} score={hud.score} mySide={mySide}>
+          <span className="mv-clock num">{match.done ? 'Selesai' : hud.min}</span>
+          <span className="muted small">{match.half === 2 ? 'Babak 2' : 'Babak 1'}</span>
+        </Scoreboard>
+        <div className="mv-controls">
+          <button className="chip" onClick={() => setPaused((p) => !p)} aria-pressed={paused}>
+            {paused ? '▶ Lanjut' : '⏸ Jeda'}
+          </button>
+          <div className="mv-speeds" role="group" aria-label="Kecepatan">
+            {SPEEDS.map((s) => (
+              <button key={s} className={`chip ${speed === s ? 'sel' : ''}`} aria-pressed={speed === s} onClick={() => setSpeed(s)}>
+                {s}×
+              </button>
+            ))}
+          </div>
+          <button className="ghost" onClick={onSkip}>
+            Lewati ke akhir
+          </button>
+        </div>
+      </div>
       <div className="mv-progress" aria-hidden>
         <span style={{ width: `${progress * 100}%` }} />
       </div>
-      <div className="mv-pitch" ref={wrapRef}>
-        <canvas ref={canvasRef} role="img" aria-label={`Pertandingan menit ${hud.min.replace("'", '')}, skor ${hud.score[0]}-${hud.score[1]}`} />
-        {banner && <div className="mv-banner">{banner}</div>}
-        {!banner && hud.rs && <div className="mv-restart small">{hud.rs}</div>}
-      </div>
-      <div className="mv-controls">
-        <button className="chip" onClick={() => setPaused((p) => !p)} aria-pressed={paused}>
-          {paused ? '▶ Lanjut' : '⏸ Jeda'}
-        </button>
-        <div className="mv-speeds" role="group" aria-label="Kecepatan">
-          {SPEEDS.map((s) => (
-            <button key={s} className={`chip ${speed === s ? 'sel' : ''}`} aria-pressed={speed === s} onClick={() => setSpeed(s)}>
-              {s}×
+      <div className="mv-board">
+        <div className="mv-center">
+          <div className="mv-pitch" ref={wrapRef}>
+            <canvas ref={canvasRef} role="img" aria-label={`Pertandingan menit ${hud.min.replace("'", '')}, skor ${hud.score[0]}-${hud.score[1]}`} />
+            {banner && <div className="mv-banner">{banner}</div>}
+          </div>
+          <div className={`mv-ticker ${banner ? 'hot' : ''}`} aria-live="polite">
+            {ticker}
+          </div>
+        </div>
+        <div className="mv-tabs" role="tablist" aria-label="Panel pertandingan">
+          {(
+            [
+              ['home', names[0]],
+              ['away', names[1]],
+              ['stats', 'Statistik'],
+              ['events', 'Kejadian'],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} role="tab" aria-selected={tab === k} className={`chip ${tab === k ? 'sel' : ''}`} onClick={() => setTab(k)}>
+              {label}
             </button>
           ))}
         </div>
-        <button className="ghost" onClick={onSkip}>
-          Lewati ke akhir
-        </button>
+        <div className="mv-side left">
+          <TeamSheet match={match} side={0} color={colors[0]} keeper={keepers[0]} tick={hud.min} cls="p-home" />
+          <LiveStats match={match} names={names} colors={colors} tick={hud.min} />
+        </div>
+        <div className="mv-side right">
+          <TeamSheet match={match} side={1} color={colors[1]} keeper={keepers[1]} tick={hud.min} cls="p-away" />
+          <section className="mv-panel p-events">
+            <h3>Kejadian</h3>
+            <ul className="mv-feed small">
+              {feed.map(({ e, text }, i) => (
+                <li key={`${e.t}-${i}`} className={e.kind === 'goal' ? 'goal' : ''}>
+                  <span className="num muted">{minLabel(e)}</span> {text}
+                </li>
+              ))}
+              {!feed.length && <li className="muted">Kick-off!</li>}
+            </ul>
+          </section>
+        </div>
       </div>
-      <ul className="mv-feed small" aria-live="polite">
-        {feed.map(({ e, text }, i) => (
-          <li key={`${e.t}-${i}`} className={e.kind === 'goal' ? 'goal' : ''}>
-            <span className="num muted">{minLabel(e)}</span> {text}
-          </li>
-        ))}
-        {!feed.length && <li className="muted">Kick-off!</li>}
-      </ul>
     </div>
+  );
+}
+
+/** Nama pendek untuk papan formasi: "Haikal", "A. Hamdani" -> "Hamdani" */
+const shortLabel = (name: string) => {
+  const parts = name.split(' ');
+  const last = parts[parts.length - 1];
+  return last.length > 9 ? last.slice(0, 8) + '…' : last;
+};
+
+/**
+ * Titik tiap tempat formasi di papan susunan pemain (lebar 68, tinggi 116, gawang sendiri di bawah).
+ * Tempat dengan kedalaman mirip digabung jadi satu baris, baris dibagi rata dari bawah ke atas,
+ * dan pemain dalam satu baris dibagi rata ke samping supaya nama tidak bertumpuk.
+ */
+function sheetSpots(formation: FormationId): Map<Slot, [number, number]> {
+  const spots = [...FORMATIONS[formation].spots].sort((a, b) => a.base[0] - b.base[0]);
+  const rows: (typeof spots)[] = [];
+  for (const sp of spots) {
+    const row = rows[rows.length - 1];
+    if (row && sp.base[0] - row[0].base[0] <= 7 && sp.slot !== 'GK' && row[0].slot !== 'GK') row.push(sp);
+    else rows.push([sp]);
+  }
+  const out = new Map<Slot, [number, number]>();
+  rows.forEach((row, i) => {
+    const y = 108 - (i / Math.max(1, rows.length - 1)) * 98;
+    const sorted = [...row].sort((a, b) => a.base[1] - b.base[1]);
+    sorted.forEach((sp, j) => {
+      // satu pemain / dua pemain sayap: posisi asli ke samping; duet tengah & tiga ke atas: dibagi rata
+      const pairNear = sorted.length === 2 && Math.abs(sorted[1].base[1] - sorted[0].base[1]) < 30;
+      const x =
+        sorted.length === 1 ? 6 + sp.base[1] * (56 / 68) : pairNear ? (j ? 47 : 21) : sorted.length === 2 ? 6 + sp.base[1] * (56 / 68) : 6 + (j + 0.5) * (56 / sorted.length);
+      out.set(sp.slot, [x, y]);
+    });
+  });
+  return out;
+}
+
+/** Susunan pemain satu tim yang ikut berubah selama laga: formasi, rating langsung, gol, kartu, pergantian */
+function TeamSheet({
+  match,
+  side,
+  color,
+  keeper,
+  tick,
+  cls,
+}: {
+  match: Match;
+  side: 0 | 1;
+  color: string;
+  keeper: string;
+  tick: string;
+  cls: string;
+}) {
+  void tick; // komponen digambar ulang tiap menit laga berubah
+  const team = side ? match.input.away : match.input.home;
+  const formation = team.formation ?? '4-3-3';
+  const onPitch = match.bodies.filter((b) => b.side === side && b.on && !b.leaving);
+  const used = new Set(match.bodies.map((b) => b.p.id));
+  const bench = [...match.bench, ...match.reserves].filter((b) => b.side === side && (!used.has(b.p.id) || b.waiting));
+  const out = match.bodies.filter((b) => b.side === side && (b.st.off !== undefined || b.st.red > 0) && !b.on);
+  const cards = (b: Body) => (b.st.red > 0 ? 'red' : b.st.yellow > 0 ? 'yellow' : null);
+  const spots = useMemo(() => sheetSpots(formation), [formation]);
+  return (
+    <section className={`mv-panel mv-sheet ${cls}`}>
+      <h3>
+        <span className="mv-kit" style={{ background: color }} aria-hidden />
+        <span className="mv-sheet-name">{team.name}</span>
+        <span className="muted small">{formation}</span>
+      </h3>
+      <svg className="mv-formation" viewBox="-2 -2 72 120" role="img" aria-label={`Susunan pemain ${team.name}`}>
+        <rect x="0" y="0" width="68" height="116" rx="1.5" className="fm-grass" />
+        <line x1="0" y1="58" x2="68" y2="58" className="fm-line" />
+        <circle cx="34" cy="58" r="9" className="fm-line" fill="none" />
+        <rect x="14" y="100" width="40" height="16" className="fm-line" fill="none" />
+        <rect x="14" y="0" width="40" height="16" className="fm-line" fill="none" />
+        {onPitch.map((b) => {
+          const [cx, cy] = spots.get(b.p.slot) ?? [34, 58];
+          const fill = b.p.slot === 'GK' ? keeper : color;
+          const light = lum(fill) > 0.6;
+          const r = rate(b, match.score);
+          const card = cards(b);
+          return (
+            <g key={b.p.id} className={b.p.user ? 'mv-me' : ''}>
+              <title>
+                {b.p.name} · {SLOT_LABEL[b.p.slot] ?? b.p.slot}
+                {b.p.role ? ` · ${ROLES[b.p.role]?.name ?? b.p.role}` : ''} · rating {r.toFixed(1)}
+              </title>
+              {b.p.user && <circle cx={cx} cy={cy} r={5.6} className="mv-me-ring" />}
+              <circle cx={cx} cy={cy} r={4.2} fill={fill} stroke={light ? 'rgba(0,0,0,.5)' : 'rgba(255,255,255,.7)'} strokeWidth={0.5} opacity={b.hurt >= 0 ? 0.5 : 1} />
+              <text x={cx} y={cy + 1.5} className="mv-f-num" fill={light ? '#111' : '#fff'}>
+                {b.p.num}
+              </text>
+              {card && <rect x={cx - 6.4} y={cy - 5.2} width={2.4} height={3.4} rx={0.4} fill={card === 'red' ? '#e5484d' : '#f5c542'} />}
+              <rect x={cx + 2.2} y={cy - 7.4} width={6.6} height={3.8} rx={1} className={`mv-f-rt ${r >= 7.5 ? 'hi' : r < 6 ? 'lo' : ''}`} />
+              <text x={cx + 5.5} y={cy - 4.5} className="mv-f-rtt">
+                {r.toFixed(1)}
+              </text>
+              <text x={cx} y={cy + 8.4} className="mv-f-name">
+                {b.st.goals > 0 ? '⚽'.repeat(Math.min(3, b.st.goals)) + ' ' : ''}
+                {shortLabel(b.p.name)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="mv-subs small">
+        {out.length > 0 && (
+          <div>
+            <span className="muted">Keluar: </span>
+            {out.map((b, i) => (
+              <span key={b.p.id} className={b.p.user ? 'me' : ''}>
+                {i > 0 && ', '}
+                {b.st.red > 0 ? '🟥 ' : b.st.injured ? '🚑 ' : '🔻 '}
+                {b.p.num} {shortLabel(b.p.name)} <span className="muted">{rate(b, match.score).toFixed(1)}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        <div>
+          <span className="muted">Cadangan: </span>
+          {bench.length
+            ? bench.map((b, i) => (
+                <span key={b.p.id} className={b.p.user ? 'me' : ''}>
+                  {i > 0 && ', '}
+                  {b.waiting ? '🔺 ' : ''}
+                  {b.p.num} {shortLabel(b.p.name)}
+                </span>
+              ))
+            : <span className="muted">-</span>}
+          <span className="muted"> · pergantian {match.subs[side]}/5</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Statistik laga langsung: angka kedua tim dengan batang perbandingan */
+function LiveStats({ match, names, colors, tick }: { match: Match; names: [string, string]; colors: [string, string]; tick: string }) {
+  void tick;
+  const count = (side: 0 | 1, kind: string) => match.events.filter((e) => e.side === side && e.kind === kind).length;
+  const poss = possessionPct(match.possTime);
+  const rows: [string, number, number, string?][] = [
+    ['Penguasaan bola', poss[0], poss[1], '%'],
+    ['Tembakan', match.shots[0], match.shots[1]],
+    ['Tepat sasaran', match.onTarget[0], match.onTarget[1]],
+    ['Sepak pojok', match.corners[0], match.corners[1]],
+    ['Pelanggaran', match.fouls[0], match.fouls[1]],
+    ['Offside', count(0, 'offside'), count(1, 'offside')],
+    ['Kartu kuning', count(0, 'yellow'), count(1, 'yellow')],
+    ['Kartu merah', count(0, 'red'), count(1, 'red')],
+  ];
+  return (
+    <section className="mv-panel p-stats">
+      <h3>Statistik</h3>
+      <div className="mv-ls-head small">
+        <span>
+          <span className="mv-kit" style={{ background: colors[0] }} aria-hidden /> {names[0]}
+        </span>
+        <span>
+          {names[1]} <span className="mv-kit" style={{ background: colors[1] }} aria-hidden />
+        </span>
+      </div>
+      {rows.map(([label, a, b, unit]) => {
+        const tot = a + b;
+        const pa = tot ? (a / tot) * 100 : 50;
+        return (
+          <div key={label} className="mv-ls-row small">
+            <div className="mv-ls-nums">
+              <b className="num">
+                {a}
+                {unit}
+              </b>
+              <span className="muted">{label}</span>
+              <b className="num">
+                {b}
+                {unit}
+              </b>
+            </div>
+            <div className="mv-ls-bar" aria-hidden>
+              <span className={a >= b && tot ? 'lead' : ''} style={{ width: `${pa}%`, background: colors[0] }} />
+              <span className={b > a ? 'lead' : ''} style={{ width: `${100 - pa}%`, background: colors[1] }} />
+            </div>
+          </div>
+        );
+      })}
+    </section>
   );
 }
 

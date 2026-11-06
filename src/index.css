@@ -704,3 +704,60 @@ input { font: inherit; }
 .tac-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 12px 0 8px; }
 .tac-mine { margin: 4px 0 8px; grid-column: 1 / -1; }
 .tac-mine p { margin: 4px 0; }
+
+/* layar pertandingan: lapangan di tengah, susunan pemain kedua tim di samping */
+.mv-inner.wide { max-width: 1680px; }
+.mv-top { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; margin-right: 44px; margin-bottom: 6px; }
+.mv-top .mv-score { flex: 1 1 360px; margin: 0; }
+.mv-top .mv-controls { margin: 0; }
+.mv-top .mv-controls .ghost { margin-left: 0; }
+.mv-board { display: grid; grid-template-columns: 270px minmax(0, 1fr) 270px; grid-template-areas: 'left center right'; gap: 12px; align-items: start; }
+.mv-center { grid-area: center; min-width: 0; }
+.mv-side { min-width: 0; }
+.mv-side.left { grid-area: left; }
+.mv-side.right { grid-area: right; }
+.mv-tabs { display: none; }
+.mv-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.mv-panel h3 { display: flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); margin-bottom: 6px; }
+.mv-sheet-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-formation { width: 100%; max-width: 300px; display: block; margin: 0 auto; }
+.mv-f-num { font: 700 4.4px 'Barlow Condensed', system-ui, sans-serif; text-anchor: middle; }
+.mv-f-name { font: 600 3.4px 'Barlow', system-ui, sans-serif; fill: #fff; text-anchor: middle; paint-order: stroke; stroke: rgba(0, 0, 0, .65); stroke-width: .9px; }
+.mv-me .mv-f-name { fill: var(--star); }
+.mv-f-rt { fill: #3a3f52; }
+.mv-f-rt.hi { fill: var(--accent-2); }
+.mv-f-rt.lo { fill: #a83a3a; }
+.mv-f-rtt { font: 700 3.1px 'Barlow', system-ui, sans-serif; fill: #fff; text-anchor: middle; }
+.mv-me-ring { fill: none; stroke: var(--star); stroke-width: 1.1; }
+.mv-subs { line-height: 1.55; margin-top: 6px; }
+.mv-subs .me { color: var(--star); font-weight: 700; }
+.mv-ticker { margin-top: 8px; background: rgba(245, 197, 66, .14); border: 1px solid rgba(245, 197, 66, .5); color: var(--text); text-align: center; border-radius: 999px; padding: 7px 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mv-ticker.hot { background: var(--star); color: #1a1406; }
+.mv-ls-head { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+.mv-ls-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-ls-row { margin-bottom: 7px; }
+.mv-ls-nums { display: grid; grid-template-columns: 44px 1fr 44px; align-items: baseline; text-align: center; }
+.mv-ls-nums b:first-child { text-align: left; }
+.mv-ls-nums b:last-child { text-align: right; }
+.mv-ls-bar { display: flex; gap: 2px; height: 5px; margin-top: 2px; }
+.mv-ls-bar span { border-radius: 2px; opacity: .35; }
+.mv-ls-bar span.lead { opacity: 1; }
+.mv-ls-head .mv-kit { width: 10px; height: 10px; vertical-align: -1px; }
+.p-events .mv-feed { max-height: 360px; overflow-y: auto; min-height: 0; }
+/* layar sedang & HP: satu panel samping dengan tab (susunan kandang / tandang / statistik / kejadian) */
+@media (max-width: 1180px) {
+  .mv-board { grid-template-columns: minmax(0, 1fr) 260px; grid-template-areas: none; }
+  .mv-center { grid-area: auto; grid-column: 1; grid-row: 1 / span 2; }
+  .mv-tabs { display: flex; gap: 6px; flex-wrap: wrap; grid-column: 2; grid-row: 1; }
+  .mv-tabs .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mv-side { display: contents; }
+  .mv-panel { grid-column: 2; grid-row: 2; }
+  .mv-live .p-home, .mv-live .p-away, .mv-live .p-stats, .mv-live .p-events { display: none; }
+  .mv-live.tab-home .p-home, .mv-live.tab-away .p-away, .mv-live.tab-stats .p-stats, .mv-live.tab-events .p-events { display: block; }
+}
+@media (max-width: 700px) {
+  .mv-top { margin-right: 40px; }
+  .mv-board { grid-template-columns: minmax(0, 1fr); }
+  .mv-center, .mv-tabs, .mv-panel { grid-column: 1; grid-row: auto; }
+  .mv-tabs .chip { max-width: 46%; }
+}
