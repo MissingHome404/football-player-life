@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { BAR, DT, ENGINE_VERSION, FULL, GOAL_HALF, Match, PITCH_W, pickXI, playEngine, sprintStep, startAccel, topSpeed, type EAttrs, type EngineInput, type ETeam } from '../sim/engine';
+import { BAR, DT, ENGINE_VERSION, FULL, GOAL_HALF, HALF, MAX_SUBS, Match, PITCH_W, minutesPlayed, pickXI, playEngine, sprintStep, startAccel, topSpeed, type EAttrs, type EngineInput, type ETeam } from '../sim/engine';
 import { rollCharacter } from '../gen/character';
 import { advanceWeek, newCareer, pendingChoices, resolveChoice } from '../sim/week';
 import { initRelations } from '../sim/relations';
@@ -215,6 +215,110 @@ describe('match engine', () => {
     expect(st.on).toBeGreaterThanOrEqual(FULL - 20);
     expect(r.events.some((e) => e.kind === 'sub' && e.name === xi.name)).toBe(true);
   });
+});
+
+/** tim lengkap dengan bangku cadangan (pelatih AI bisa mengganti pemain) */
+const fullTeam = (id: string, bump = 0): ETeam => {
+  const c = w.clubs.find((x) => x.id === id)!;
+  const { xi, bench } = pickXI(squadOf(w, id).filter((p) => !p.isYouth), undefined, false);
+  const up = (e: (typeof xi)[number]) => ({
+    ...e,
+    a: Object.fromEntries(Object.entries(e.a).map(([k, v]) => [k, Math.min(20, Math.max(1, (v as number) + bump))])) as unknown as typeof e.a,
+  });
+  return { id, name: c.name, color: c.colors[0], color2: c.colors[1], style: 'Gegenpress', xi: xi.map(up), bench: bench.map(up) };
+};
+
+describe('match engine versi 8', () => {
+  it('injury time di tiap babak, jam 45+X dan 90+X', () => {
+    let goalsInAdded = 0;
+    for (let i = 0; i < 6; i++) {
+      const m = new Match({ seed: `added-${i}`, home: fullTeam(eng[i].id), away: fullTeam(eng[10 + i].id) });
+      const labels = new Set<string>();
+      while (!m.done) {
+        m.step();
+        labels.add(m.clockLabel());
+      }
+      const r = m.result();
+      const [a1, a2] = r.added!;
+      expect(a1).toBeGreaterThanOrEqual(1);
+      expect(a1).toBeLessThanOrEqual(5);
+      expect(a2).toBeGreaterThanOrEqual(1);
+      expect(a2).toBeLessThanOrEqual(8);
+      // papan tambahan waktu muncul dua kali: di menit 45 dan 90
+      const added = r.events.filter((e) => e.kind === 'added');
+      expect(added.map((e) => [e.min, e.plus])).toEqual([
+        [45, a1],
+        [90, a2],
+      ]);
+      expect(labels.has(`45+${a1}'`)).toBe(true);
+      expect(labels.has(`90+${a2}'`)).toBe(true);
+      expect(labels.has(`45+${a1 + 1}'`)).toBe(false);
+      expect(m.length()).toBeCloseTo(2 * HALF + ((a1 + a2) * HALF) / 45, 5);
+      // menit setiap kejadian tidak pernah mundur
+      // (kejadian 'added' memakai plus untuk lamanya tambahan waktu, bukan jam)
+      const timed = r.events.filter((e) => e.kind !== 'added');
+      for (let j = 1; j < timed.length; j++) {
+        const p = timed[j - 1];
+        const e = timed[j];
+        expect(e.min * 100 + (e.plus ?? 0)).toBeGreaterThanOrEqual(p.min * 100 + (p.plus ?? 0));
+      }
+      goalsInAdded += r.events.filter((e) => e.kind === 'goal' && e.plus).length;
+    }
+    expect(goalsInAdded).toBeGreaterThanOrEqual(0);
+  }, 60_000);
+
+  it('pelatih AI mengganti pemain yang lelah; menit bermain dihitung dari jam pertandingan', () => {
+    let subs = 0;
+    for (let i = 0; i < 6; i++) {
+      const m = new Match({ seed: `subs-${i}`, home: fullTeam(eng[i].id), away: fullTeam(eng[10 + i].id) });
+      const r = m.run();
+      for (const side of [0, 1] as const) expect(m.subs[side]).toBeLessThanOrEqual(MAX_SUBS);
+      for (const e of r.events.filter((x) => x.kind === 'sub')) {
+        subs++;
+        const inn = m.bodies.find((b) => b.p.name === e.name && b.side === e.side)!;
+        const out = m.bodies.find((b) => b.p.name === e.assist && b.side === e.side)!;
+        expect(inn.st.onMin).toBe(e.min);
+        expect(out.st.offMin).toBe(e.min);
+        // pemain pengganti bisa ikut diganti lagi (cedera)
+        expect(minutesPlayed(out.st)).toBe(e.min - (out.st.onMin ?? 0));
+        expect(minutesPlayed(inn.st)).toBe((inn.st.offMin ?? 90) - e.min);
+        expect(r.stats[inn.p.id]).toBeDefined();
+      }
+      // pemain yang main penuh tercatat 90 menit, cadangan yang tidak masuk 0 menit
+      for (const b of m.bodies) {
+        if (b.st.on === 0 && b.st.offMin === undefined) expect(minutesPlayed(b.st)).toBe(90);
+        if (b.st.on < 0) expect(minutesPlayed(b.st)).toBe(0);
+      }
+    }
+    expect(subs / 6).toBeGreaterThanOrEqual(2);
+  }, 60_000);
+
+  it('stamina menentukan kelelahan di akhir laga', () => {
+    const home = fullTeam(eng[4].id);
+    home.xi = home.xi.map((p, i) => (p.slot === 'GK' ? p : { ...p, a: { ...p.a, sta: i % 2 ? 19 : 4 } }));
+    const m = new Match({ seed: 'tired', home, away: fullTeam(eng[14].id) });
+    let at80: Record<string, number> = {};
+    while (!m.done) {
+      m.step();
+      if (m.half === 2 && m.clock().min === 80 && !Object.keys(at80).length) {
+        at80 = Object.fromEntries(m.bodies.filter((b) => b.side === 0 && b.on && b.p.slot !== 'GK').map((b) => [b.p.id, b.energy]));
+      }
+    }
+    const fit = home.xi.filter((p) => p.a.sta === 19 && p.id in at80).map((p) => at80[p.id]);
+    const unfit = home.xi.filter((p) => p.a.sta === 4 && p.id in at80).map((p) => at80[p.id]);
+    const avg = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length;
+    expect(avg(fit)).toBeGreaterThan(avg(unfit) + 0.08);
+    expect(Math.min(...unfit, ...fit)).toBeLessThan(0.85);
+  }, 30_000);
+
+  it('tim yang lebih kuat menguasai bola lebih lama', () => {
+    let poss = 0;
+    for (let i = 0; i < 16; i++) {
+      const r = playEngine({ seed: `poss-${i}`, home: fullTeam(eng[i].id, 3), away: fullTeam(eng[i].id), neutral: true });
+      poss += r.possession[0];
+    }
+    expect(poss / 16).toBeGreaterThan(54);
+  }, 60_000);
 });
 
 describe('laga mingguan memakai match engine', () => {

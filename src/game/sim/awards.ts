@@ -17,7 +17,7 @@ import type {
   World,
   WorldRecords,
 } from '../types';
-import { FULL, type EngineInput, type EngineResult } from './engine';
+import { minutesPlayed, type EngineInput, type EngineResult } from './engine';
 import { Rng, clamp } from '../rng';
 import { ageOn } from '../gen/player';
 import { fullName, generateName } from '../gen/names';
@@ -283,7 +283,7 @@ function creditEngine(input: EngineInput, r: EngineResult, squads: Map<string, P
       const p = byId?.get(id) ?? squad.find((q) => q.id === id);
       if (!p) continue;
       const grp = groupOf(p.mainPosition);
-      const long = (st.off ?? FULL) - st.on >= FULL * 0.66;
+      const long = minutesPlayed(st) >= 60;
       credit(p, team.id, st.goals, st.assists, r.ratings[id] ?? 6.5, conceded === 0 && long && (grp === 'GK' || grp === 'DEF') ? 1 : 0);
     }
   }

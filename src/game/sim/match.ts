@@ -5,7 +5,7 @@ import type { Position } from '../data/attributes';
 import type { Career, Club, Competition, MatchRecord, MatchStatus, Player, PlayingStyle, SeasonStat, World } from '../types';
 import { Rng, clamp } from '../rng';
 import { simScore, squadOf, topEleven, type WeekMatches } from './season';
-import { FULL, engineAttrs, injuryRisk, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type EP, type ETeam } from './engine';
+import { FULL, engineAttrs, injuryRisk, minutesPlayed, pickXI, playEngine, slotFor, type EngineInput, type EngineResult, type EP, type ETeam } from './engine';
 import { lifeInjuryFactor } from './life';
 import { shortName } from '../gen/names';
 import { applyBadges } from './badges';
@@ -222,7 +222,7 @@ export function engineGame(o: {
   const us = home ? 0 : 1;
   const score: [number, number] = [r.score[us], r.score[1 - us]];
   const st = r.stats[p.id];
-  const minutes = st ? Math.max(1, Math.round((((st.off ?? FULL) - st.on) / FULL) * 90)) : 0;
+  const minutes = st ? Math.max(1, Math.round(minutesPlayed(st))) : 0;
   const group = GROUP[p.mainPosition];
   if (st && o.feats) {
     const f = (career.feats ??= { long: 0, set: 0, head: 0 });

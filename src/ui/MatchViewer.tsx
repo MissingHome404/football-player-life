@@ -6,14 +6,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from './store';
 import {
   DT,
-  FULL,
   GOAL_HALF,
-  HALF,
   Match,
   NET_DEPTH,
   PITCH_H,
   PITCH_W,
-  minuteOf,
+  minutesPlayed,
   type Body,
   type EngineInput,
   type EngineResult,
@@ -98,12 +96,16 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
       return 'Turun minum';
     case 'full':
       return 'Peluit panjang';
+    case 'added':
+      return `⏱️ Tambahan waktu ${e.plus} menit`;
     default:
       return null;
   }
 }
 
-const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red', 'injury']);
+const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red', 'injury', 'added']);
+/** Menit event: 67' atau 90+3' (event 'added' ditulis di menit 45/90) */
+const minLabel = (e: MatchEvent) => (e.plus && e.kind !== 'added' ? `${e.min}+${e.plus}'` : `${e.min}'`);
 
 const RESTART_TEXT: Record<string, string> = {
   throw: 'Lemparan ke dalam',
@@ -317,7 +319,7 @@ function Live({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [paused, setPaused] = useState(false);
-  const [hud, setHud] = useState({ min: 1, half: 1, score: [0, 0] as [number, number], events: 0, rs: null as string | null });
+  const [hud, setHud] = useState({ min: "1'", half: 1, score: [0, 0] as [number, number], events: 0, rs: null as string | null });
   const [banner, setBanner] = useState<string | null>(null);
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
@@ -576,7 +578,7 @@ function Live({
       drawPitch();
       drawPlayers(Math.min(1, acc / DT));
       setHud((h) => {
-        const min = minuteOf(match.t);
+        const min = match.clockLabel();
         const rs = restartLabel(match, namesRef.current);
         if (h.min === min && h.score[0] === match.score[0] && h.score[1] === match.score[1] && h.events === match.events.length && h.half === match.half && h.rs === rs)
           return h;
@@ -616,19 +618,19 @@ function Live({
     .filter((x) => x.text)
     .slice(-5)
     .reverse();
-  const progress = Math.min(1, match.t / FULL);
+  const progress = Math.min(1, match.t / match.length());
 
   return (
     <div className="mv-live">
       <Scoreboard names={names} colors={colors} score={hud.score} mySide={mySide}>
-        <span className="mv-clock num">{match.done ? 'Selesai' : `${hud.min}'`}</span>
-        <span className="muted small">{match.t >= HALF ? 'Babak 2' : 'Babak 1'}</span>
+        <span className="mv-clock num">{match.done ? 'Selesai' : hud.min}</span>
+        <span className="muted small">{match.half === 2 ? 'Babak 2' : 'Babak 1'}</span>
       </Scoreboard>
       <div className="mv-progress" aria-hidden>
         <span style={{ width: `${progress * 100}%` }} />
       </div>
       <div className="mv-pitch" ref={wrapRef}>
-        <canvas ref={canvasRef} role="img" aria-label={`Pertandingan menit ${hud.min}, skor ${hud.score[0]}-${hud.score[1]}`} />
+        <canvas ref={canvasRef} role="img" aria-label={`Pertandingan menit ${hud.min.replace("'", '')}, skor ${hud.score[0]}-${hud.score[1]}`} />
         {banner && <div className="mv-banner">{banner}</div>}
         {!banner && hud.rs && <div className="mv-restart small">{hud.rs}</div>}
       </div>
@@ -650,7 +652,7 @@ function Live({
       <ul className="mv-feed small" aria-live="polite">
         {feed.map(({ e, text }, i) => (
           <li key={`${e.t}-${i}`} className={e.kind === 'goal' ? 'goal' : ''}>
-            <span className="num muted">{e.min}'</span> {text}
+            <span className="num muted">{minLabel(e)}</span> {text}
           </li>
         ))}
         {!feed.length && <li className="muted">Kick-off!</li>}
@@ -721,7 +723,7 @@ function Summary({
   };
   const st = meId ? result.stats[meId] : undefined;
   const rating = meId ? result.ratings[meId] : undefined;
-  const mins = st ? Math.max(1, Math.round((((st.off ?? FULL) - st.on) / FULL) * 90)) : 0;
+  const mins = st ? Math.max(1, Math.round(minutesPlayed(st))) : 0;
   return (
     <div className="mv-end">
       <Scoreboard names={names} colors={colors} score={result.score} mySide={mySide}>
@@ -735,7 +737,7 @@ function Summary({
               .map((g, i) => (
                 <li key={i}>
                   {g.name}
-                  {g.og && ' (bd)'} <span className="muted num">{g.min}'</span>
+                  {g.og && ' (bd)'} <span className="muted num">{minLabel(g)}</span>
                 </li>
               ))}
           </ul>

@@ -18,6 +18,8 @@ describe('timnas & turnamen', () => {
   it('Piala Dunia 32 tim: grup, babak gugur sampai final, pemain bintang dipanggil', () => {
     const roll = rollCharacter(w0, { countryId: 'ENG', position: 'ST' }, 'NAT-WC');
     roll.player.ca = 195;
+    // jangan sampai cedera di laga pertama (yang diuji: dipanggil dan dimainkan)
+    roll.player.hidden['Injury Proneness'] = 1;
     let world: World = { ...w0, players: [...w0.players, roll.player] };
     const career: Career = newCareer(roll, 0, 'test', '2030-05-25');
     career.rel = initRelations(world, career, roll.player);
