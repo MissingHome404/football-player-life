@@ -60,7 +60,7 @@ export type View =
   | { kind: 'search' }
   | { kind: 'comps' }
   | { kind: 'settings' }
-  | { kind: 'editor' }
+  | { kind: 'editor'; playerId?: string }
   | { kind: 'continent'; confed: 'UEFA' | 'AFC' }
   | { kind: 'names'; edit?: { kind: RenameKind; id: string } };
 

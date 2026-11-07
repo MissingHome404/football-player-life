@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { useGame } from './store';
 import { Badge, Stars, caStars } from './components';
 import { PageTitle } from './CareerHome';
-import { NationalPanel, NatCompetitions } from './NationalPanel';
+import { CountryLink, NationalPanel, NatCompetitions } from './NationalPanel';
 import { COUNTRIES, COUNTRY_BY_ID, flagOf } from '../game/data/countries';
 import { ageOn } from '../game/gen/player';
 import { fullName } from '../game/gen/names';
@@ -196,10 +196,10 @@ export function NationalView({ countryId }: { countryId?: string }) {
                 <tr key={h.id} className={h.champion === country || h.runnerUp === country ? 'mine' : ''}>
                   <td className="left">{h.name}</td>
                   <td className="left strong">
-                    {flagOf(h.champion)} {countryName(h.champion)}
+                    <CountryLink id={h.champion} />
                   </td>
                   <td className="left">
-                    {flagOf(h.runnerUp)} {countryName(h.runnerUp)}
+                    <CountryLink id={h.runnerUp} />
                   </td>
                 </tr>
               ))}

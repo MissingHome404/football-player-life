@@ -38,6 +38,18 @@ function eventLabel(id: string | undefined): string {
 
 const Flag = ({ id }: { id: string }) => <span aria-hidden>{flagOf(id)} </span>;
 
+/** Nama negara yang bisa diklik: membuka halaman timnas negara itu (skuad di bagian atas) */
+export function CountryLink({ id, flagAfter }: { id: string; flagAfter?: boolean }) {
+  const go = useGame((s) => s.go);
+  return (
+    <button className="link nt-country" onClick={() => go({ kind: 'national', countryId: id })} title={`Lihat skuad timnas ${countryName(id)}`}>
+      {!flagAfter && <Flag id={id} />}
+      {countryName(id)}
+      {flagAfter && <span aria-hidden> {flagOf(id)}</span>}
+    </button>
+  );
+}
+
 export function NationalPanel() {
   const career = useGame((s) => s.career)!;
   const world = useGame((s) => s.world)!;
@@ -162,8 +174,7 @@ export function NatCompetitions({ country }: { country: string }) {
                     <tr key={id} className={`${id === country ? 'mine' : ''} ${i === slots - 1 ? 'cut' : ''}`}>
                       <td className="num">{i + 1}</td>
                       <td className="left">
-                        <Flag id={id} />
-                        {countryName(id)}
+                        <CountryLink id={id} />
                       </td>
                       <td className="num">{row.p}</td>
                       <td className="num">
@@ -241,8 +252,7 @@ function TournamentView({ t, mine }: { t: Tournament; mine: string }) {
               {groupTable(t, gi).map(({ id, row }, i) => (
                 <tr key={id} className={`${id === mine ? 'mine' : ''} ${i === 1 ? 'cut' : ''}`}>
                   <td className="left">
-                    <Flag id={id} />
-                    {countryName(id)}
+                    <CountryLink id={id} />
                   </td>
                   <td className="num">{row.p}</td>
                   <td className="num">{row.gf - row.ga}</td>
@@ -264,12 +274,11 @@ function TournamentView({ t, mine }: { t: Tournament; mine: string }) {
               .map((f, i) => (
                 <li key={i} className={f.home === mine || f.away === mine ? 'mine' : ''}>
                   <span>
-                    <Flag id={f.home} />
-                    {countryName(f.home)}
+                    <CountryLink id={f.home} />
                   </span>
                   <Score f={f} />
                   <span className="right">
-                    {countryName(f.away)} <Flag id={f.away} />
+                    <CountryLink id={f.away} flagAfter />
                   </span>
                 </li>
               ))}

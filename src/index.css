@@ -416,6 +416,14 @@ input { font: inherit; }
 .editor-grid label { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
 .editor-grid input[type=number] { width: 64px; }
 .editor-warn { border-left: 3px solid var(--star); padding: 6px 10px; }
+.editor-grid input[type=number].ed-money { width: 110px; }
+.editor-grid .ed-pick { grid-column: span 2; }
+.editor-grid .ed-pick select, .editor-grid .ed-pick input { min-width: 0; max-width: 70%; }
+.editor-grid .ed-wide { grid-column: 1 / -1; justify-content: flex-start; }
+.editor-grid .ed-wide select { max-width: 100%; min-width: 0; flex: 1; }
+.ed-current { display: flex; justify-content: flex-start; align-items: center; gap: 10px; margin: 4px 0 10px; text-align: left; }
+.ed-current .badge { flex: none; margin: 0; }
+@media (max-width: 520px) { .editor-grid .ed-pick { grid-column: 1 / -1; } }
 .tr-history { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
 .tr-history li { display: grid; grid-template-columns: 112px 1fr auto; gap: 8px; align-items: center; font-size: 14px; }
 
@@ -568,6 +576,9 @@ input { font: inherit; }
 .nt-ko li { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .nt-ko li .right { text-align: right; }
 .nt-ko li.mine { background: rgba(63, 191, 127, .12); }
+.link.nt-country { padding: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.link.nt-country:hover { color: var(--accent); text-decoration: underline; }
+.nt-table tr.mine .link.nt-country { font-weight: 700; }
 .nt-hist { margin-top: 8px; }
 .lm-pens { display: block; text-align: center; }
 

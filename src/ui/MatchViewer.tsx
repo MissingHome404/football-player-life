@@ -222,6 +222,7 @@ function MatchViewer({ input }: { input: EngineInput }) {
         )}
         {phase === 'end' && result && (
           <Summary
+            match={match}
             result={result}
             names={names}
             colors={colors}
@@ -843,29 +844,75 @@ const shortLabel = (name: string) => {
   return last.length > 9 ? last.slice(0, 8) + '…' : last;
 };
 
+/** Baris formasi dari belakang ke depan: "5-3-2" -> [5, 3, 2] (tanpa kiper) */
+function formationRows(id: string, field: readonly Spot[]): Spot[][] | null {
+  const counts = id.split('-').map(Number);
+  if (!counts.every((n) => Number.isInteger(n) && n > 0) || counts.reduce((a, b) => a + b, 0) !== field.length) return null;
+  const rows: Spot[][] = [];
+  let k = 0;
+  for (const n of counts) {
+    rows.push(field.slice(k, k + n));
+    k += n;
+  }
+  return rows;
+}
+
+/**
+ * Geser naik/turun pemain dalam satu baris sesuai kedalaman aslinya. Baris lima pemain memakai tiga
+ * tingkat (mis. wing back lebih maju, bek tengah paling dalam) supaya nama yang berdekatan tidak bertumpuk.
+ */
+function rowShift(row: readonly Spot[], j: number, depth: number): number {
+  const sp = row[j];
+  if (sp.slot === 'GK') return 0;
+  if (row.length < 5) return Math.max(-4, Math.min(4, -(sp.base[0] - depth) * 0.5));
+  const levels = [...new Set(row.map((r) => r.base[0]))].sort((a, b) => a - b);
+  if (levels.length < 2) return j % 2 ? 3 : -3;
+  return 6 - (12 * levels.indexOf(sp.base[0])) / (levels.length - 1);
+}
+
 /**
  * Titik tiap tempat formasi di papan susunan pemain (lebar 68, tinggi 116, gawang sendiri di bawah).
- * Tempat dengan kedalaman mirip digabung jadi satu baris, baris dibagi rata dari bawah ke atas,
- * dan pemain dalam satu baris dibagi rata ke samping supaya nama tidak bertumpuk.
+ * Baris mengikuti angka formasi (5-3-2 = lima bek, tiga gelandang, dua striker), baris dibagi rata
+ * dari bawah ke atas, dan pemain dalam satu baris dibagi rata ke samping supaya nama tidak bertumpuk.
+ * Pemain yang posisi dasarnya lebih maju (mis. wing back) digambar sedikit lebih tinggi.
  */
-function sheetSpots(shape: readonly Spot[]): Map<Slot, [number, number]> {
-  const spots = [...shape].sort((a, b) => a.base[0] - b.base[0]);
-  const rows: (typeof spots)[] = [];
-  for (const sp of spots) {
-    const row = rows[rows.length - 1];
-    if (row && sp.base[0] - row[0].base[0] <= 7 && sp.slot !== 'GK' && row[0].slot !== 'GK') row.push(sp);
-    else rows.push([sp]);
+function sheetSpots(id: string, shape: readonly Spot[]): Map<Slot, [number, number]> {
+  const gk = shape.filter((sp) => sp.slot === 'GK');
+  const field = shape.filter((sp) => sp.slot !== 'GK').sort((a, b) => a.base[0] - b.base[0]);
+  let lines = formationRows(id, field);
+  if (!lines) {
+    // bentuk tanpa nama formasi yang cocok: gabungkan tempat dengan kedalaman mirip
+    lines = [];
+    for (const sp of field) {
+      const row = lines[lines.length - 1];
+      if (row && sp.base[0] - row[0].base[0] <= 7) row.push(sp);
+      else lines.push([sp]);
+    }
   }
+  const rows = gk.length ? [gk, ...lines] : lines;
   const out = new Map<Slot, [number, number]>();
   rows.forEach((row, i) => {
     const y = 108 - (i / Math.max(1, rows.length - 1)) * 98;
     const sorted = [...row].sort((a, b) => a.base[1] - b.base[1]);
+    const depth = sorted.reduce((n, sp) => n + sp.base[0], 0) / sorted.length;
+    const n = sorted.length;
     sorted.forEach((sp, j) => {
-      // satu pemain / dua pemain sayap: posisi asli ke samping; duet tengah & tiga ke atas: dibagi rata
-      const pairNear = sorted.length === 2 && Math.abs(sorted[1].base[1] - sorted[0].base[1]) < 30;
+      // satu pemain / dua pemain sayap: posisi asli ke samping; duet tengah: rapat di tengah;
+      // tiga ke atas: dibagi rata (lima pemain memakai hampir seluruh lebar papan)
+      const pairNear = n === 2 && Math.abs(sorted[1].base[1] - sorted[0].base[1]) < 30;
       const x =
-        sorted.length === 1 ? 6 + sp.base[1] * (56 / 68) : pairNear ? (j ? 47 : 21) : sorted.length === 2 ? 6 + sp.base[1] * (56 / 68) : 6 + (j + 0.5) * (56 / sorted.length);
-      out.set(sp.slot, [x, y]);
+        n === 1
+          ? 6 + sp.base[1] * (56 / 68)
+          : pairNear
+            ? j
+              ? 47
+              : 21
+            : n === 2
+              ? 6 + sp.base[1] * (56 / 68)
+              : n >= 5
+                ? 5 + j * (58 / (n - 1))
+                : 6 + (j + 0.5) * (56 / n);
+      out.set(sp.slot, [x, y + rowShift(sorted, j, depth)]);
     });
   });
   return out;
@@ -897,7 +944,7 @@ function TeamSheet({
   const bench = [...match.bench, ...match.reserves].filter((b) => b.side === side && (!used.has(b.p.id) || b.waiting));
   const out = match.bodies.filter((b) => b.side === side && (b.st.off !== undefined || b.st.red > 0) && !b.on);
   const cards = (b: Body) => (b.st.red > 0 ? 'red' : b.st.yellow > 0 ? 'yellow' : null);
-  const spots = useMemo(() => sheetSpots(shape.spots), [shape.spots]);
+  const spots = useMemo(() => sheetSpots(formation, shape.spots), [formation, shape.spots]);
   return (
     <section className={`mv-panel mv-sheet ${cls}`}>
       <h3>
@@ -917,6 +964,8 @@ function TeamSheet({
           const light = lum(fill) > 0.6;
           const r = rate(b, match.score);
           const card = cards(b);
+          // pemain di tepi kanan papan: rating & kartu dipindah ke sisi kiri supaya tidak terpotong
+          const flip = cx > 59;
           return (
             <g key={b.p.id} className={b.p.user ? 'mv-me' : ''}>
               <title>
@@ -930,12 +979,12 @@ function TeamSheet({
               <text x={cx} y={cy + 1.5} className="mv-f-num" fill={light ? '#111' : '#fff'}>
                 {b.p.num}
               </text>
-              {card && <rect x={cx - 6.4} y={cy - 5.2} width={2.4} height={3.4} rx={0.4} fill={card === 'red' ? '#e5484d' : '#f5c542'} />}
-              <rect x={cx + 2.2} y={cy - 7.4} width={6.6} height={3.8} rx={1} className={`mv-f-rt ${r >= 7.5 ? 'hi' : r < 6 ? 'lo' : ''}`} />
-              <text x={cx + 5.5} y={cy - 4.5} className="mv-f-rtt">
+              {card && <rect x={flip ? cx + 4 : cx - 6.4} y={cy - 5.2} width={2.4} height={3.4} rx={0.4} fill={card === 'red' ? '#e5484d' : '#f5c542'} />}
+              <rect x={flip ? cx - 8.8 : cx + 2.2} y={cy - 7.4} width={6.6} height={3.8} rx={1} className={`mv-f-rt ${r >= 7.5 ? 'hi' : r < 6 ? 'lo' : ''}`} />
+              <text x={flip ? cx - 5.5 : cx + 5.5} y={cy - 4.5} className="mv-f-rtt">
                 {r.toFixed(1)}
               </text>
-              <text x={cx} y={cy + 8.4} className="mv-f-name">
+              <text x={Math.max(8, Math.min(60, cx))} y={cy + 8.4} className="mv-f-name">
                 {b.st.goals > 0 ? '⚽'.repeat(Math.min(3, b.st.goals)) + ' ' : ''}
                 {shortLabel(b.p.name)}
                 {b.st.assists > 0 ? ' ' + '🅰️'.repeat(Math.min(3, b.st.assists)) : ''}
@@ -977,21 +1026,44 @@ function TeamSheet({
   );
 }
 
+interface StatRow {
+  label: string;
+  v: [number, number];
+  unit?: string;
+  /** teks pengganti angka, mis. "312/380" untuk umpan sukses / percobaan */
+  text?: [string, string];
+}
+
+/** Statistik kedua tim dari laga (dipakai selama laga dan di ringkasan akhir) */
+function matchStatRows(match: Match): StatRow[] {
+  const both = (f: (side: 0 | 1) => number): [number, number] => [f(0), f(1)];
+  const sum = (key: 'passes' | 'passesOk' | 'tackles' | 'interceptions') =>
+    both((side) => match.bodies.reduce((n, b) => (b.side === side ? n + b.st[key] : n), 0));
+  const count = (kind: string) => both((side) => match.events.filter((e) => e.side === side && e.kind === kind).length);
+  const passes = sum('passes');
+  const ok = sum('passesOk');
+  return [
+    { label: 'Penguasaan bola', v: possessionPct(match.possTime), unit: '%' },
+    { label: 'Tembakan', v: match.shots },
+    { label: 'Tepat sasaran', v: match.onTarget },
+    { label: 'Umpan sukses / percobaan', v: ok, text: [`${ok[0]}/${passes[0]}`, `${ok[1]}/${passes[1]}`] },
+    { label: 'Akurasi umpan', v: both((side) => (passes[side] ? Math.round((ok[side] / passes[side]) * 100) : 0)), unit: '%' },
+    { label: 'Tekel', v: sum('tackles') },
+    { label: 'Intersepsi', v: sum('interceptions') },
+    { label: 'Sepak pojok', v: match.corners },
+    { label: 'Pelanggaran', v: match.fouls },
+    { label: 'Offside', v: count('offside') },
+    { label: 'Kartu kuning', v: count('yellow') },
+    { label: 'Kartu merah', v: count('red') },
+  ];
+}
+
+const statText = (r: StatRow, side: 0 | 1) => r.text?.[side] ?? `${r.v[side]}${r.unit ?? ''}`;
+
 /** Statistik laga langsung: angka kedua tim dengan batang perbandingan */
 function LiveStats({ match, names, colors, tick }: { match: Match; names: [string, string]; colors: [string, string]; tick: string }) {
   void tick;
-  const count = (side: 0 | 1, kind: string) => match.events.filter((e) => e.side === side && e.kind === kind).length;
-  const poss = possessionPct(match.possTime);
-  const rows: [string, number, number, string?][] = [
-    ['Penguasaan bola', poss[0], poss[1], '%'],
-    ['Tembakan', match.shots[0], match.shots[1]],
-    ['Tepat sasaran', match.onTarget[0], match.onTarget[1]],
-    ['Sepak pojok', match.corners[0], match.corners[1]],
-    ['Pelanggaran', match.fouls[0], match.fouls[1]],
-    ['Offside', count(0, 'offside'), count(1, 'offside')],
-    ['Kartu kuning', count(0, 'yellow'), count(1, 'yellow')],
-    ['Kartu merah', count(0, 'red'), count(1, 'red')],
-  ];
+  const rows = matchStatRows(match);
   return (
     <section className="mv-panel p-stats">
       <h3>Statistik</h3>
@@ -1003,21 +1075,16 @@ function LiveStats({ match, names, colors, tick }: { match: Match; names: [strin
           {names[1]} <span className="mv-kit" style={{ background: colors[1] }} aria-hidden />
         </span>
       </div>
-      {rows.map(([label, a, b, unit]) => {
+      {rows.map((r) => {
+        const [a, b] = r.v;
         const tot = a + b;
         const pa = tot ? (a / tot) * 100 : 50;
         return (
-          <div key={label} className="mv-ls-row small">
+          <div key={r.label} className="mv-ls-row small">
             <div className="mv-ls-nums">
-              <b className="num">
-                {a}
-                {unit}
-              </b>
-              <span className="muted">{label}</span>
-              <b className="num">
-                {b}
-                {unit}
-              </b>
+              <b className="num">{statText(r, 0)}</b>
+              <span className="muted">{r.label}</span>
+              <b className="num">{statText(r, 1)}</b>
             </div>
             <div className="mv-ls-bar" aria-hidden>
               <span className={a >= b && tot ? 'lead' : ''} style={{ width: `${pa}%`, background: colors[0] }} />
@@ -1066,6 +1133,7 @@ function Scoreboard({
 // --- ringkasan akhir ------------------------------------------------------------------
 
 function Summary({
+  match,
   result,
   names,
   colors,
@@ -1074,6 +1142,7 @@ function Summary({
   onReplay,
   onClose,
 }: {
+  match: Match;
   result: EngineResult;
   names: [string, string];
   colors: [string, string];
@@ -1085,11 +1154,7 @@ function Summary({
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => closeRef.current?.focus(), []);
   const goals = result.events.filter((e) => e.kind === 'goal');
-  const cards = (side: 0 | 1) => {
-    const y = result.events.filter((e) => e.side === side && e.kind === 'yellow').length;
-    const r = result.events.filter((e) => e.side === side && e.kind === 'red').length;
-    return `🟨 ${y}${r ? ` 🟥 ${r}` : ''}`;
-  };
+  const stats = useMemo(() => matchStatRows(match), [match]);
   const st = meId ? result.stats[meId] : undefined;
   const rating = meId ? result.ratings[meId] : undefined;
   const mins = st ? Math.max(1, Math.round(minutesPlayed(st))) : 0;
@@ -1142,40 +1207,13 @@ function Summary({
           <h3>Statistik laga</h3>
           <table className="mv-stats small">
             <tbody>
-              <tr>
-                <td className="num">{result.possession[0]}%</td>
-                <th>Penguasaan bola</th>
-                <td className="num">{result.possession[1]}%</td>
-              </tr>
-              <tr>
-                <td className="num">{result.shots[0]}</td>
-                <th>Tembakan</th>
-                <td className="num">{result.shots[1]}</td>
-              </tr>
-              <tr>
-                <td className="num">{result.onTarget[0]}</td>
-                <th>Tepat sasaran</th>
-                <td className="num">{result.onTarget[1]}</td>
-              </tr>
-              {result.corners && (
-                <tr>
-                  <td className="num">{result.corners[0]}</td>
-                  <th>Sepak pojok</th>
-                  <td className="num">{result.corners[1]}</td>
+              {stats.map((r) => (
+                <tr key={r.label}>
+                  <td className="num">{statText(r, 0)}</td>
+                  <th>{r.label}</th>
+                  <td className="num">{statText(r, 1)}</td>
                 </tr>
-              )}
-              {result.fouls && (
-                <tr>
-                  <td className="num">{result.fouls[0]}</td>
-                  <th>Pelanggaran</th>
-                  <td className="num">{result.fouls[1]}</td>
-                </tr>
-              )}
-              <tr>
-                <td className="num">{cards(0)}</td>
-                <th>Kartu</th>
-                <td className="num">{cards(1)}</td>
-              </tr>
+              ))}
             </tbody>
           </table>
         </section>

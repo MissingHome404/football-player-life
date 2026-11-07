@@ -143,7 +143,7 @@ describe('editor in-game', () => {
     const { world, career, p } = start('E1');
     const d = draftOf(career, p);
     d.attrs.technical.Finishing = 20;
-    d.money = 123456;
+    d.career!.money = 123456;
     d.contract!.wage = 5000;
     d.contract!.bonus.goal = 999;
     const r = applyEditor(world, career, d);
@@ -154,6 +154,47 @@ describe('editor in-game', () => {
     expect(r.career.money).toBe(123456);
     expect(r.career.edited).toBe(true);
     expect(me.pa).toBeGreaterThanOrEqual(me.ca);
+  });
+
+  it('bisa mengedit pemain lain: atribut, posisi utama, umur, klub, dan kontrak', () => {
+    const { world, career, p } = start('E2');
+    const other = world.players.find((x) => !x.isUser && x.contract && x.contract.clubId !== club.id && x.mainPosition === 'MC')!;
+    const d = draftOf(career, other);
+    expect(d.career).toBeNull();
+    d.attrs.technical.Passing = 20;
+    d.mainPosition = 'ST';
+    d.birthDate = '2006-01-15';
+    d.nationalityId = 'IDN';
+    d.contract!.clubId = club.id;
+    d.contract!.wage = 7777;
+    const r = applyEditor(world, career, d);
+    const o = r.world.players.find((x) => x.id === other.id)!;
+    expect(o.technical.Passing).toBe(20);
+    expect(o.mainPosition).toBe('ST');
+    expect(o.positions.ST).toBe(20);
+    expect(POSITION_ROLES.ST).toContain(o.preferredRole);
+    expect(o.birthDate).toBe('2006-01-15');
+    expect(o.nationalityId).toBe('IDN');
+    expect(o.contract!.clubId).toBe(club.id);
+    expect(o.contract!.wagePerWeek).toBe(7777);
+    // data karier kita tidak berubah, tapi karier tetap ditandai diedit
+    expect(r.career.money).toBe(career.money);
+    expect(r.career.edited).toBe(true);
+    expect(r.world.players.find((x) => x.id === p.id)).toEqual(p);
+  });
+
+  it('pemain lain bisa dilepas jadi tanpa klub, klub pemain kita tidak bisa diganti lewat editor', () => {
+    const { world, career, p } = start('E3');
+    const other = world.players.find((x) => !x.isUser && x.contract)!;
+    const d = draftOf(career, other);
+    d.contract!.clubId = null;
+    const r = applyEditor(world, career, d);
+    expect(r.world.players.find((x) => x.id === other.id)!.contract).toBeNull();
+
+    const mine = draftOf(career, p);
+    mine.contract!.clubId = other.contract!.clubId;
+    const r2 = applyEditor(world, career, mine);
+    expect(r2.world.players.find((x) => x.id === p.id)!.contract!.clubId).toBe(club.id);
   });
 });
 

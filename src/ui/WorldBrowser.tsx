@@ -176,7 +176,7 @@ export function WorldBrowser() {
           {k === 'search' && <SearchView />}
           {k === 'comps' && <CompetitionsView myLeague={myLeague} />}
           {k === 'settings' && <SettingsView />}
-          {k === 'editor' && career && <EditorView />}
+          {k === 'editor' && career && <EditorView playerId={view.playerId} />}
           {k === 'league' && <LeagueView key={view.leagueId} leagueId={view.leagueId} tab={view.tab} />}
           {k === 'club' && <ClubView key={view.clubId} clubId={view.clubId} />}
           {k === 'player' && <PlayerView key={view.playerId} playerId={view.playerId} />}
@@ -770,6 +770,11 @@ function PlayerView({ playerId }: { playerId: string }) {
           <div>
             <h1>
               {fullName(p)} <RenameButton kind="pemain" id={p.id} />
+              {career && !career.retired && (
+                <button className="rename-btn" title="Edit pemain di editor in-game" aria-label="Edit pemain di editor in-game" onClick={() => go({ kind: 'editor', playerId: p.id })}>
+                  🛠️
+                </button>
+              )}
             </h1>
             <div className="small">
               {POSITION_LABEL[p.mainPosition]} ({ROLES[p.preferredRole].name}) · {age} tahun ·{' '}
