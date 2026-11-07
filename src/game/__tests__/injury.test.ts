@@ -151,12 +151,14 @@ describe('sifat bawaan di match engine', () => {
     return { id: id + JSON.stringify(a), name: c.name, color: c.colors[0], color2: c.colors[1], style: 'Wing Play', xi: xi.map((e) => ({ ...e, a: { ...e.a, ...a } })) };
   };
 
-  it('tim jangkung menang lebih banyak duel udara dan mencetak lebih banyak gol sundulan', () => {
+  it('tim jangkung menang lebih banyak duel udara dan mencetak lebih banyak gol sundulan', async () => {
     // [jangkung, pendek]
     const head = [0, 0];
     const aerial = [0, 0];
     // cukup banyak laga supaya keberuntungan tidak menentukan (gol sundulan jarang); tim jangkung bergantian sisi
     for (let i = 0; i < 96; i++) {
+      // jeda ke event loop supaya worker vitest tidak terblokir terlalu lama di CI
+      if (i % 8 === 0) await new Promise((r) => setTimeout(r, 0));
       const id = eng[i % eng.length].id;
       const tallHome = i % 2 === 0;
       const tall = team(id, { hgt: 194 });
