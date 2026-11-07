@@ -57,11 +57,20 @@ export interface RoleK {
    * - berdiri sedikit di belakang garis menyapu bola terobosan (cover, libero)
    */
   step: number;
+  /** tanpa bola (v16), 0..1: menutup jalur umpan di tengah (gelandang) / membayangi gelandang bertahan lawan (penyerang) */
+  screen: number;
+  /** 0..1: mengawal pelari lawan di sisinya sampai ke belakang */
+  track: number;
+  /** 0..1: tetap di depan menunggu serangan balik */
+  outlet: number;
+  /** 0..1: bek sayap tetap melebar menjaga sisi lapangan (tidak merapat ke bek tengah) */
+  wideCover: number;
 }
 
 const N: RoleK = {
   up: 0, wide: 0, drop: 0, box: 0, runs: 1, press: 1, back: 1, hold: 1, carry: 0, takeOn: 0, shoot: 0, long: 0,
   cross: 0, create: 0, safe: 0, direct: 0, clear: 0, cutIn: 0, target: 0, roam: 0, oneTwo: 0, tackle: 0, step: 0,
+  screen: 0, track: 0, outlet: 0, wideCover: 0,
 };
 const k = (o: Partial<RoleK>): RoleK => ({ ...N, ...o });
 
@@ -187,11 +196,111 @@ function add(rk: RoleK, d: Partial<RoleK>): RoleK {
 }
 
 /**
- * Gaya main lengkap seorang pemain di lapangan: peran + tugas dari pelatih, ditambah kebiasaan pribadinya.
+ * Peran tanpa bola (ala FM26), terpisah dari peran saat menguasai bola:
+ * - bek tengah: jaga garis / stopper / menyapu (cover)
+ * - bek sayap: jaga garis / jaga sayap / menekan
+ * - gelandang & penyerang: menekan / menutup jalur / mengawal mundur / tetap di depan
+ */
+export type OopRole = 'line' | 'stop' | 'cover' | 'wide' | 'press' | 'screen' | 'track' | 'outlet';
+export const OOP_LABEL: Record<OopRole, string> = {
+  line: 'Jaga garis',
+  stop: 'Stopper',
+  cover: 'Menyapu',
+  wide: 'Jaga sayap',
+  press: 'Menekan',
+  screen: 'Menutup jalur',
+  track: 'Mengawal mundur',
+  outlet: 'Tetap di depan',
+};
+export const OOP_DESC: Record<OopRole, string> = {
+  line: 'Bertahan sejajar rekan di lini belakang.',
+  stop: 'Keluar dari garis menempel penyerang yang turun menjemput bola.',
+  cover: 'Berdiri sedikit di belakang garis, menyapu bola terobosan.',
+  wide: 'Tetap melebar menjaga sisi lapangan dari pemain sayap lawan.',
+  press: 'Keluar menekan pembawa bola lebih cepat dan lebih jauh.',
+  screen: 'Menjaga posisi di tengah dan menutup jalur umpan ke depan.',
+  track: 'Mengawal pelari lawan di sisinya sampai ke belakang.',
+  outlet: 'Tidak ikut turun jauh; menunggu di depan untuk serangan balik.',
+};
+
+type SlotKind = 'gk' | 'cb' | 'fb' | 'dm' | 'cm' | 'wide' | 'am' | 'st';
+/** Pilihan peran tanpa bola per jenis tempat */
+export const OOP_OPTIONS: Record<SlotKind, OopRole[]> = {
+  gk: [],
+  cb: ['line', 'stop', 'cover'],
+  fb: ['line', 'wide', 'press'],
+  dm: ['screen', 'press', 'track'],
+  cm: ['screen', 'press', 'track'],
+  wide: ['track', 'press', 'outlet'],
+  am: ['screen', 'press', 'outlet'],
+  st: ['press', 'screen', 'outlet'],
+};
+
+export function slotKind(slot: string): SlotKind {
+  if (slot === 'GK') return 'gk';
+  if (/CB$/.test(slot)) return 'cb';
+  if (/^(R|L)(B|WB)$/.test(slot)) return 'fb';
+  if (/DM$/.test(slot)) return 'dm';
+  if (/^(R|L)?CM$/.test(slot)) return 'cm';
+  if (/^(R|L)(M|W)$/.test(slot)) return 'wide';
+  if (slot === 'AM') return 'am';
+  return 'st';
+}
+
+/** Peran tanpa bola bawaan dari peran + tugas saat menguasai bola */
+export function defaultOop(role: string | undefined, duty: Duty | undefined, slot: string): OopRole | undefined {
+  const kind = slotKind(slot);
+  switch (kind) {
+    case 'gk':
+      return undefined;
+    case 'cb':
+      return duty === 'St' ? 'stop' : duty === 'Co' || role === 'lib' ? 'cover' : 'line';
+    case 'fb':
+      return role === 'wb' && duty === 'De' ? 'wide' : 'line';
+    case 'dm':
+      return role === 'bwm' ? 'press' : role === 'sv' ? 'track' : 'screen';
+    case 'cm':
+      return role === 'bwm' || role === 'b2b' ? 'press' : role === 'car' || duty === 'De' ? 'screen' : role === 'ap' || role === 'rpm' || role === 'mez' ? 'screen' : 'track';
+    case 'wide':
+      return role === 'rmd' || ((role === 'if' || role === 'iw' || role === 'wtf') && duty === 'At') ? 'outlet' : 'track';
+    case 'am':
+      return role === 'ss' || role === 't' || role === 'eng' ? 'outlet' : 'screen';
+    case 'st':
+      return role === 'pf' ? 'press' : role === 'p' || role === 'af' ? 'outlet' : 'screen';
+  }
+}
+
+/** Efek tetap peran tanpa bola (posisi) */
+const OOP_POS: Record<OopRole, Partial<RoleK>> = {
+  line: {},
+  stop: {},
+  cover: {},
+  wide: { wideCover: 1 },
+  press: {},
+  screen: { screen: 1 },
+  track: { track: 1 },
+  outlet: { outlet: 1 },
+};
+/** Efek tambahan kalau pelatih memilih peran tanpa bola yang berbeda dari bawaan perannya */
+const OOP_SHIFT: Record<OopRole, Partial<RoleK>> = {
+  line: {},
+  stop: { press: 1.3, tackle: 0.1 },
+  cover: { press: 0.7 },
+  wide: { press: 0.85 },
+  press: { press: 1.5, back: 0.95 },
+  screen: { press: 0.7 },
+  track: { back: 1.3 },
+  outlet: { back: 0.55, press: 0.7 },
+};
+const OOP_STEP: Partial<Record<OopRole, number>> = { line: 0, stop: 3, cover: -2.5 };
+
+/**
+ * Gaya main lengkap seorang pemain di lapangan: peran + tugas dari pelatih, ditambah kebiasaan pribadinya,
+ * lalu peran tanpa bola (`custom`: dipilih pelatih, berbeda dari bawaan perannya).
  * `fam` (pemahaman taktik 0..1): pemain yang belum paham taktik memainkan perannya setengah hati,
  * jadi gaya perannya lebih samar (kebiasaan pribadinya tetap).
  */
-export function playStyle(role: string | undefined, duty: Duty | undefined, traitK: Partial<RoleK>[] = [], fam = 1): RoleK {
+export function playStyle(role: string | undefined, duty: Duty | undefined, traitK: Partial<RoleK>[] = [], fam = 1, oop?: OopRole, custom = false): RoleK {
   let rk = rolePlay(role);
   if (duty) {
     rk = add(rk, DUTY_K[duty]);
@@ -207,6 +316,13 @@ export function playStyle(role: string | undefined, duty: Duty | undefined, trai
     rk = scaled;
   }
   for (const t of traitK) rk = add(rk, t);
+  if (oop) {
+    rk = add(rk, OOP_POS[oop]);
+    // peran tanpa bola pilihan pelatih (bukan bawaan perannya): menekan / mundur lebih dari biasanya
+    if (custom) rk = add(rk, OOP_SHIFT[oop]);
+    const step = OOP_STEP[oop];
+    if (step !== undefined) rk.step = step;
+  }
   return rk;
 }
 

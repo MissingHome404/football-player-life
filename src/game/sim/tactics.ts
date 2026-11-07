@@ -7,7 +7,7 @@ import { Rng, clamp } from '../rng';
 import { ROLES } from '../data/roles';
 import { FORMATIONS, clubFormation, isBox, isCB, isFB, isHold, isST, isWideMid, isWing, nationFormation, type FormationId, type Slot } from './formation';
 import type { Club, Player, PlayingStyle } from '../types';
-import type { Duty } from './roleplay';
+import { OOP_LABEL, OOP_OPTIONS, defaultOop, slotKind, type Duty, type OopRole } from './roleplay';
 
 export type { Duty };
 export const DUTY_LABEL: Record<Duty, string> = { De: 'Bertahan', Su: 'Dukungan', At: 'Menyerang', St: 'Stopper', Co: 'Cover', Au: 'Otomatis' };
@@ -23,6 +23,8 @@ export const STYLE_LABEL: Record<PlayingStyle, string> = {
 export interface TacticSlot {
   role: string;
   duty: Duty;
+  /** peran tanpa bola (v16); kosong = bawaan dari peran & tugas */
+  oop?: OopRole;
 }
 
 export type Focus = 'tengah' | 'kiri' | 'kanan' | 'sayap' | null;
@@ -68,6 +70,10 @@ export interface Tactic {
   press: number;
   /** -1 jaga jarak, 0, 1 tekel lebih keras */
   tackling: number;
+  /** penjagaan: zona (bawaan) atau man marking (tiap pemain menempel satu lawan) */
+  marking?: 'zonal' | 'man';
+  /** jebakan offside: garis belakang maju bersama tepat sebelum umpan terobosan lawan */
+  trap?: boolean;
 }
 
 export const MENTALITY_LABEL = ['Sangat bertahan', 'Bertahan', 'Hati-hati', 'Seimbang', 'Positif', 'Menyerang', 'Sangat menyerang'];
@@ -205,6 +211,23 @@ function pickDuty(rng: Rng, role: string, style: PlayingStyle, prefer?: Duty): D
   return rng.weighted(ok.map((d) => [d, weight(d)] as const));
 }
 
+const MAN_MARK: Record<PlayingStyle, number> = { Possession: 0.05, Gegenpress: 0.15, Counter: 0.2, Direct: 0.1, 'Wing Play': 0.05, Defensive: 0.3 };
+const TRAP: Record<PlayingStyle, number> = { Possession: 0.5, Gegenpress: 0.75, Counter: 0.15, Direct: 0.25, 'Wing Play': 0.35, Defensive: 0.05 };
+
+/** Peran tanpa bola pilihan pelatih AI: bawaan peran, disesuaikan gaya main */
+function styleOop(style: PlayingStyle, role: string, duty: Duty, slot: string): OopRole | undefined {
+  const def = defaultOop(role, duty, slot);
+  const kind = slotKind(slot);
+  const ok = OOP_OPTIONS[kind];
+  const want = (o: OopRole) => (ok.includes(o) ? o : def);
+  if (style === 'Gegenpress' && (kind === 'st' || kind === 'am' || kind === 'wide' || kind === 'cm')) return want('press');
+  if (style === 'Defensive') {
+    if (kind === 'wide') return want('track');
+    if ((kind === 'st' && role !== 'p') || kind === 'am' || kind === 'cm') return want('screen');
+  }
+  return def;
+}
+
 /** Buat taktik deterministik dari seed (klub+pelatih atau negara), gaya main, dan formasi */
 export function makeTactic(seed: string, style: PlayingStyle, formation: FormationId): Tactic {
   const rng = new Rng(`tactic:${seed}`);
@@ -226,8 +249,13 @@ export function makeTactic(seed: string, style: PlayingStyle, formation: Formati
     if ((g === 'cb' || g === 'cb3') && (prev === 'St' || prev === 'Co')) prefer = prev === 'St' ? 'Co' : 'St';
     const duty = pickDuty(rng, role, style, prefer);
     pairDuty.set(g, duty);
-    slots.push({ role, duty });
+    slots.push({ role, duty, oop: styleOop(style, role, duty, spot.slot) });
   });
+  // serangan balik: minimal satu pemain depan tetap di depan
+  if ((style === 'Counter' || style === 'Direct') && !slots.some((s) => s.oop === 'outlet')) {
+    const i = spots.findIndex((sp, j) => OOP_OPTIONS[slotKind(sp.slot)].includes('outlet') && slotKind(sp.slot) === 'st' && slots[j]);
+    if (i >= 0) slots[i] = { ...slots[i], oop: 'outlet' };
+  }
   const [m, w, d, t, l, e, p] = STYLE_BASE[style];
   const jitter = (v: number, lo = -2, hi = 2) => clamp(v + (rng.chance(0.35) ? rng.pick([-1, 1]) : 0), lo, hi);
   const tactic: Tactic = {
@@ -256,6 +284,9 @@ export function makeTactic(seed: string, style: PlayingStyle, formation: Formati
     press: jitter(p),
     tackling: style === 'Gegenpress' ? 1 : style === 'Possession' ? 0 : rng.pick([-1, 0, 0, 1]),
   };
+  // tanpa bola: man marking jarang (lebih sering di tim bertahan), jebakan offside untuk garis tinggi
+  tactic.marking = rng.chance(MAN_MARK[style]) ? 'man' : 'zonal';
+  tactic.trap = tactic.line >= 1 ? rng.chance(TRAP[style]) : tactic.line === 0 && rng.chance(TRAP[style] * 0.4);
   // instruksi yang saling bertentangan tidak dipakai bersamaan
   if (tactic.workIntoBox) tactic.shootOnSight = false;
   if (tactic.creative < 0 && tactic.dribble > 0 && style !== 'Counter') tactic.dribble = 0;
@@ -327,13 +358,15 @@ export function tacticInstructions(t: Tactic): { possession: string[]; transitio
     lv(t.engage, 'Mulai menekan sangat dalam', 'Mulai menekan lebih dalam', 'Mulai menekan lebih tinggi', 'Mulai menekan sangat tinggi'),
     lv(t.press, 'Pressing sangat jarang', 'Pressing lebih jarang', 'Pressing lebih sering', 'Pressing jauh lebih sering'),
     t.tackling > 0 ? 'Tekel lebih keras' : t.tackling < 0 ? 'Jangan terburu-buru menekel' : null,
+    t.marking === 'man' ? 'Man marking (tiap pemain menempel satu lawan)' : null,
+    t.trap ? 'Jebakan offside' : null,
   ].filter((x): x is string => !!x);
   return { possession, transition, defence };
 }
 
 /** Nama peran + tugas, mis. "False Nine (Dukungan)" */
 export function roleDutyLabel(s: TacticSlot): string {
-  return `${ROLES[s.role]?.name ?? s.role} (${DUTY_LABEL[s.duty]})`;
+  return `${ROLES[s.role]?.name ?? s.role} (${DUTY_LABEL[s.duty]})${s.oop ? ` · tanpa bola: ${OOP_LABEL[s.oop]}` : ''}`;
 }
 
 /** Angka taktik yang dibaca match engine (disimpan di input laga; kecil dan bisa diputar ulang) */
@@ -358,6 +391,8 @@ export interface TacticK {
   engage: number;
   press: number;
   tackling: number;
+  marking?: 'zonal' | 'man';
+  trap?: boolean;
   intensity: number;
 }
 

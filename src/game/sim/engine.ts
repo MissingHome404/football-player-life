@@ -39,12 +39,12 @@ import {
   type SlotGroup,
 } from './formation';
 import { shortName } from '../gen/names';
-import { pickRole, playStyle, type Duty, type RoleK } from './roleplay';
+import { defaultOop, pickRole, playStyle, type Duty, type OopRole, type RoleK } from './roleplay';
 import { playTraits, traitK } from './traits';
 import { aiFamiliarity, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 15;
+export const ENGINE_VERSION = 16;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -61,7 +61,7 @@ const BOX_Y = 20.16;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 3.8, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 4.35, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -137,6 +137,10 @@ export const TUNE = {
   dive: 0.03,
   /** peluang pelanggaran taktis (menjatuhkan lawan yang lolos) per poin Dirtiness di atas 10 */
   tactical: 0.04,
+  /** v16 jebakan offside: garis maju sekian meter selama sekian detik */
+  trapStep: 3.5, trapTime: 1.6,
+  /** man marking: bek mengikuti lawan sampai sekian meter di depan garis; jarak tempel dasar */
+  manDef: 10, manGap: 1.2,
 };
 /** atribut yang berubah selama laga menurut keadaan mental (tekanan, frustrasi, tekad, kelelahan) */
 const MIND_KEYS = ['cmp', 'dec', 'fin', 'pas', 'tec', 'ft', 'lon', 'pen', 'fk', 'agg', 'wor', 'con'] as const;
@@ -243,6 +247,8 @@ export interface EP {
   traits?: string[];
   /** pemahaman taktik pelatih 0..1 */
   fam?: number;
+  /** peran tanpa bola dari pelatih (kosong = bawaan dari peran & tugas) */
+  oop?: OopRole;
 }
 
 export interface ETeam {
@@ -360,6 +366,7 @@ export function pickXI(
     xi.push({
       id: p.id, name: shortName(p), num: spot.num, slot: spot.slot, user: isUser || undefined,
       a: outOfPosition(engineAttrs(p), spotFamiliarity(p, spot)), role: rd.role, duty: rd.duty, traits: playTraits(p), fam: fam(p),
+      ...('oop' in rd && rd.oop ? { oop: rd.oop } : {}),
     });
   });
   // bangku cadangan: 1 kiper, 2 bek, 2 gelandang, 2 penyerang (yang terbaik dari sisa skuad)
@@ -371,7 +378,7 @@ export function pickXI(
       const rd = roleAt(p, si);
       bench.push({
         id: p.id, name: shortName(p), num: 12 + bench.length, slot: spots[si].slot, a: engineAttrs(p), role: rd.role, duty: rd.duty,
-        traits: playTraits(p), fam: fam(p),
+        traits: playTraits(p), fam: fam(p), ...('oop' in rd && rd.oop ? { oop: rd.oop } : {}),
       });
     }
   }
@@ -384,7 +391,7 @@ export function slotFor(p: Player, formation: FormationId = '4-3-3'): Slot {
 }
 
 /** Peran pemain di tempat terbaiknya pada formasi ini (peran dari taktik pelatih kalau ada) */
-export function roleFor(p: Player, formation: FormationId = '4-3-3', tactic?: Tactic): { role: string; duty?: Duty } {
+export function roleFor(p: Player, formation: FormationId = '4-3-3', tactic?: Tactic): { role: string; duty?: Duty; oop?: OopRole } {
   const f = tactic?.formation ?? formation;
   const i = bestSpot(p, f);
   return tactic ? tactic.slots[i] : { role: pickRole(p, FORMATIONS[f].spots[i].pos) };
@@ -762,7 +769,7 @@ export class Match {
       for (const b of this.bodies) {
         if (b.side !== side || b.p.duty !== 'Au' || b.autoDuty === auto) continue;
         b.autoDuty = auto;
-        b.rk = playStyle(b.p.role, auto, traitK(b.p.traits), b.p.fam ?? 1);
+        b.rk = this.styleOf(b.p, auto);
       }
     }
   }
@@ -771,6 +778,13 @@ export class Match {
   private capK: [number, number] = [0, 0];
   /** jumlah aksi diving dalam laga */
   dives = 0;
+
+  /** Gaya main pemain: peran + tugas (tugas Otomatis memakai `duty`) + kebiasaan + peran tanpa bola */
+  private styleOf(p: EP, duty?: Duty): RoleK {
+    const def = defaultOop(p.role, p.duty, p.slot);
+    const oop = p.oop ?? def;
+    return playStyle(p.role, duty ?? (p.duty === 'Au' ? 'Su' : p.duty), traitK(p.traits), p.fam ?? 1, oop, !!p.oop && p.oop !== def);
+  }
 
   /** Kapten di lapangan: pemain dengan Leadership tertinggi */
   captain(side: 0 | 1): Body | undefined {
@@ -793,6 +807,9 @@ export class Match {
     const P = (this.input.stakes ?? 0.35) + close;
     const late = clamp((min - 45) / 45, 0, 1);
     for (const side of [0, 1] as const) {
+      const back = this.onPitch[side].filter((b) => isDef(b.p.slot));
+      const org = back.length ? back.reduce((s, b) => s + (b.p.a.tea + b.p.a.pos + b.p.a.con) / 3, 0) / back.length : 10;
+      this.lineErr[side] = clamp(1.6 - org * 0.06, 0.5, 1.3);
       const cap = this.captain(side);
       this.capK[side] = cap ? clamp((cap.p.a.lea - 10) * 0.05, 0, 0.5) : 0;
       const trail = Math.max(0, this.score[1 - side] - this.score[side]);
@@ -839,7 +856,7 @@ export class Match {
     const a = ep.a;
     const qual = (a.pas + a.tec + a.ft + a.cmp + a.dec + a.vis + a.ant + a.pos + a.otb + a.tck) / 10;
     return {
-      p: ep, rk: playStyle(ep.role, ep.duty === 'Au' ? 'Su' : ep.duty, traitK(ep.traits), ep.fam ?? 1), rx: 0, ry: 0, side, x: 52.5, y: 34, vx: 0, vy: 0, tx: 52.5, ty: 34, on, st, cool: 0, run: 0,
+      p: ep, rk: this.styleOf(ep), rx: 0, ry: 0, side, x: 52.5, y: 34, vx: 0, vy: 0, tx: 52.5, ty: 34, on, st, cool: 0, run: 0,
       think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1, frus: 0, base: mindOf(a),
       // semua properti diisi sejak awal: bentuk objek sama untuk semua pemain (lebih cepat di V8)
       autoDuty: ep.duty === 'Au' ? 'Su' : undefined, leaving: false, waiting: false, entering: false,
@@ -1136,6 +1153,12 @@ export class Match {
       const tk = this.tk[side];
       // half-back turun di antara bek tengah: kedua bek tengah melebar
       const halfBack = inPoss && team.some((t) => t.p.role === 'hb');
+      // tanpa bola: jebakan offside & man marking dari instruksi pelatih
+      let trapOn = false;
+      if (!inPoss && live) {
+        if (tk?.trap) trapOn = this.offsideTrap(side, line, team, opps);
+        if (tk?.marking === 'man' && this.t >= this.markNext[side]) this.assignMarks(side, team, opps);
+      }
       for (const b of team) {
         if (b.think > 0 || b === this.owner) continue;
         const a = b.p.a;
@@ -1256,28 +1279,89 @@ export class Match {
           // bertahan: tiga lini bergeser bersama
           const def = isDef(slot);
           const mid = isCentralMid(slot) || isWideMid(slot);
+          const rk = b.rk;
           if (def) {
             const fb = isFB(slot);
-            // cover & libero berdiri sedikit di belakang garis untuk menyapu bola terobosan
-            x = line + (fb ? 1 : Math.min(0, b.rk.step));
-            y = 34 + (by - 34) * (fb ? 0.78 : 0.62) + (bfy - 34) * 0.32;
+            if (fb && rk.wideCover > 0) {
+              // jaga sayap: tetap melebar sedikit di belakang garis, menjaga pemain sayap lawan
+              x = line - 0.5;
+              y = 34 + (by - 34) * 0.95 + (bfy - 34) * 0.18;
+            } else {
+              // cover & libero berdiri sedikit di belakang garis untuk menyapu bola terobosan
+              x = line + (fb ? 1 : Math.min(0, rk.step));
+              y = 34 + (by - 34) * (fb ? 0.78 : 0.62) + (bfy - 34) * 0.32;
+            }
           } else if (mid) {
-            x = line + (isHold(slot) ? 9 : slot === 'AM' ? 16 : 12) - (b.rk.back - 1) * 6;
-            y = 34 + (by - 34) * 0.72 + (bfy - 34) * 0.4;
+            if (rk.screen > 0) {
+              // menutup jalur: tetap di tengah di depan lini belakang, bergeser ke sisi bola
+              x = line + (isHold(slot) ? 8 : slot === 'AM' ? 14 : 10) - (rk.back - 1) * 6;
+              y = 34 + (by - 34) * 0.45 + (bfy - 34) * 0.45;
+            } else {
+              x = line + (isHold(slot) ? 9 : slot === 'AM' ? 16 : 12) - (rk.back - 1) * 6;
+              y = 34 + (by - 34) * 0.72 + (bfy - 34) * 0.4;
+            }
+            // tetap di depan: gelandang sayap / gelandang serang menunggu serangan balik
+            if (rk.outlet > 0) {
+              x = Math.max(x, line + 22);
+              if (isWideMid(slot)) y = 34 + (by - 34) * 0.95;
+            }
           } else {
             // penyerang yang malas bertahan (poacher, enganche) tetap di depan menunggu serangan balik
-            x = Math.min(line + (isST(slot) ? 30 : 24) - (b.rk.back - 1) * 12, 64 + (1 - b.rk.back) * 10);
+            x = Math.min(line + (isST(slot) ? 30 : 24) - (rk.back - 1) * 12, 64 + (1 - rk.back) * 10);
             y = 34 + (by - 34) * 0.78 + (bfy - 34) * 0.3;
+            if (rk.screen > 0) {
+              // membayangi gelandang bertahan lawan: sedikit lebih dalam dan di tengah
+              x = Math.min(x, line + 25);
+              y = 34 + (by - 34) * 0.5 + (bfy - 34) * 0.3;
+            }
+            if (rk.outlet > 0) {
+              x = Math.max(x, 58);
+              if (isWing(slot)) y = 34 + (by - 34) * 0.95;
+            }
           }
-          // disiplin posisi: positioning & konsentrasi rendah = sering tidak sejajar
+          // disiplin posisi: positioning & konsentrasi rendah = sering tidak sejajar; lini belakang yang
+          // terorganisasi (teamwork, positioning, konsentrasi) bergerak sebagai satu unit
           const err = ((21 - (a.pos + a.con) / 2) / 20) * famErr;
-          x += b.ox * err * (def ? 0.8 : 1);
+          x += b.ox * err * (def ? 0.8 * this.lineErr[side] : 1);
           y += b.oy * err;
-          if (def) {
+          const mk = tk?.marking === 'man' ? this.marks.get(b) : undefined;
+          if (def && trapOn && !this.trapLate.has(b)) {
+            // jebakan offside: maju bersama, tidak mengikuti pelari lawan
+            x = line + TUNE.trapStep + b.ox * err * 0.3;
+            sprint = true;
+          } else if (mk && mk.on && mk.hurt < 0 && this.fx(side, mk.x) < (def ? line + TUNE.manDef : 82)) {
+            // man marking: menempel lawan yang dijaga dari sisi gawang sendiri
+            const mfx = this.fx(side, mk.x);
+            const mfy = this.fy(side, mk.y);
+            x = mfx - (TUNE.manGap + (20 - a.mar) * 0.08);
+            y = mfy + (34 - mfy) * 0.1;
+            sprint = Math.hypot(this.fx(side, b.x) - x, this.fy(side, b.y) - y) > 5;
+          } else if (def) {
             const m = this.markAdjust(b, side, line, x, y);
             x = m[0];
             y = m[1];
             sprint = m[2];
+          }
+          // mengawal mundur: kejar pelari lawan di sisinya sampai ke belakang
+          if (rk.track > 0 && !def && !isHold(slot)) {
+            const zy = 34 + (by - 34) * 0.85;
+            let runner: Body | null = null;
+            let rd = 15;
+            for (const o of opps) {
+              if (o.p.slot === 'GK') continue;
+              const ofx = this.fx(side, o.x);
+              if (!(o.run > 0 || this.dir(side) * o.vx < -2.5) || ofx > x + 4 || ofx < line - 6) continue;
+              const dy = Math.abs(this.fy(side, o.y) - zy);
+              if (dy < rd) {
+                rd = dy;
+                runner = o;
+              }
+            }
+            if (runner) {
+              x = this.fx(side, runner.x) - 1.5;
+              y = this.fy(side, runner.y) + (34 - this.fy(side, runner.y)) * 0.1;
+              sprint = true;
+            }
           }
           if (isHold(slot)) {
             const runner = opps.find((o) => o.run > 0 && (isBox(o.p.slot) || o.p.slot === 'AM'));
@@ -1307,6 +1391,78 @@ export class Match {
   }
 
   /** Bek: geser ke lawan terdekat di sisinya, kejar lari lawan ke belakang garis (bingkai tim) */
+  /** jebakan offside per tim: aktif sampai detik ini, boleh dipicu lagi setelah detik ini, bek yang terlambat */
+  private trapUntil: [number, number] = [-1, -1];
+  private trapNext: [number, number] = [0, 0];
+  private trapLate = new Set<Body>();
+  /** jumlah jebakan offside yang dipasang tiap tim */
+  traps: [number, number] = [0, 0];
+  /** man marking: pemain -> lawan yang dijaga */
+  private marks = new Map<Body, Body>();
+  private markNext: [number, number] = [0, 0];
+  /** pengali kesalahan posisi lini belakang (organisasi: teamwork, positioning, konsentrasi) */
+  private lineErr: [number, number] = [1, 1];
+
+  /**
+   * Jebakan offside: pembawa bola lawan punya waktu di depan lini belakang dan ada pelari di dekat garis.
+   * Lini belakang maju bersama; bek dengan teamwork, konsentrasi & antisipasi rendah bisa terlambat
+   * (dan malah membuat pelari lawan onside).
+   */
+  private offsideTrap(side: 0 | 1, line: number, team: Body[], opps: Body[]): boolean {
+    if (this.t < this.trapUntil[side]) return true;
+    const o = this.owner;
+    if (!o || o.side === side || this.t < this.trapNext[side] || this.restart || this.dead) return false;
+    const ofx = this.fx(side, o.x);
+    if (ofx < line + 10 || ofx > line + 40) return false;
+    const [, pd] = this.nearest(team, o.x, o.y);
+    if (pd < 2.5) return false;
+    if (!opps.some((r) => r !== o && r.p.slot !== 'GK' && Math.abs(this.fx(side, r.x) - line) < 3)) return false;
+    this.trapUntil[side] = this.t + TUNE.trapTime;
+    this.trapNext[side] = this.t + 6;
+    this.traps[side]++;
+    for (const d of team) {
+      if (!isDef(d.p.slot)) continue;
+      this.trapLate.delete(d);
+      const a = d.p.a;
+      if (this.rng.chance(clamp(0.3 - ((a.tea + a.con + a.ant) / 3 - 10) * 0.025, 0.04, 0.5))) this.trapLate.add(d);
+      else d.think = 0;
+    }
+    return true;
+  }
+
+  /** Man marking: tiap pemain (kecuali penyerang, pemain yang tetap di depan, dan bek penyapu) menjaga satu lawan */
+  private assignMarks(side: 0 | 1, team: Body[], opps: Body[]) {
+    this.markNext[side] = this.t + 3;
+    const markers = team.filter((b) => b.p.slot !== 'GK' && !isST(b.p.slot) && b.rk.outlet === 0 && !(isCB(b.p.slot) && b.rk.step < 0));
+    const taken = new Set<Body>();
+    const free = new Set(markers);
+    // pasangan lama tetap dipertahankan selama masih masuk akal
+    for (const m of markers) {
+      const t = this.marks.get(m);
+      if (t && t.on && t.hurt < 0 && !taken.has(t) && Math.hypot(t.x - m.x, t.y - m.y) < 25 && this.fx(side, t.x) < 78) {
+        taken.add(t);
+        free.delete(m);
+      } else this.marks.delete(m);
+    }
+    // lawan yang paling dekat ke gawang sendiri dijaga dulu; bek tengah lawan yang jauh di belakang tidak
+    const targets = opps.filter((o) => o.p.slot !== 'GK' && !taken.has(o) && this.fx(side, o.x) < 78).sort((p, q) => this.fx(side, p.x) - this.fx(side, q.x));
+    for (const t of targets) {
+      let best: Body | null = null;
+      let bd = 28;
+      for (const m of free) {
+        const d = Math.hypot(t.x - m.x, t.y - m.y);
+        if (d < bd) {
+          bd = d;
+          best = m;
+        }
+      }
+      if (best) {
+        this.marks.set(best, t);
+        free.delete(best);
+      }
+    }
+  }
+
   private markAdjust(b: Body, side: 0 | 1, line: number, x: number, y: number): [number, number, boolean] {
     const a = b.p.a;
     const step = isCB(b.p.slot) ? b.rk.step : 0;
@@ -3418,10 +3574,10 @@ export class Match {
 
   /** Pemain pengganti mengambil tempat, peran, dan tugas yang diminta pelatih untuk tempat itu */
   private takeSlot(sub: Body, out: Body) {
-    sub.p = { ...sub.p, slot: out.p.slot, role: out.p.role ?? sub.p.role, duty: out.p.duty ?? sub.p.duty };
+    sub.p = { ...sub.p, slot: out.p.slot, role: out.p.role ?? sub.p.role, duty: out.p.duty ?? sub.p.duty, oop: out.p.oop };
     const duty = sub.p.duty === 'Au' ? (out.autoDuty ?? 'Su') : sub.p.duty;
     if (sub.p.duty === 'Au') sub.autoDuty = duty;
-    sub.rk = playStyle(sub.p.role, duty, traitK(sub.p.traits), sub.p.fam ?? 1);
+    sub.rk = this.styleOf(sub.p, duty);
   }
 
   /** Serangan balik: beberapa detik setelah merebut bola, tim yang diinstruksikan langsung menyerang */

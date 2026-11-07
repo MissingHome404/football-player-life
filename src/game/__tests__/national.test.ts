@@ -45,7 +45,8 @@ describe('timnas & turnamen', () => {
     // Inggris lolos dan pemain CA 195 masuk skuad
     expect(t.teams).toContain('ENG');
     expect(career.intl!.tournaments[0].name).toBe('Piala Dunia 2030');
-    expect(career.intl!.caps).toBeGreaterThanOrEqual(3);
+    // (cedera tetap bisa terjadi walau Injury Proneness 1: cukup satu laga kalau ia cedera di turnamen)
+    expect(career.intl!.caps).toBeGreaterThanOrEqual(career.injury ? 1 : 3);
   }, 60_000);
 
   it('karier: dipanggil di jeda internasional, caps = statistik timnas', () => {

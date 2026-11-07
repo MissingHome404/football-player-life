@@ -9,7 +9,7 @@ import { PLAY_TRAITS, playTraits } from '../sim/traits';
 import { famStart, intensityDrain, learnTactic, tacticFam, understandWeek } from '../sim/understanding';
 import type { Career } from '../types';
 import { LEAGUE_STAKES, leagueStakes, stageStakes } from '../sim/stakes';
-import { ROLE_PLAY, type Duty } from '../sim/roleplay';
+import { OOP_OPTIONS, ROLE_PLAY, defaultOop, slotKind, type Duty, type OopRole } from '../sim/roleplay';
 
 const w = generateWorld({ seed: 'TACT', activeLeagues: ['ENG1', 'IDN1'] });
 const eng = w.clubs.filter((c) => c.leagueId === 'ENG1');
@@ -449,5 +449,126 @@ describe('match engine versi 15: tugas per peran', () => {
     m.score = [2, 0];
     v.mentality();
     for (const b of fbs) expect(b.autoDuty).toBe('De');
+  });
+});
+
+describe('match engine versi 16: peran tanpa bola, man marking, jebakan offside', () => {
+  type Priv = {
+    offsideTrap(side: 0 | 1, line: number, team: unknown[], opps: unknown[]): boolean;
+    assignMarks(side: 0 | 1, team: unknown[], opps: unknown[]): void;
+    trapNext: [number, number];
+    trapUntil: [number, number];
+    trapLate: Set<unknown>;
+    marks: Map<unknown, unknown>;
+  };
+
+  it('pelatih AI memberi peran tanpa bola untuk tiap tempat; ada yang memakai jebakan offside & man marking', () => {
+    let trap = 0;
+    let man = 0;
+    for (const c of w.clubs) {
+      const t = clubTactic(c);
+      const spots = FORMATIONS[t.formation].spots;
+      t.slots.forEach((s, i) => {
+        const kind = slotKind(spots[i].slot);
+        if (kind === 'gk') return;
+        expect(OOP_OPTIONS[kind]).toContain(s.oop);
+      });
+      if (t.trap) trap++;
+      if (t.marking === 'man') man++;
+    }
+    expect(trap).toBeGreaterThan(0);
+    expect(man).toBeGreaterThan(0);
+    expect(defaultOop('pf', 'Su', 'ST')).toBe('press');
+    expect(defaultOop('p', 'At', 'ST')).toBe('outlet');
+    expect(defaultOop('cd', 'St', 'RCB')).toBe('stop');
+    expect(defaultOop('dm', 'De', 'RDM')).toBe('screen');
+  });
+
+  it('jebakan offside: bek dengan teamwork, konsentrasi & antisipasi rendah lebih sering terlambat', () => {
+    const lateRate = (v: number) => {
+      const home = side(eng[0].id);
+      home.xi = home.xi.map((p) => ({ ...p, a: { ...p.a, tea: v, con: v, ant: v } }));
+      const m = new Match({ seed: 'trap', home, away: side(eng[1].id) });
+      const pv = m as unknown as Priv & { restart: unknown; dead: unknown };
+      pv.restart = null;
+      pv.dead = null;
+      const team = m.bodies.filter((b) => b.on && b.side === 0);
+      const opps = m.bodies.filter((b) => b.on && b.side === 1);
+      const line = 30;
+      // semua pemain kita jauh dari pembawa bola lawan; satu penyerang lawan di dekat garis
+      for (const b of team) {
+        b.x = m.fx(0, b.p.slot === 'GK' ? 3 : line);
+        b.y = 4 + team.indexOf(b) * 5;
+      }
+      const owner = opps.find((b) => b.p.slot !== 'GK')!;
+      owner.x = m.fx(0, line + 22);
+      owner.y = 60;
+      const runner = opps.find((b) => b !== owner && b.p.slot !== 'GK')!;
+      runner.x = m.fx(0, line + 1);
+      runner.y = 30;
+      m.owner = owner;
+      const backs = team.filter((b) => /CB$|^(R|L)B$/.test(b.p.slot));
+      let late = 0;
+      let n = 0;
+      for (let i = 0; i < 150; i++) {
+        pv.trapNext[0] = 0;
+        pv.trapUntil[0] = -1;
+        expect(pv.offsideTrap(0, line, team, opps)).toBe(true);
+        for (const b of backs) {
+          n++;
+          if (pv.trapLate.has(b)) late++;
+        }
+      }
+      return late / n;
+    };
+    const poor = lateRate(4);
+    const good = lateRate(18);
+    expect(poor).toBeGreaterThan(0.3);
+    expect(good).toBeLessThan(0.12);
+  });
+
+  it('man marking: tiap lawan di depan dijaga satu pemain; penyerang & bek penyapu tidak ikut menjaga', () => {
+    const t = { ...clubTactic(eng[2]), marking: 'man' as const };
+    const m = new Match({ seed: 'man', home: side(eng[2].id, t), away: side(eng[3].id) });
+    const pv = m as unknown as Priv;
+    for (let i = 0; i < 300; i++) m.step();
+    const team = m.bodies.filter((b) => b.on && b.side === 0);
+    const opps = m.bodies.filter((b) => b.on && b.side === 1);
+    // lawan menyerang: pemain lapangannya di separuh lapangan kita, dekat pemain kita
+    opps.forEach((o, i) => {
+      if (o.p.slot === 'GK') return;
+      const near = team[(i % (team.length - 1)) + 1];
+      o.x = near.x + 2;
+      o.y = near.y;
+    });
+    pv.assignMarks(0, team, opps);
+    const marked = [...pv.marks.entries()].filter(([k]) => team.includes(k as (typeof team)[number]));
+    expect(marked.length).toBeGreaterThan(3);
+    const targets = new Set(marked.map(([, v]) => v));
+    expect(targets.size).toBe(marked.length);
+    for (const [k, v] of marked) {
+      const b = k as (typeof team)[number];
+      expect(/^(ST|RS|LS)$/.test(b.p.slot)).toBe(false);
+      expect((v as (typeof team)[number]).side).toBe(1);
+    }
+  });
+
+  it('pemain sayap yang tetap di depan menunggu lebih tinggi daripada yang mengawal mundur', () => {
+    const run = (oop: OopRole) => {
+      const base = makeTactic('wing-oop', 'Counter', '4-3-3');
+      const spots = FORMATIONS[base.formation].spots;
+      const t: Tactic = { ...base, slots: base.slots.map((s, i) => (slotKind(spots[i].slot) === 'wide' ? { ...s, oop } : s)) };
+      const home = side(eng[4].id, t);
+      const m = new Match({ seed: 'wing-oop', home, away: side(eng[5].id) });
+      const xs: number[] = [];
+      for (let i = 0; i < 3000 && !m.done; i++) {
+        m.step();
+        // lawan menyerang di separuh lapangan kita
+        if (!m.owner || m.owner.side !== 1 || m.fx(0, m.ball.x) > 45) continue;
+        for (const b of m.bodies) if (b.on && b.side === 0 && (b.p.slot === 'RW' || b.p.slot === 'LW')) xs.push(m.fx(0, b.x));
+      }
+      return xs.reduce((s, x) => s + x, 0) / xs.length;
+    };
+    expect(run('outlet') - run('track')).toBeGreaterThan(6);
   });
 });

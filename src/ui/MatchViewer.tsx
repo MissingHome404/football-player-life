@@ -4,6 +4,7 @@
 import { FORMATIONS, SLOT_LABEL, type FormationId, type Slot } from '../game/sim/formation';
 import { ROLES } from '../game/data/roles';
 import { DUTY_LABEL, mentalityLabel } from '../game/sim/tactics';
+import { OOP_LABEL, defaultOop, type OopRole } from '../game/sim/roleplay';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGame } from './store';
 import {
@@ -256,8 +257,11 @@ function Lineup({
   const startRef = useRef<HTMLButtonElement>(null);
   useEffect(() => startRef.current?.focus(), []);
   const mine = [input.home, input.away].flatMap((t) => [...t.xi, ...(t.bench ?? []), ...(t.sub ? [t.sub.player] : [])]).find((p) => p.user);
-  const roleText = (p: { role?: string; duty?: keyof typeof DUTY_LABEL }) =>
-    p.role ? `${ROLES[p.role]?.name ?? p.role}${p.duty ? ` (${DUTY_LABEL[p.duty]})` : ''}` : '';
+  const roleText = (p: { role?: string; duty?: keyof typeof DUTY_LABEL; slot?: string; oop?: OopRole }) => {
+    if (!p.role) return '';
+    const oop = p.oop ?? (p.slot ? defaultOop(p.role, p.duty, p.slot) : undefined);
+    return `${ROLES[p.role]?.name ?? p.role}${p.duty ? ` (${DUTY_LABEL[p.duty]})` : ''}${oop ? `, tanpa bola: ${OOP_LABEL[oop].toLowerCase()}` : ''}`;
+  };
   return (
     <div className="mv-lineup">
       <h2>Susunan pemain</h2>

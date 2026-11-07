@@ -217,7 +217,7 @@ export function engineGame(o: {
     const formation = o.ours.tactic?.formation ?? o.ours.formation;
     const slot = slotFor(p, formation);
     const rd = roleFor(p, formation, o.ours.tactic);
-    const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a, role: rd.role, duty: rd.duty, traits: playTraits(p), fam: userFam };
+    const me: EP = { id: p.id, name: shortName(p), num: 12, slot, user: true, a, role: rd.role, duty: rd.duty, traits: playTraits(p), fam: userFam, ...(rd.oop ? { oop: rd.oop } : {}) };
     if (rng.chance(0.45)) {
       const mins = rng.int(5, 35);
       ourTeam.sub = { at: FULL - (mins / 90) * FULL, player: me, slot };
