@@ -4,4 +4,4 @@ import { afterEach } from 'vitest';
 // setelah satu FILE tes selesai; file yang lebih dari 60 detik (di CI yang lambat) memicu error
 // "[vitest-worker]: Timeout calling onTaskUpdate" walaupun semua tes lulus. Jeda singkat setelah
 // setiap tes membuat pesan itu diproses tepat waktu.
-afterEach(() => new Promise<void>((resolve) => setImmediate(resolve)));
+afterEach(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
