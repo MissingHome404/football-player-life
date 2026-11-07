@@ -12,7 +12,7 @@ export const FOCUS_INFO: Record<TrainingFocus, { label: string; desc: string }> 
   teknik: { label: 'Teknik', desc: 'Fokus atribut technical (atau goalkeeping untuk kiper).' },
   mental: { label: 'Mental', desc: 'Fokus keputusan, posisi, dan ketenangan.' },
   fisik: { label: 'Fisik', desc: 'Fokus kecepatan, stamina, dan kekuatan. Lebih melelahkan.' },
-  peran: { label: 'Peran', desc: 'Fokus atribut kunci peran yang kamu pilih (peran dari posisi utamamu, atau dari posisi baru yang sedang kamu latih).' },
+  peran: { label: 'Peran', desc: 'Fokus atribut kunci peran latihan individumu (pilih perannya di halaman Latihan individu).' },
   taktik: {
     label: 'Taktik',
     desc: 'Pelajari taktik pelatih: pemahaman taktik naik jauh lebih cepat, atribut membaca permainan (Decisions, Teamwork, Anticipation, Positioning) ikut berkembang.',

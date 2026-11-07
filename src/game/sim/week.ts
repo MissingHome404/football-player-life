@@ -9,7 +9,7 @@ import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { ageOn } from '../gen/player';
 import { ACTIVITY_INFO, COACH_INFO, COACH_TIERS, INTENSITY_INFO, econOf, levelOf, weeklyBudget } from './economy';
-import { ageDecline, learnPositionWeek, trainWeek } from './training';
+import { ageDecline, isLearning, learnPositionWeek, trainWeek } from './training';
 import { MAX_AGE, retire } from './retire';
 import { EVENTS, EVENT_BY_ID, makeCtx } from './events';
 import { playWeek, replacePlayer, rolloverLeagues, standings } from './season';
@@ -27,6 +27,17 @@ import { RELATION_EVENTS, RELATION_EVENT_BY_ID, emptyRelations, relationStress, 
 import { clubKey, intensityDrain, learnTactic, natKey, understandWeek } from './understanding';
 import { tacticalIQ } from './tactics';
 import { trophyBonus } from './bonus';
+import {
+  markTrend,
+  ratingMultiplier,
+  recordTraining,
+  trainingInjuryChance,
+  trainingRating,
+  trainingReaction,
+  weakFootWeek,
+  weakSide,
+  workloadFitness,
+} from './individual';
 
 const ALL_EVENTS = [...EVENTS, ...RELATION_EVENTS];
 
@@ -225,9 +236,17 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     else if (last.comp === 'Liga') extra *= 0.95;
   }
   // belajar posisi baru menyita sebagian waktu latihan
-  if (plan.learnPos && plan.learnPos !== player.mainPosition) extra *= 0.85;
+  if (isLearning(career, player)) extra *= 0.85;
+  // latihan individu: nilai latihan minggu ini ikut menentukan hasilnya; latihan kaki lemah menyita waktu
+  const trains = !resting && !career.injury;
+  const tRating = trains ? trainingRating(career, player, new Rng(`${career.characterSeed}:trate:${career.week}`)) : null;
+  if (tRating !== null) extra *= ratingMultiplier(tRating);
+  if (trains && plan.weakFoot && weakSide(player)) extra *= 0.92;
   const training = trainWeek(career, player, club, extra);
   learnPositionWeek(career, player, notes);
+  weakFootWeek(career, player, notes);
+  recordTraining(career, player, tRating, training.changes);
+  trainingReaction(career, club ? `Manajer ${club.name}` : 'Pelatih', notes);
   // memahami taktik pelatih lewat latihan bersama tim
   understandWeek(career, player, club, notes);
   career.peakCA = Math.max(career.peakCA ?? 0, player.ca);
@@ -240,22 +259,15 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
   } else {
     const recovery = 12 + player.physical['Natural Fitness'] / 2;
     const load = resting ? 18 : INTENSITY_INFO[plan.intensity].fitness;
-    career.fitness = clamp(Math.round(career.fitness + load + recovery + (kerjaCounts ? act.fitness : 0)), 0, 100);
+    const indiv = resting ? 0 : workloadFitness(career, player);
+    career.fitness = clamp(Math.round(career.fitness + load + recovery + indiv + (kerjaCounts ? act.fitness : 0)), 0, 100);
   }
   career.fitness = clamp(career.fitness + lifeFitness(career), 0, 100);
 
   // 4. Cedera
   if (career.injury || career.fragile) recoverWeek(career, player, rng.fork('recover'), notes);
   if (!injuredBefore && !resting) {
-    const proneness = 1 + (player.hidden['Injury Proneness'] - 10) / 10;
-    const chance =
-      0.008 *
-      INTENSITY_INFO[plan.intensity].injury *
-      Math.max(0.15, proneness) *
-      (career.fitness < 40 ? 2 : 1) *
-      (career.fitness < 20 ? 1.5 : 1) *
-      (levelOf(plan.coaches.fisik) ? COACH_TIERS[levelOf(plan.coaches.fisik) as 1 | 2 | 3].injury : 1) *
-      injuryFactor(career);
+    const chance = trainingInjuryChance(career, player);
     if (rng.chance(chance)) injure(career, rng, 'latihan', notes, player);
   }
   const abroad = !!club && club.countryId !== player.nationalityId;
@@ -357,6 +369,7 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
     // usia mulai terasa
     const caBefore = player.ca;
     const lost = ageDecline(player, ageNow, new Rng(`${career.characterSeed}:age:${ageNow}`));
+    markTrend(career, lost);
     const n = Object.keys(lost).length;
     if (n) {
       const worst = Object.entries(lost)

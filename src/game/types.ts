@@ -467,6 +467,18 @@ export interface Career {
   bonusLog?: BonusEntry[];
   /** editor in-game pernah dipakai di karier ini */
   edited?: boolean;
+  /** nilai latihan mingguan (terbaru di depan, maks. 26 minggu) */
+  trainingLog?: TrainingLogEntry[];
+  /** perubahan atribut terakhir (naik/turun) untuk panah di latihan individu: atribut -> {d, date} */
+  attrTrend?: Record<string, { d: number; date: string }>;
+}
+
+export interface TrainingLogEntry {
+  date: string;
+  /** nilai latihan 1-10 */
+  rating: number;
+  /** CA setelah minggu ini */
+  ca: number;
 }
 
 export interface BonusEntry {
@@ -626,8 +638,12 @@ export interface WeekPlan {
   intensity: Intensity;
   activity: Activity;
   coaches: Record<CoachKind, CoachLevel>;
-  /** peran yang dilatih saat fokus latihan "Peran" (harus peran dari posisi utama / posisi yang sedang dilatih) */
+  /** peran latihan individu (harus peran dari posisi utama / posisi yang sedang dilatih) */
   trainRole?: string | null;
+  /** latihan individu: satu atribut fokus tambahan */
+  extraFocus?: string | null;
+  /** latihan individu: kembangkan kaki lemah */
+  weakFoot?: boolean;
   /** posisi baru yang sedang dipelajari (keakraban naik tiap minggu latihan) */
   learnPos?: Position | null;
   /** jenis postingan media sosial minggu ini */

@@ -14,6 +14,7 @@ import { LifeView } from './LifeView';
 import { ContinentalView } from './ContinentalView';
 import { NamesView, RenameButton } from './NamesView';
 import { EditorView } from './EditorView';
+import { TrainingView } from './TrainingView';
 import { ClubTactic } from './FormationView';
 import { STYLE_LABEL, clubTactic } from '../game/sim/tactics';
 import { PLAY_TRAITS, playTraits } from '../game/sim/traits';
@@ -69,6 +70,7 @@ export function WorldBrowser() {
         { key: 'me', icon: '🏠', label: 'Beranda', to: { kind: 'me' }, on: k === 'me' },
         { key: 'inbox', icon: '✉️', label: 'Inbox', to: { kind: 'inbox' }, on: k === 'inbox', count: pending },
         { key: 'plan', icon: '🏋️', label: 'Latihan & rencana', to: { kind: 'plan' }, on: k === 'plan', hide: retired },
+        { key: 'training', icon: '🎯', label: 'Latihan individu', to: { kind: 'training' }, on: k === 'training', hide: retired },
         { key: 'profile', icon: '👤', label: 'Profil saya', to: { kind: 'profile' }, on: k === 'profile' || (k === 'player' && view.playerId === user?.id) },
         { key: 'matches', icon: '📅', label: 'Pertandingan', to: { kind: 'matches' }, on: k === 'matches' },
         { key: 'transfer', icon: '✍️', label: 'Kontrak & transfer', to: { kind: 'transfer' }, on: k === 'transfer', count: career?.offers.length, hide: retired },
@@ -162,6 +164,7 @@ export function WorldBrowser() {
           {k === 'me' && career && <HomeView />}
           {k === 'inbox' && career && <InboxView key={view.id ?? 'inbox'} id={view.id} />}
           {k === 'plan' && career && <PlanView />}
+          {k === 'training' && career && <TrainingView />}
           {k === 'profile' && career && <MyProfile />}
           {k === 'matches' && career && <MatchesView />}
           {k === 'transfer' && career && <TransferPanel />}

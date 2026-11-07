@@ -38,6 +38,12 @@ export function rolePosition(career: Career, player: Player) {
   return learn && learn !== player.mainPosition ? learn : player.mainPosition;
 }
 
+/** Sedang mempelajari posisi baru (belum dikuasai penuh) */
+export function isLearning(career: Career, player: Player): boolean {
+  const pos = career.plan.learnPos;
+  return !!pos && pos !== player.mainPosition && familiarity(player, pos) < 20;
+}
+
 /** Peran yang boleh dipilih di fokus latihan "Peran" */
 export const roleChoices = (career: Career, player: Player): string[] => POSITION_ROLES[rolePosition(career, player)];
 
@@ -141,6 +147,8 @@ export function trainWeek(
     if (roleKey.has(a)) w += 1.5;
     else if (rolePref.has(a)) w += 0.6;
     if (plan.focus !== 'seimbang') w *= focusMatch(a) ? 4 : 0.6;
+    // latihan individu: satu atribut fokus tambahan
+    if (plan.extraFocus === a) w *= 3.5;
     weights.push([a, w]);
     total += w;
   }
@@ -223,6 +231,8 @@ export function ageDecline(p: Player, age: number, rng: Rng): Record<string, num
 export function learnPositionWeek(career: Career, player: Player, notes?: string[]): boolean {
   const pos = career.plan.learnPos;
   if (!pos || career.injury || career.plan.focus === 'istirahat' || pos === player.mainPosition) return false;
+  // posisi yang sudah dikuasai tetap boleh jadi posisi latihan (untuk melatih perannya), tanpa progres
+  if (familiarity(player, pos) >= 20) return false;
   const key = `pos:${pos}`;
   const rate = (0.2 + player.hidden.Versatility / 50) * INTENSITY_INFO[career.plan.intensity].growth;
   career.progress[key] = (career.progress[key] ?? 0) + rate;

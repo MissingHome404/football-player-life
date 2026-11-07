@@ -17,7 +17,7 @@ import {
   tierCost,
   weeklyBudget,
 } from '../game/sim/economy';
-import { roleChoices, rolePosition, trainingRole } from '../game/sim/training';
+import { rolePosition, trainingRole } from '../game/sim/training';
 import { ROLES } from '../game/data/roles';
 import { POSITION_LABEL } from '../game/data/attributes';
 import { pendingChoices, stressTarget } from '../game/sim/week';
@@ -474,34 +474,25 @@ function coachHint(k: CoachKind, l: CoachLevel): string {
   return k === 'fisik' ? `${boost}, risiko cedera latihan -${Math.round((1 - t.injury) * 100)}%` : boost;
 }
 
-/** Pilih peran yang dilatih (fokus latihan "Peran") */
-function RoleTraining() {
+/** Ringkasan latihan individu + tautan ke halamannya */
+function IndividualSummary() {
   const career = useGame((s) => s.career)!;
   const idx = useGame((s) => s.idx)!;
-  const setPlan = useGame((s) => s.setPlan);
+  const go = useGame((s) => s.go);
   const p = idx.playerById.get(career.playerId)!;
+  const role = ROLES[trainingRole(career, p)];
   const pos = rolePosition(career, p);
-  const choices = roleChoices(career, p);
-  const cur = trainingRole(career, p);
-  const role = ROLES[cur];
+  const last = career.trainingLog?.[0];
   return (
-    <div className="role-train">
-      <p className="small">
-        Peran yang dilatih ({POSITION_LABEL[pos].toLowerCase()}
-        {pos !== p.mainPosition ? ', posisi baru yang sedang kamu latih' : ', posisi utamamu'}):
-      </p>
-      <div className="chips" role="group" aria-label="Peran yang dilatih">
-        {choices.map((id) => (
-          <button key={id} className={`chip ${cur === id ? 'sel' : ''}`} aria-pressed={cur === id} onClick={() => setPlan({ trainRole: id })} title={ROLES[id].desc}>
-            {ROLES[id].name}
-            {id === p.preferredRole && ' ♥'}
-          </button>
-        ))}
-      </div>
-      <p className="muted small hint">
-        {role.desc} Atribut kunci: {role.key.join(', ')}.
-      </p>
-    </div>
+    <p className="small it-mini">
+      Latihan individu: <b>{role.name}</b> ({POSITION_LABEL[pos].toLowerCase()})
+      {career.plan.extraFocus && <> · fokus tambahan <b>{career.plan.extraFocus}</b></>}
+      {career.plan.weakFoot && ' · kaki lemah'}
+      {last && <> · nilai latihan terakhir <b>{last.rating.toFixed(2)}</b></>}.{' '}
+      <button className="link" onClick={() => go({ kind: 'training' })}>
+        Atur latihan individu →
+      </button>
+    </p>
   );
 }
 
@@ -551,7 +542,7 @@ function PlanPanel() {
           {FOCUS_INFO[plan.focus].desc}
           {career.injury && ' Kamu sedang cedera, jadi tidak bisa berlatih sampai pulih.'}
         </p>
-        {plan.focus === 'peran' && <RoleTraining />}
+        <IndividualSummary />
       </div>
 
       <PositionPlan />

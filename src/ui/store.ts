@@ -48,6 +48,7 @@ export type View =
   | { kind: 'me' }
   | { kind: 'inbox'; id?: string }
   | { kind: 'plan' }
+  | { kind: 'training' }
   | { kind: 'profile' }
   | { kind: 'matches' }
   | { kind: 'transfer' }

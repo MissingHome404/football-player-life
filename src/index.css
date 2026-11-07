@@ -763,3 +763,50 @@ input { font: inherit; }
   .mv-center, .mv-tabs, .mv-panel { grid-column: 1; grid-row: auto; }
   .mv-tabs .chip { max-width: 46%; }
 }
+
+/* Latihan individu */
+.it-head { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; }
+.it-rating { display: flex; flex-direction: column; }
+.it-big { font-family: var(--font-display); font-size: 34px; line-height: 1; color: var(--a-hi); }
+.it-sum { margin: 0; }
+.it-bars { display: flex; align-items: flex-end; gap: 3px; height: 44px; width: 150px; }
+.it-bars span { flex: 1; border-radius: 2px 2px 0 0; background: var(--a-low); }
+.it-bars span.hi { background: var(--a-hi); }
+.it-bars span.mid { background: var(--a-mid); }
+.it-bars span.lo { background: #ec6a64; }
+.it-grid { display: grid; grid-template-columns: 270px 1fr; gap: 14px; align-items: start; }
+.it-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.it-setup h3 { margin: 14px 0 6px; }
+.it-setup h3:first-child { margin-top: 0; }
+.it-setup select { width: 100%; }
+.it-pitch { max-width: 200px; margin: 0 auto; }
+.it-pos { cursor: pointer; }
+.it-pos.off { cursor: default; opacity: .3; }
+.it-dot { fill: #6d7488; stroke: #0f1320; stroke-width: .6; }
+.it-pos.mid .it-dot { fill: #c9d36b; }
+.it-pos.nat .it-dot { fill: var(--a-hi); }
+.it-pos.cur .it-dot { fill: var(--a-hi); }
+.it-ring { fill: none; stroke: var(--star); stroke-width: 1; }
+.it-lbl { font-size: 3px; font-weight: 700; fill: #0f1320; text-anchor: middle; pointer-events: none; }
+.it-pos:hover .it-dot, .it-pos:focus .it-dot { stroke: #fff; }
+.it-unit { font-family: var(--font-display); font-size: 20px; margin: 0; }
+.center { text-align: center; }
+.it-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.it-attrs .attr-row { position: relative; }
+.it-prog { position: absolute; left: 6px; bottom: 0; height: 2px; background: var(--accent); opacity: .7; max-width: calc(100% - 12px); }
+.it-focus { outline: 1px solid var(--star); }
+.it-star { color: var(--star); }
+.attr-down { color: #ec6a64; font-size: 10px; }
+.it-trait { padding: 3px 6px; }
+.it-report { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.it-coach p { margin: 0 0 8px; }
+.it-mini { margin: 8px 0 0; }
+@media (max-width: 900px) {
+  .it-grid, .it-grid2 { grid-template-columns: 1fr; }
+  .it-cols { grid-template-columns: 1fr 1fr; }
+  .it-head { grid-template-columns: auto 1fr; }
+  .it-bars { grid-column: 1 / -1; width: 100%; }
+}
+@media (max-width: 560px) {
+  .it-cols { grid-template-columns: 1fr; }
+}
