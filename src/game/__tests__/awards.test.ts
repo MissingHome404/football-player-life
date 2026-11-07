@@ -54,6 +54,32 @@ describe('penghargaan, rekor & lencana', () => {
     expect(legendRecord(w, 'clubGoals', 'x')).toEqual(legendRecord(w, 'clubGoals', 'x'));
   });
 
+  it('statistik musim: gol & assist pemain yang masuk dari bangku cadangan ikut tercatat', () => {
+    const { world, career } = setup();
+    const user = world.players.find((p) => p.isUser)!;
+    const week = playWeek(world, '2026-09-01', '2026-09-08', new Rng('bench'));
+    const f = [...week.played.values()].find((x) => x.home && x.leagueId === 'ENG1')!;
+    const squad = squadOf(world, f.clubId).filter((p) => !p.isYouth);
+    const club = world.clubs.find((c) => c.id === f.clubId)!;
+    const u = { ...user, contract: { ...squad[0].contract!, clubId: club.id } };
+    const w: World = { ...world, seasons: week.seasons, players: world.players.map((p) => (p.id === user.id ? u : p)) };
+    const ep = (p: (typeof squad)[number], num: number) => ({ id: p.id, name: p.lastName, num, slot: 'ST' as const, a: engineAttrs(p) });
+    const xi = squad.slice(0, 11).map(ep);
+    const blank = { passes: 0, passesOk: 0, keyPasses: 0, shots: 0, onTarget: 0, goals: 0, assists: 0, tackles: 0, interceptions: 0, dribbles: 0, lost: 0, saves: 0, conceded: 0, offsides: 0, longGoals: 0, setGoals: 0, headGoals: 0, fouls: 0, yellow: 0, red: 0, takeOns: 0, throughBalls: 0, injured: 0, on: 0 };
+    const stats = Object.fromEntries(xi.map((e) => [e.id, { ...blank }]));
+    stats[u.id] = { ...blank, on: 4000, goals: 1, assists: 2 };
+    const team = (id: string, players: typeof xi, bench: typeof xi) => ({ id, name: id, color: '#fff', color2: '#000', xi: players, bench });
+    const input = { seed: 'x', home: team(club.id, xi, [ep(u, 12)]), away: team(f.opponentId, [], []) };
+    const result = { score: [f.score[0], f.score[1]] as [number, number], events: [], stats, ratings: { [u.id]: 7.8 }, motm: u.id, possession: [50, 50] as [number, number], shots: [0, 0] as [number, number], onTarget: [0, 0] as [number, number] };
+    const engine = { leagueId: f.leagueId, round: f.round, index: f.index, input, result } as unknown as Parameters<typeof ledgerWeek>[5];
+    const next = ledgerWeek(w, week, career, u, '2026-09-08', engine);
+    const row = next.ledger!.ENG1.rows[u.id];
+    expect(row).toBeDefined();
+    expect(row[0]).toBe(1);
+    expect(row[1]).toBe(1);
+    expect(row[2]).toBe(2);
+  });
+
   it('akhir musim: pemain terbaik, top skor, pemain muda; pesan & penghargaan untukmu', () => {
     const { world, career } = setup();
     const user = world.players.find((p) => p.isUser)!;

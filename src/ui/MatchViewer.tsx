@@ -928,6 +928,7 @@ function TeamSheet({
               <text x={cx} y={cy + 8.4} className="mv-f-name">
                 {b.st.goals > 0 ? '⚽'.repeat(Math.min(3, b.st.goals)) + ' ' : ''}
                 {shortLabel(b.p.name)}
+                {b.st.assists > 0 ? ' ' + '🅰️'.repeat(Math.min(3, b.st.assists)) : ''}
               </text>
             </g>
           );
@@ -941,7 +942,9 @@ function TeamSheet({
               <span key={b.p.id} className={b.p.user ? 'me' : ''}>
                 {i > 0 && ', '}
                 {b.st.red > 0 ? '🟥 ' : b.st.injured ? '🚑 ' : '🔻 '}
-                {b.p.num} {shortLabel(b.p.name)} <span className="muted">{rate(b, match.score).toFixed(1)}</span>
+                {b.p.num} {shortLabel(b.p.name)}
+                {b.st.goals > 0 && ` ${'⚽'.repeat(Math.min(3, b.st.goals))}`}
+                {b.st.assists > 0 && ` ${'🅰️'.repeat(Math.min(3, b.st.assists))}`} <span className="muted">{rate(b, match.score).toFixed(1)}</span>
               </span>
             ))}
           </div>

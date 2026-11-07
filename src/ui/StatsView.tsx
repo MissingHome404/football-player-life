@@ -96,6 +96,7 @@ export function LeagueStats({ leagueId }: { leagueId: string }) {
         {season && `Musim ${season} · `}
         {rows.length} pemain sudah bermain
         {sort === 'rating' && ' · minimal 40% penampilan pemain terbanyak'}
+        {' · hanya laga liga (piala, kompetisi benua, dan timnas tidak dihitung di tabel ini)'}
         {partial && ' · game dimulai di tengah musim, jadi angka musim ini belum penuh'}
       </p>
       <div className="table-wrap">
@@ -225,6 +226,74 @@ export function LeagueHistory({ leagueId }: { leagueId: string }) {
   );
 }
 
+const COMP_LABEL: Record<string, string> = {
+  Liga: 'Liga',
+  Piala: 'Piala domestik',
+  Kontinental: 'Kompetisi benua',
+  U19: 'U19',
+  Amatir: 'Amatir',
+  Timnas: 'Timnas',
+  'Timnas U20': 'Timnas U-20',
+};
+
+/** Statistik pemain kita musim ini di SEMUA kompetisi (tabel liga di bawahnya hanya laga liga) */
+function MySeasonStats() {
+  const career = useGame((s) => s.career)!;
+  const club = career.stats.filter((x) => x.comp !== 'Timnas' && x.comp !== 'Timnas U20');
+  const latest = club[club.length - 1]?.season;
+  const year = career.currentDate.slice(0, 4);
+  const rows = career.stats.filter((x) => x.season === latest || ((x.comp === 'Timnas' || x.comp === 'Timnas U20') && x.season === year));
+  if (!rows.length) return null;
+  const tot = rows.reduce(
+    (a, r) => ({ apps: a.apps + r.apps, goals: a.goals + r.goals, assists: a.assists + r.assists, cs: a.cs + r.cleanSheets, sum: a.sum + r.ratingSum }),
+    { apps: 0, goals: 0, assists: 0, cs: 0, sum: 0 },
+  );
+  return (
+    <section className="panel">
+      <h2>Statistikmu musim ini (semua kompetisi)</h2>
+      <div className="table-wrap">
+        <table className="tbl small">
+          <thead>
+            <tr>
+              <th className="left">Kompetisi</th>
+              <th className="left hide-sm">Tim</th>
+              <th>Main</th>
+              <th>Gol</th>
+              <th>Ast</th>
+              <th>CS</th>
+              <th>Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={`${r.season}-${r.team}-${r.comp}`}>
+                <td className="left">{COMP_LABEL[r.comp] ?? r.comp}</td>
+                <td className="left hide-sm muted">{r.team}</td>
+                <td className="num">{r.apps}</td>
+                <td className="num">{r.goals}</td>
+                <td className="num">{r.assists}</td>
+                <td className="num">{r.cleanSheets}</td>
+                <td className="num">{r.apps ? (r.ratingSum / r.apps).toFixed(2) : '-'}</td>
+              </tr>
+            ))}
+            {rows.length > 1 && (
+              <tr className="strong">
+                <td className="left">Total</td>
+                <td className="hide-sm" />
+                <td className="num">{tot.apps}</td>
+                <td className="num">{tot.goals}</td>
+                <td className="num">{tot.assists}</td>
+                <td className="num">{tot.cs}</td>
+                <td className="num">{tot.apps ? (tot.sum / tot.apps).toFixed(2) : '-'}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export function StatsView({ leagueId }: { leagueId?: string }) {
   const world = useGame((s) => s.world)!;
   const career = useGame((s) => s.career);
@@ -255,6 +324,7 @@ export function StatsView({ leagueId }: { leagueId?: string }) {
           </label>
         }
       />
+      {career && <MySeasonStats />}
       <section className="panel">
         <LeagueStats key={id} leagueId={id} />
       </section>

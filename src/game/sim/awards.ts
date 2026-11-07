@@ -278,7 +278,9 @@ type Credit = (p: Player, clubId: string, goals: number, assists: number, rating
 function creditEngine(input: EngineInput, r: EngineResult, squads: Map<string, Player[]>, credit: Credit, byId?: Map<string, Player>) {
   for (const [side, team] of [input.home, input.away].entries()) {
     const conceded = r.score[1 - side];
-    const ids = [...team.xi.map((e) => e.id), ...(team.sub ? [team.sub.player.id] : [])];
+    // pemain cadangan yang masuk (pergantian pelatih / pengganti cedera) juga dicatat: tanpa ini
+    // penampilan, gol, dan assist dari bangku cadangan hilang dari statistik musim
+    const ids = [...new Set([...team.xi.map((e) => e.id), ...(team.sub ? [team.sub.player.id] : []), ...(team.bench ?? []).map((e) => e.id)])];
     const squad = squads.get(team.id) ?? [];
     for (const id of ids) {
       const st = r.stats[id];
