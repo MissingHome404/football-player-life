@@ -1,7 +1,7 @@
 // Layar pertandingan 2D. Laga diputar ulang dari input match engine yang sama dengan
 // simulasi mingguan, jadi skor dan statistik di layar identik dengan yang tercatat.
 
-import { FORMATIONS, SLOT_LABEL, type FormationId, type Slot } from '../game/sim/formation';
+import { SLOT_LABEL, type Slot, type Spot } from '../game/sim/formation';
 import { ROLES } from '../game/data/roles';
 import { DUTY_LABEL, mentalityLabel } from '../game/sim/tactics';
 import { OOP_LABEL, defaultOop, type OopRole } from '../game/sim/roleplay';
@@ -113,12 +113,14 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
       return 'Peluit panjang';
     case 'added':
       return `⏱️ Tambahan waktu ${e.plus} menit`;
+    case 'tactic':
+      return `📋 ${e.note} (${team})`;
     default:
       return null;
   }
 }
 
-const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red', 'injury', 'added']);
+const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red', 'injury', 'added', 'tactic']);
 /** Menit event: 67' atau 90+3' (event 'added' ditulis di menit 45/90) */
 const minLabel = (e: MatchEvent) => (e.plus && e.kind !== 'added' ? `${e.min}+${e.plus}'` : `${e.min}'`);
 
@@ -840,8 +842,8 @@ const shortLabel = (name: string) => {
  * Tempat dengan kedalaman mirip digabung jadi satu baris, baris dibagi rata dari bawah ke atas,
  * dan pemain dalam satu baris dibagi rata ke samping supaya nama tidak bertumpuk.
  */
-function sheetSpots(formation: FormationId): Map<Slot, [number, number]> {
-  const spots = [...FORMATIONS[formation].spots].sort((a, b) => a.base[0] - b.base[0]);
+function sheetSpots(shape: readonly Spot[]): Map<Slot, [number, number]> {
+  const spots = [...shape].sort((a, b) => a.base[0] - b.base[0]);
   const rows: (typeof spots)[] = [];
   for (const sp of spots) {
     const row = rows[rows.length - 1];
@@ -881,13 +883,15 @@ function TeamSheet({
 }) {
   void tick; // komponen digambar ulang tiap menit laga berubah
   const team = side ? match.input.away : match.input.home;
-  const formation = team.formation ?? '4-3-3';
+  // bentuk tim saat ini (pelatih bisa mengubahnya di tengah laga)
+  const shape = match.shapeOf(side);
+  const formation = shape.id;
   const onPitch = match.bodies.filter((b) => b.side === side && b.on && !b.leaving);
   const used = new Set(match.bodies.map((b) => b.p.id));
   const bench = [...match.bench, ...match.reserves].filter((b) => b.side === side && (!used.has(b.p.id) || b.waiting));
   const out = match.bodies.filter((b) => b.side === side && (b.st.off !== undefined || b.st.red > 0) && !b.on);
   const cards = (b: Body) => (b.st.red > 0 ? 'red' : b.st.yellow > 0 ? 'yellow' : null);
-  const spots = useMemo(() => sheetSpots(formation), [formation]);
+  const spots = useMemo(() => sheetSpots(shape.spots), [shape.spots]);
   return (
     <section className={`mv-panel mv-sheet ${cls}`}>
       <h3>

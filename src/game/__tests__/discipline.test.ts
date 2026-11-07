@@ -58,6 +58,9 @@ const rec = (card: MatchRecord['card'], date = '2026-09-01'): MatchRecord => ({
 describe('cedera di dalam laga', () => {
   it('pemain cedera terkapar lalu diganti pemain cadangan seposisi (maksimal 5 pergantian)', () => {
     let injuries = 0;
+    // v19: pelatih bisa menyusun ulang tempat pemain setelahnya; di tes ini pelatih tidak mengubah taktik
+    const coach = TUNE.coach;
+    TUNE.coach = 0;
     withInjury(0.15, () => {
       for (let i = 0; i < 6; i++) {
         const m = new Match({ seed: `inj-${i}`, home: team(eng[i].id), away: team(eng[10 + i].id) });
@@ -81,6 +84,7 @@ describe('cedera di dalam laga', () => {
         expect(m.subs[1]).toBeLessThanOrEqual(MAX_SUBS);
       }
     });
+    TUNE.coach = coach;
     expect(injuries).toBeGreaterThan(3);
   }, 30_000);
 

@@ -21,6 +21,7 @@ import { Rng, clamp } from '../rng';
 import {
   FORMATIONS,
   FORMATION_IDS,
+  SHAPES,
   assignXI,
   bestSpot,
   isBox,
@@ -37,14 +38,15 @@ import {
   type FormationId,
   type Slot,
   type SlotGroup,
+  type Spot,
 } from './formation';
 import { shortName } from '../gen/names';
-import { defaultOop, pickRole, playStyle, type Duty, type OopRole, type RoleK } from './roleplay';
+import { defaultOop, pickRole, playStyle, slotKind, type Duty, type OopRole, type RoleK } from './roleplay';
 import { playTraits, traitK } from './traits';
-import { aiFamiliarity, type Tactic, type TacticK } from './tactics';
+import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 18;
+export const ENGINE_VERSION = 19;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -162,6 +164,8 @@ export const TUNE = {
    * lapangan (sepak pojok), seberapa jauh kiper mau keluar menyambut bola atas (Command of Area)
    */
   boxFoul: 0.5, parryOut: 0.45, claimK: 0.012,
+  /** v19 pelatih mengubah taktik di tengah laga (0 = mati, untuk eksperimen) */
+  coach: 1,
   /** v18 pergantian pemain menunggu bola mati paling lama sekian detik permainan */
   subWait: 12,
   /** v17 selisih kecepatan puncak (Pace) dan percepatan (Acceleration) antar-pemain (1 = v16); 0.6: Pace 5 = 8,3 m/s, Pace 20 = 10,2 m/s */
@@ -298,6 +302,48 @@ export interface ETeam {
   /** instruksi taktik pelatih (kalau tidak ada: dari gaya main) */
   tactic?: TacticK;
 }
+
+/** v19 keadaan pelatih dalam laga */
+interface Coach {
+  /** watak -1 (sabar) .. 1 (cepat bereaksi & berani) */
+  bold: number;
+  /** mentalitas awal dari taktiknya */
+  ment0: number;
+  /** jumlah instruksi pembuka kebuntuan yang sudah dipakai, dan xG saat instruksi terakhir */
+  unlock: number;
+  xgAt: number;
+  used: string[];
+  pressed: boolean;
+  parked: boolean;
+  chase: boolean;
+  protect: boolean;
+}
+const newCoach = (bold: number, ment0: number): Coach => ({ bold, ment0, unlock: 0, xgAt: 0, used: [], pressed: false, parked: false, chase: false, protect: false });
+
+/** v19 peran yang cocok untuk tiap jenis tempat (pemain dipindah ke tempat lain memakai peran bawaan kalau perannya tidak cocok) */
+const KIND_ROLES: Record<string, string[]> = {
+  gk: ['gk', 'sk'],
+  cb: ['cd', 'bpd', 'ncb', 'lib', 'wcb'],
+  fb: ['fb', 'wb', 'ifb', 'nfb', 'cwb', 'iwb'],
+  dm: ['dm', 'a', 'dlp', 'bwm', 'reg', 'hb', 'sv'],
+  cm: ['cm', 'b2b', 'dlp', 'ap', 'bwm', 'mez', 'car', 'rpm'],
+  wide: ['wm', 'w', 'wp', 'dw', 'if', 'iw', 'rmd', 'wtf'],
+  am: ['am', 'ap', 'ss', 'eng', 't'],
+  st: ['af', 'p', 'cf', 'f9', 'dlf', 'tf', 'pf'],
+};
+function defaultRole(slot: Slot): [string, Duty] {
+  const k = slotKind(slot);
+  if (k === 'gk') return ['gk', 'De'];
+  if (k === 'cb') return ['cd', 'De'];
+  if (k === 'fb') return [slot === 'RWB' || slot === 'LWB' ? 'wb' : 'fb', 'Su'];
+  if (k === 'dm') return ['dm', 'De'];
+  if (k === 'cm') return slot === 'CM' ? ['dm', 'De'] : ['cm', 'Su'];
+  if (k === 'wide') return [isWideMid(slot) ? 'wm' : 'w', 'Su'];
+  if (k === 'am') return ['am', 'Su'];
+  return ['af', 'At'];
+}
+const roleFits = (role: string, slot: Slot) =>
+  KIND_ROLES[slotKind(slot)].includes(role) || (slot === 'CM' && KIND_ROLES.dm.includes(role)) || (isHold(slot) && KIND_ROLES.cm.includes(role));
 
 export interface EngineInput {
   seed: string;
@@ -486,7 +532,7 @@ export interface PStats {
 
 export type EventKind =
   | 'goal' | 'shot' | 'save' | 'miss' | 'block' | 'half' | 'full' | 'sub' | 'kickoff' | 'penalty' | 'corner' | 'added'
-  | 'freekick' | 'offside' | 'yellow' | 'red' | 'injury';
+  | 'freekick' | 'offside' | 'yellow' | 'red' | 'injury' | 'tactic';
 export interface MatchEvent {
   t: number;
   min: number;
@@ -504,6 +550,8 @@ export interface MatchEvent {
   dissent?: boolean;
   /** menit tambahan (injury time): 45+2 = min 45, plus 2. Untuk event 'added': jumlah menit tambahan */
   plus?: number;
+  /** v19 keputusan pelatih (event 'tactic'): mentalitas, instruksi, atau formasi baru */
+  note?: string;
 }
 
 export interface Body {
@@ -550,6 +598,8 @@ export interface Body {
   autoDuty?: Duty;
   /** v17 lari menembus pertahanan: celah yang dituju (y bingkai tim, -1 = belum dipilih) */
   runY: number;
+  /** v19 tempat asli pemain (posisi alaminya), dipakai pelatih saat menyusun ulang bentuk tim */
+  home: Slot;
 }
 
 export interface Ball {
@@ -735,12 +785,26 @@ export class Match {
 
   /** posisi dasar tiap tempat, per tim (dari formasi pelatih) */
   private bases: [Record<string, [number, number]>, Record<string, [number, number]>] = [{}, {}];
+  /** v19 bentuk tim saat ini: formasi awal, atau bentuk baru dari pelatih di tengah laga */
+  shape: [string, string] = ['4-3-3', '4-3-3'];
+  /** v19 jumlah xG peluang tiap tim (pelatih membaca jalannya laga) */
+  xgFor: [number, number] = [0, 0];
+  /** v19 keadaan pelatih tiap tim */
+  private coach: [Coach, Coach];
+  private coachNext: [number, number] = [0, 0];
+  /** v19 angka acak keputusan pelatih (terpisah supaya tidak menggeser jalannya laga) */
+  private crng: Rng;
 
   constructor(input: EngineInput) {
     this.input = input;
     [input.home, input.away].forEach((t, i) => {
       for (const spot of FORMATIONS[t.formation ?? '4-3-3'].spots) this.bases[i][spot.slot] = spot.base;
+      this.shape[i] = t.formation ?? '4-3-3';
     });
+    // v19 watak pelatih: ada yang cepat bereaksi & berani, ada yang sabar (generator terpisah dari jalannya laga)
+    const cr = new Rng(`coach:${input.seed}`);
+    this.crng = cr;
+    this.coach = [input.home, input.away].map((t) => newCoach(cr.float(-1, 1), t.tactic?.mentality ?? 0)) as [Coach, Coach];
     this.rng = new Rng(`engine2:${input.seed}`);
     const teams = [input.home, input.away];
     this.tk = [input.home.tactic ?? null, input.away.tactic ?? null];
@@ -910,7 +974,7 @@ export class Match {
       p: ep, rk: this.styleOf(ep), rx: 0, ry: 0, side, x: 52.5, y: 34, vx: 0, vy: 0, tx: 52.5, ty: 34, on, st, cool: 0, run: 0,
       think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1, frus: 0, base: mindOf(a),
       // semua properti diisi sejak awal: bentuk objek sama untuk semua pemain (lebih cepat di V8)
-      autoDuty: ep.duty === 'Au' ? 'Su' : undefined, leaving: false, waiting: false, entering: false, runY: -1,
+      autoDuty: ep.duty === 'Au' ? 'Su' : undefined, leaving: false, waiting: false, entering: false, runY: -1, home: ep.slot,
     };
   }
 
@@ -2684,6 +2748,7 @@ export class Match {
     const gk = this.keeper((1 - side) as 0 | 1);
     c.st.shots++;
     this.shots[side]++;
+    this.xgFor[side] += xg;
     const fx = this.fx(side, c.x);
     const fy = this.fy(side, c.y);
     const dist = Math.hypot(PITCH_W - fx, 34 - fy);
@@ -3828,6 +3893,271 @@ export class Match {
   /** Pelatih mengganti pemain: kaki segar untuk yang kelelahan, penyerang tambahan kalau tertinggal */
   private nextCoach: [number, number] = [0, 0];
   private tactical: [number, number] = [0, 0];
+  // --- v19 pelatih membaca laga: mentalitas, instruksi, dan bentuk tim di tengah laga ---------------
+
+  /** v19 bentuk tim saat ini: nama dan tempat-tempatnya (untuk papan susunan pemain) */
+  shapeOf(side: 0 | 1): { id: string; spots: Spot[] } {
+    const id = this.shape[side];
+    return { id, spots: SHAPES[id] ?? FORMATIONS['4-3-3'].spots };
+  }
+
+  /** catatan keputusan pelatih di daftar kejadian */
+  private note(side: 0 | 1, text: string) {
+    const c = this.clock();
+    const e: MatchEvent = { t: this.t, min: c.min, kind: 'tactic', side, note: text };
+    if (c.plus) e.plus = c.plus;
+    this.events.push(e);
+  }
+
+  /** jumlah pemain tim yang diusir wasit */
+  private sentOff(side: 0 | 1): number {
+    let n = 0;
+    for (const b of this.bodies) if (b.side === side && b.st.red > 0) n++;
+    return n;
+  }
+
+  /**
+   * Susun ulang tempat pemain ke bentuk tim baru: tiap tempat diisi pemain yang posisi alaminya paling dekat
+   * (pemain bertahan di tempatnya kalau tempat itu masih ada). Kalau pemain lebih sedikit dari tempat
+   * (kartu merah), tempat paling depan dikosongkan lebih dulu, tapi selalu tersisa satu penyerang.
+   */
+  private reshape(side: 0 | 1, id: string, why?: string) {
+    const all = SHAPES[id];
+    if (!all) return;
+    const list = this.bodies.filter((b) => b.side === side && b.p.slot !== 'GK' && !b.leaving && (b.on || b.waiting || b.entering) && b.st.red === 0);
+    const spots = all.filter((sp) => sp.slot !== 'GK');
+    while (spots.length > list.length) {
+      const fwd = spots.filter((sp) => isST(sp.slot)).length;
+      let drop = -1;
+      for (let i = 0; i < spots.length; i++) {
+        if (isST(spots[i].slot) && fwd <= 1) continue;
+        if (drop < 0 || spots[i].base[0] > spots[drop].base[0]) drop = i;
+      }
+      spots.splice(drop, 1);
+    }
+    const cost = (b: Body, sp: Spot) => {
+      const h = BASE[b.home] ?? sp.base;
+      return Math.hypot(h[0] - sp.base[0], (h[1] - sp.base[1]) * 1.2) - (b.p.slot === sp.slot ? 2 : 0);
+    };
+    const pairs: [number, number, number][] = [];
+    list.forEach((b, i) => spots.forEach((sp, j) => pairs.push([cost(b, sp), i, j])));
+    pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    const at = new Array<number>(list.length).fill(-1);
+    const taken = new Set<number>();
+    for (const [, i, j] of pairs) {
+      if (at[i] >= 0 || taken.has(j)) continue;
+      at[i] = j;
+      taken.add(j);
+    }
+    // perbaikan: tukar tempat dua pemain kalau jarak totalnya lebih kecil
+    for (let pass = 0; pass < 6; pass++) {
+      let better = false;
+      for (let i = 0; i < list.length; i++) {
+        for (let k = i + 1; k < list.length; k++) {
+          if (at[i] < 0 || at[k] < 0) continue;
+          const now = cost(list[i], spots[at[i]]) + cost(list[k], spots[at[k]]);
+          if (cost(list[i], spots[at[k]]) + cost(list[k], spots[at[i]]) < now - 0.01) {
+            [at[i], at[k]] = [at[k], at[i]];
+            better = true;
+          }
+        }
+      }
+      if (!better) break;
+    }
+    this.shape[side] = id;
+    const bases: Record<string, [number, number]> = {};
+    for (const sp of all) bases[sp.slot] = sp.base;
+    this.bases[side] = bases;
+    list.forEach((b, i) => {
+      if (at[i] >= 0) this.moveTo(b, spots[at[i]].slot);
+    });
+    if (why) this.note(side, why);
+  }
+
+  /** pindahkan pemain ke tempat lain; peran yang tidak cocok dengan tempat barunya diganti peran bawaan */
+  private moveTo(b: Body, slot: Slot) {
+    if (b.p.slot === slot) return;
+    let role = b.p.role;
+    let duty = b.p.duty;
+    if (role && !roleFits(role, slot)) [role, duty] = defaultRole(slot);
+    else if (role && duty && duty !== 'Au' && ROLE_DUTIES[role] && !ROLE_DUTIES[role].includes(duty)) duty = ROLE_DUTIES[role][0];
+    const oop = slotKind(b.p.slot) === slotKind(slot) ? b.p.oop : undefined;
+    b.p = { ...b.p, slot, role, duty, oop };
+    b.rk = this.styleOf(b.p, b.p.duty === 'Au' ? (b.autoDuty ?? 'Su') : undefined);
+  }
+
+  /** ganti mentalitas tim (hanya tim dengan taktik pelatih) */
+  private setMent(side: 0 | 1, m: number): boolean {
+    const tk = this.tk[side];
+    m = clamp(Math.round(m), -3, 3);
+    if (!tk || m === tk.mentality) return false;
+    const from = tk.mentality;
+    this.tk[side] = { ...tk, mentality: m };
+    this.baseK[side] = styleOfTactic(this.tk[side]!);
+    this.note(side, `Mentalitas: ${mentalityLabel(from)} → ${mentalityLabel(m)}`);
+    return true;
+  }
+
+  /** ubah sebagian instruksi tim */
+  private setInstr(side: 0 | 1, patch: Partial<TacticK>, text: string): boolean {
+    const tk = this.tk[side];
+    if (!tk) return false;
+    this.tk[side] = { ...tk, ...patch };
+    this.baseK[side] = styleOfTactic(this.tk[side]!);
+    this.note(side, text);
+    return true;
+  }
+
+  /**
+   * Kartu merah: pelatih langsung menyusun ulang tim (biasanya mengorbankan satu penyerang). Bek yang
+   * diusir diganti bek dari bangku cadangan kalau masih ada jatah pergantian.
+   */
+  private redShape(red: Body) {
+    const side = red.side;
+    const c = this.clock();
+    const n = 11 - this.sentOff(side);
+    if (red.p.slot === 'GK' || n >= 11) return;
+    const cur = this.shape[side];
+    const back = (SHAPES[cur] ?? FORMATIONS['4-3-3'].spots).filter((sp) => isDef(sp.slot)).length;
+    const d = this.score[side] - this.score[1 - side];
+    const chase = d < 0 && c.min >= 55;
+    const id = n <= 9 ? '4-3-1' : back >= 5 ? (chase ? '4-3-2' : '5-3-1') : back === 3 ? (chase ? '3-4-2' : '4-4-1') : chase ? '4-3-2' : '4-4-1';
+    if (id !== cur) this.reshape(side, id, `Formasi diubah: ${cur} → ${id} (bermain dengan ${n} orang)`);
+    else this.reshape(side, id);
+    if (slotGroup(red.home) === 'DEF' && c.min < 80 && this.subs[side] < MAX_SUBS - 1) {
+      const sub = this.reserves.find((r) => r.side === side && r.st.on < 0 && !this.inSub(r) && slotGroup(r.p.slot) === 'DEF');
+      const out = this.onPitch[side]
+        .filter((b) => slotGroup(b.p.slot) === 'ATT' && !b.p.user && !this.inSub(b))
+        .sort((a, b) => this.fx(side, b.x) - this.fx(side, a.x))[0];
+      if (sub && out) {
+        this.tactical[side]++;
+        this.substitute(out, sub);
+      }
+    }
+  }
+
+  /**
+   * Pelatih membaca laga tiap 5 menit (mulai menit 20):
+   * - mentalitas: tertinggal = makin menyerang; unggul tipis melawan tim lebih kuat = bertahan (sampai
+   *   sangat bertahan di menit akhir); imbang melawan tim lebih lemah = mendorong mencari gol kemenangan.
+   * - instruksi: menguasai laga tapi buntu = ubah cara menyerang sesuai kekuatan pemainnya (umpan silang,
+   *   tembakan jarak jauh, tempo & umpan terobosan, atau dribel); tertinggal di menit akhir = pressing tinggi;
+   *   menjaga keunggulan = garis turun & lebih rapat.
+   * - formasi: mengejar ketinggalan = dua penyerang; menjaga keunggulan tipis di menit akhir = lima bek.
+   * Pelatih yang berani bereaksi lebih cepat.
+   */
+  private coachThink() {
+    const c = this.clock();
+    if (c.min < 20) return;
+    const per = HALF / 45;
+    const q = [this.quality(0), this.quality(1)];
+    for (const side of [0, 1] as const) {
+      if (this.t < this.coachNext[side]) continue;
+      this.coachNext[side] = this.t + 5 * per;
+      const cs = this.coach[side];
+      const opp = (1 - side) as 0 | 1;
+      const min = c.min + (this.half === 2 ? c.plus : 0);
+      const d = this.score[side] - this.score[opp];
+      const rel = clamp((q[side] - q[opp]) * TUNE.rel, -1, 1);
+      const man = this.sentOff(opp) - this.sentOff(side);
+      const early = cs.bold * 5;
+      const tk = this.tk[side];
+
+      // 1. mentalitas
+      let want = cs.ment0;
+      if (d < 0) {
+        if (min >= 58 - early) want = cs.ment0 + 1;
+        if (min >= 73 - early || (d <= -2 && min >= 65)) want = cs.ment0 + 2;
+        if (min >= 84 && cs.bold > 0.3) want = 3;
+      } else if (d > 0) {
+        if (d === 1 && rel < -0.15 && min >= 68 + early) want = min >= 80 ? -2 - (cs.bold < 0 ? 1 : 0) : Math.min(cs.ment0, -1);
+        else if (d === 1 && min >= 78 + early) want = cs.ment0 - 1;
+        else if (d >= 2 && min >= 70) want = cs.ment0 - 1;
+      } else if (rel > 0.15 && min >= 65 - early) want = cs.ment0 + 1;
+      else if (rel < -0.15 && min >= 75 + early) want = cs.ment0 - 1;
+      if (man < 0 && d >= 0) want -= 1;
+      else if (man > 0 && d <= 0) want += 1;
+      this.setMent(side, want);
+      if (!tk) continue;
+
+      // 2. instruksi
+      const poss = this.possTime[side] / (this.possTime[0] + this.possTime[1] || 1);
+      const stuck = d <= 0 && (rel > 0.05 || poss > 0.55) && this.xgFor[side] - cs.xgAt < (min / 90) * 1.4 * (cs.unlock ? 0.4 : 1);
+      if (stuck && cs.unlock < 2 && min >= (cs.unlock ? 72 : 55) - early) this.unlock(side, cs);
+      else if (d < 0 && min >= 72 - early && !cs.pressed) {
+        cs.pressed = true;
+        const t = this.tk[side]!;
+        this.setInstr(side, { press: Math.min(2, t.press + 1), engage: Math.min(2, t.engage + 1), line: Math.min(2, t.line + 1), counterPress: true }, 'Instruksi: pressing lebih tinggi untuk merebut bola');
+      } else if (d > 0 && (this.tk[side]!.mentality <= -2 || man < 0) && !cs.parked) {
+        cs.parked = true;
+        const t = this.tk[side]!;
+        this.setInstr(
+          side,
+          { line: Math.max(-2, t.line - 1), engage: Math.max(-2, t.engage - 1), press: Math.max(-2, t.press - 1), tempo: Math.max(-2, t.tempo - 1), counter: true },
+          'Instruksi: garis pertahanan turun, lebih rapat, ulur tempo',
+        );
+      }
+
+      // 3. formasi (11 pemain)
+      if (man < 0 || this.sentOff(side)) continue;
+      const cur = this.shape[side];
+      const spots = SHAPES[cur] ?? FORMATIONS['4-3-3'].spots;
+      const strikers = spots.filter((sp) => isST(sp.slot)).length;
+      const back = spots.filter((sp) => isDef(sp.slot)).length;
+      if (d < 0 && min >= 66 - early && !cs.chase && (strikers < 2 || back >= 5)) {
+        cs.chase = true;
+        this.reshape(side, '4-4-2', `Formasi diubah: ${cur} → 4-4-2 (dua penyerang untuk mengejar gol)`);
+      } else if (d === 1 && min >= 80 + early && rel < 0.1 && !cs.protect && back < 5) {
+        cs.protect = true;
+        const id = strikers >= 2 && back === 3 ? '5-3-2' : '5-4-1';
+        this.reshape(side, id, `Formasi diubah: ${cur} → ${id} (lima bek menjaga keunggulan)`);
+        // bek dari bangku cadangan masuk menggantikan penyerang yang paling lelah
+        if (this.tactical[side] < TUNE.aiSubs + 1 && this.subs[side] < MAX_SUBS - 1) {
+          const sub = this.reserves.find((r) => r.side === side && r.st.on < 0 && !this.inSub(r) && slotGroup(r.p.slot) === 'DEF');
+          const out = this.onPitch[side].filter((b) => slotGroup(b.p.slot) === 'ATT' && !b.p.user && !this.inSub(b)).sort((a, b) => a.energy - b.energy)[0];
+          if (sub && out) {
+            this.tactical[side]++;
+            this.substitute(out, sub);
+          }
+        }
+      }
+    }
+  }
+
+  /** instruksi pembuka kebuntuan, dipilih sesuai kekuatan pemain di lapangan */
+  private unlock(side: 0 | 1, cs: Coach) {
+    const on = this.onPitch[side].filter((b) => b.p.slot !== 'GK');
+    const avg = (list: Body[], f: (a: EAttrs) => number) => (list.length ? list.reduce((s, b) => s + f(b.p.a), 0) / list.length : 10);
+    const wide = on.filter((b) => isFB(b.p.slot) || isWing(b.p.slot) || isWideMid(b.p.slot));
+    const front = on.filter((b) => isST(b.p.slot) || isWing(b.p.slot) || b.p.slot === 'AM');
+    const shooters = on.filter((b) => !isDef(b.p.slot));
+    const air = on.reduce((m, b) => Math.max(m, b.p.a.hea + b.p.a.jmp / 2 + (b.p.a.hgt - 180) * 0.1), 0);
+    const opts: [string, number][] = [
+      ['cross', avg(wide, (a) => a.cro) * 0.6 + air * 0.25],
+      ['long', avg(shooters, (a) => a.lon) + 0.5],
+      ['direct', avg(front, (a) => (a.pace + a.acc + a.otb) / 3)],
+      ['creative', avg(front, (a) => (a.dri + a.fla) / 2)],
+    ];
+    let best = '';
+    let bv = -Infinity;
+    for (const [k, v] of opts) {
+      if (cs.used.includes(k)) continue;
+      const score = v + this.crng.float(-1.5, 1.5);
+      if (score > bv) {
+        bv = score;
+        best = k;
+      }
+    }
+    const t = this.tk[side]!;
+    cs.used.push(best);
+    cs.unlock++;
+    cs.xgAt = this.xgFor[side];
+    if (best === 'cross') this.setInstr(side, { width: Math.min(2, t.width + 1), focus: 'sayap', crosses: 'campuran', overlap: true, workIntoBox: false }, 'Instruksi: main melebar & lebih banyak umpan silang');
+    else if (best === 'long') this.setInstr(side, { shootOnSight: true, workIntoBox: false }, 'Instruksi: lebih sering menembak dari luar kotak');
+    else if (best === 'direct') this.setInstr(side, { tempo: Math.min(2, t.tempo + 1), directness: Math.min(2, t.directness + 1), passIntoSpace: true }, 'Instruksi: tempo lebih cepat & umpan terobosan');
+    else this.setInstr(side, { creative: 1, dribble: 1 }, 'Instruksi: lebih ekspresif, berani menggiring bola');
+  }
+
   private coachSubs() {
     if (this.half !== 2 || (!this.dead && !this.restart) || this.restart?.kind === 'penalty') return;
     const c = this.clock();
@@ -3906,6 +4236,7 @@ export class Match {
     b.st.offMin = c.min;
     if (this.owner === b) this.owner = null;
     this.refresh();
+    if (TUNE.coach) this.redShape(b);
   }
 
   // --- langkah simulasi --------------------------------------------------------------
@@ -3967,6 +4298,7 @@ export class Match {
     }
     if (this.t >= this.nextMental) {
       this.nextMental = this.t + HALF / 45;
+      if (TUNE.coach) this.coachThink();
       this.mentality();
       this.mind();
     }
@@ -4097,6 +4429,8 @@ export class Match {
     const duty = sub.p.duty === 'Au' ? (out.autoDuty ?? 'Su') : sub.p.duty;
     if (sub.p.duty === 'Au') sub.autoDuty = duty;
     sub.rk = this.styleOf(sub.p, duty);
+    // v19 pengganti dari lini lain (mis. bek masuk menggantikan penyerang): pelatih menyusun ulang tempat pemain
+    if (TUNE.coach && sub.home !== 'GK' && sub.p.slot !== 'GK' && slotGroup(sub.home) !== slotGroup(sub.p.slot)) this.reshape(sub.side, this.shape[sub.side]);
   }
 
   /** Serangan balik: beberapa detik setelah merebut bola, tim yang diinstruksikan langsung menyerang */

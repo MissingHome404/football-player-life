@@ -844,3 +844,113 @@ describe('match engine versi 18: kiper & bola mati', () => {
     expect(late(1)).toBeGreaterThan(late(20) * 1.3);
   });
 });
+
+describe('match engine versi 19: pelatih mengubah taktik di tengah laga', () => {
+  type B = Match['bodies'][number];
+  type Priv = {
+    book(b: B, card: 'yellow' | 'red'): void;
+    coachThink(): void;
+    coachNext: [number, number];
+    tk: [{ mentality: number; line: number; width: number; crosses: string } | null, unknown];
+    possTime: [number, number];
+    added: [number, number];
+    restart: unknown;
+    dead: unknown;
+  };
+  const game = (seed: string, home = makeTactic('c19-h', 'Possession', '4-2-3-1'), away = makeTactic('c19-a', 'Counter', '4-4-2')) => {
+    const m = new Match({ seed, home: side(eng[2].id, home), away: side(eng[3].id, away) });
+    for (let i = 0; i < 30; i++) m.step();
+    return { m, pv: m as unknown as Priv };
+  };
+  /** pindahkan jam ke menit tertentu di babak kedua, lalu pelatih membaca laga */
+  const think = (m: Match, pv: Priv, min: number) => {
+    m.half = 2;
+    pv.added = [0, -1];
+    m.t = 150 + ((min - 45.5) / 45) * 150;
+    pv.coachNext = [0, 0];
+    pv.coachThink();
+  };
+  const notes = (m: Match, side: 0 | 1) => m.events.filter((e) => e.kind === 'tactic' && e.side === side).map((e) => e.note!);
+  const outfield = (m: Match, s: 0 | 1) => m.bodies.filter((b) => b.on && b.side === s && b.p.slot !== 'GK');
+
+  it('kartu merah: bentuk tim langsung disusun ulang untuk 10 orang, tiap pemain di tempat yang berbeda', () => {
+    const { m, pv } = game('c19-red');
+    const cb = m.bodies.find((b) => b.side === 0 && b.on && b.p.slot === 'RCB')!;
+    pv.book(cb, 'red');
+    expect(['4-4-1', '4-3-2']).toContain(m.shape[0]);
+    const list = outfield(m, 0);
+    expect(list.length).toBe(9);
+    const slots = new Set(list.map((b) => b.p.slot));
+    expect(slots.size).toBe(9);
+    const spots = new Set(m.shapeOf(0).spots.map((sp) => sp.slot));
+    for (const sl of slots) expect(spots.has(sl)).toBe(true);
+    // lini belakang tetap empat orang: seseorang mengisi tempat bek yang diusir
+    expect(list.filter((b) => /CB$|^(R|L)B$/.test(b.p.slot)).length).toBe(4);
+    expect(notes(m, 0).some((n) => n.startsWith('Formasi diubah'))).toBe(true);
+  });
+
+  it('mentalitas: tertinggal makin menyerang; unggul tipis melawan tim lebih kuat makin bertahan', () => {
+    const { m, pv } = game('c19-ment');
+    const m0 = pv.tk[0]!.mentality;
+    m.score = [0, 1];
+    think(m, pv, 62);
+    think(m, pv, 80);
+    expect(pv.tk[0]!.mentality).toBeGreaterThanOrEqual(Math.min(3, m0 + 2));
+    expect(notes(m, 0).some((n) => n.startsWith('Mentalitas'))).toBe(true);
+
+    // tim tamu unggul 1-0 tapi lebih lemah: dari hati-hati sampai (sangat) bertahan
+    const g = game('c19-ment2');
+    g.m.score = [0, 1];
+    for (const b of g.m.bodies) if (b.side === 0) b.qual += 3;
+    think(g.m, g.pv, 70);
+    expect((g.pv.tk[1] as { mentality: number }).mentality).toBeLessThanOrEqual(-1);
+    think(g.m, g.pv, 86);
+    expect((g.pv.tk[1] as { mentality: number }).mentality).toBeLessThanOrEqual(-2);
+    // lima bek untuk menjaga keunggulan, garis pertahanan turun
+    expect(g.m.shape[1]).toMatch(/^5-/);
+    expect(notes(g.m, 1).some((n) => n.startsWith('Instruksi: garis pertahanan turun'))).toBe(true);
+  });
+
+  it('kebuntuan: tim yang lebih kuat & menguasai bola mengubah cara menyerang sesuai kekuatan pemainnya', () => {
+    const { m, pv } = game('c19-stuck');
+    for (const b of m.bodies) {
+      if (b.side !== 0) continue;
+      b.qual += 3;
+      // pemain sayap jago mengumpan silang, penyerang jago menyundul; tembakan jarak jauh & dribel buruk
+      Object.assign(b.p.a, { cro: 20, hea: 19, jmp: 18, lon: 2, dri: 3, fla: 3, pace: 6, acc: 6, otb: 6 });
+    }
+    pv.possTime = [600, 300];
+    const w0 = pv.tk[0]!.width;
+    think(m, pv, 60);
+    expect(notes(m, 0)).toContain('Instruksi: main melebar & lebih banyak umpan silang');
+    expect(pv.tk[0]!.width).toBe(Math.min(2, w0 + 1));
+    expect(pv.tk[0]!.crosses).toBe('campuran');
+  });
+
+  it('mengejar gol: formasi satu penyerang berubah jadi dua penyerang, pemain pindah ke tempat terdekat', () => {
+    const { m, pv } = game('c19-chase');
+    const before = new Map(outfield(m, 0).map((b) => [b.p.id, b.p.slot]));
+    m.score = [0, 1];
+    think(m, pv, 70);
+    expect(m.shape[0]).toBe('4-4-2');
+    const after = outfield(m, 0);
+    expect(new Set(after.map((b) => b.p.slot)).size).toBe(10);
+    for (const b of after) {
+      const was = before.get(b.p.id)!;
+      // bek tetap bek; sayap kanan/kiri tetap di sisinya
+      if (/CB$|^(R|L)B$/.test(was)) expect(b.p.slot).toBe(was);
+      if (was === 'RW') expect(b.p.slot).toBe('RM');
+      if (was === 'LW') expect(b.p.slot).toBe('LM');
+    }
+    expect(after.filter((b) => /^(RS|LS)$/.test(b.p.slot)).length).toBe(2);
+  });
+
+  it('laga sama tetap menghasilkan keputusan pelatih yang sama (bisa ditonton ulang)', () => {
+    const run = () => {
+      const m = new Match({ seed: 'c19-det', home: side(eng[4].id, clubTactic(eng[4])), away: side(eng[5].id, clubTactic(eng[5])) });
+      m.run();
+      return JSON.stringify(m.events.filter((e) => e.kind === 'tactic' || e.kind === 'goal'));
+    };
+    expect(run()).toBe(run());
+  });
+});

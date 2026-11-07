@@ -88,6 +88,25 @@ export const FORMATIONS: Record<FormationId, Formation> = {
   },
 };
 
+/**
+ * Bentuk tim yang hanya dipakai pelatih di tengah laga (v19): bertahan dengan lima bek saat menjaga
+ * keunggulan, dan bentuk untuk 10 atau 9 pemain setelah kartu merah. Formasi awal tetap lima formasi di atas.
+ */
+const BACK5 = [s('RWB', ['WBR', 'DR'], 27, 60, 2), s('RCB', ['DC'], 18, 45, 5), s('CB', ['DC'], 15, 34, 6), s('LCB', ['DC'], 18, 23, 4), s('LWB', ['WBL', 'DL'], 27, 8, 3)];
+export const SHAPES: Record<string, Spot[]> = {
+  ...Object.fromEntries(FORMATION_IDS.map((f) => [f, FORMATIONS[f].spots])),
+  '5-4-1': [GK, ...BACK5, s('RM', ['MR'], 42, 56, 7), s('RCM', ['MC', 'DM'], 36, 41, 8), s('LCM', ['MC', 'DM'], 36, 27, 10), s('LM', ['ML'], 42, 12, 11), s('ST', ['ST'], 60, 34, 9)],
+  '4-4-1': [GK, ...BACK4, s('RM', ['MR', 'AMR'], 45, 56, 7), s('RCM', ['MC', 'DM'], 38, 41, 8), s('LCM', ['MC', 'DM'], 38, 27, 6), s('LM', ['ML', 'AML'], 45, 12, 11), s('ST', ['ST'], 62, 34, 9)],
+  '4-3-2': [GK, ...BACK4, s('RCM', ['MC'], 40, 46, 8), s('CM', ['DM', 'MC'], 35, 34, 6), s('LCM', ['MC'], 40, 22, 10), s('RS', ['ST'], 62, 40, 9), s('LS', ['ST'], 61, 28, 11)],
+  '5-3-1': [GK, ...BACK5, s('RCM', ['MC', 'DM'], 39, 46, 8), s('CM', ['DM', 'MC'], 34, 34, 14), s('LCM', ['MC', 'DM'], 39, 22, 10), s('ST', ['ST'], 60, 34, 9)],
+  '3-4-2': [
+    GK, s('RCB', ['DC'], 20, 46, 2), s('CB', ['DC'], 17, 34, 5), s('LCB', ['DC'], 20, 22, 4),
+    s('RM', ['MR', 'WBR'], 40, 59, 7), s('RCM', ['MC', 'DM'], 38, 41, 8), s('LCM', ['MC', 'DM'], 38, 27, 6), s('LM', ['ML', 'WBL'], 40, 9, 3),
+    s('RS', ['ST'], 62, 40, 9), s('LS', ['ST'], 61, 28, 11),
+  ],
+  '4-3-1': [GK, ...BACK4, s('RCM', ['MC', 'DM'], 38, 44, 8), s('CM', ['DM', 'MC'], 33, 34, 6), s('LCM', ['MC', 'DM'], 38, 24, 10), s('ST', ['ST'], 58, 34, 9)],
+};
+
 // Jenis tempat (dipakai match engine)
 export const isCB = (x: Slot) => x === 'RCB' || x === 'LCB' || x === 'CB';
 export const isFB = (x: Slot) => x === 'RB' || x === 'LB' || x === 'RWB' || x === 'LWB';
