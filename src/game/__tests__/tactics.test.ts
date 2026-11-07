@@ -544,7 +544,9 @@ describe('match engine versi 16: peran tanpa bola, man marking, jebakan offside'
     opps.forEach((o, i) => {
       if (o.p.slot === 'GK') return;
       const near = team[(i % (team.length - 1)) + 1];
-      o.x = near.x + 2;
+      // (di separuh lapangan kita walau tim kita sedang menyerang tinggi)
+      near.x = m.dir(0) > 0 ? Math.min(near.x, 50) : Math.max(near.x, 55);
+      o.x = near.x + 2 * m.dir(0) * -1;
       o.y = near.y;
     });
     pv.assignMarks(0, team, opps);
@@ -1502,3 +1504,153 @@ describe('match engine versi 23: Vision, Teamwork, Creativity', () => {
   });
 });
 
+
+describe('match engine versi 24: struktur bertahan, struktur serangan, positional play', () => {
+  type B = {
+    p: { id: string; slot: string; role: string; duty: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    tx: number;
+    ty: number;
+    run: number;
+    on: boolean;
+  };
+  type R = {
+    t: number;
+    done: boolean;
+    poss: number;
+    owner: B | null;
+    restart: unknown;
+    dead: unknown;
+    wonAt: [number, number];
+    mates(s: 0 | 1): B[];
+    offsideLine(s: 0 | 1): number;
+    attackShape(s: 0 | 1, team: B[], opps: B[], bfx: number, bfy: number, oppLine: number): { w: number; spots: Map<B, [number, number, number, string]> } | null;
+    supportSpots(s: 0 | 1, team: B[], shape: null): Map<B, [number, number]> | null;
+    laneBlock(b: B, s: 0 | 1, x: number, y: number): [number, number];
+    laneOpen(ax: number, ay: number, bx: number, by: number, opps: B[]): boolean;
+  };
+  const DEF = ['RB', 'LB', 'RCB', 'LCB', 'CB'];
+  const MID = ['CM', 'RCM', 'LCM', 'RDM', 'LDM', 'RM', 'LM'];
+  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length);
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 6].id, clubTactic(eng[i + 6])) });
+
+  it('blok rapat: lini belakang menyusul lini tengah yang menekan, jarak antar lini lebih pendek', () => {
+    const gap = (on: boolean) => {
+      const keep = { squeeze: TUNE.squeeze, stepUp: TUNE.stepUp };
+      if (!on) Object.assign(TUNE, { squeeze: 0, stepUp: 0 });
+      const gaps: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        const m = new Match({ seed: `blk24-${i}`, ...teams(i) });
+        const v = m as unknown as R;
+        while (!v.done) {
+          m.step();
+          const o = v.owner;
+          if (!o || v.restart || v.dead || Math.round(v.t * 10) % 5) continue;
+          const d = (1 - o.side) as 0 | 1;
+          // lawan membangun serangan dari belakang: tim kita menekan di depan
+          if (m.fx(d, o.x) < 68 || o.p.slot === 'GK') continue;
+          const team = v.mates(d);
+          gaps.push(mean(team.filter((b) => MID.includes(b.p.slot)).map((b) => m.fx(d, b.x))) - mean(team.filter((b) => DEF.includes(b.p.slot)).map((b) => m.fx(d, b.x))));
+        }
+      }
+      Object.assign(TUNE, keep);
+      return mean(gaps);
+    };
+    const tight = gap(true);
+    const loose = gap(false);
+    // (TACT: 17,6 -> 16,0 m; liga CAL saat lawan membangun dari sepertiga awal: 21,7 -> 17,8 m)
+    expect(tight).toBeLessThan(loose - 1);
+    expect(tight).toBeLessThan(17);
+  });
+
+  it('struktur serangan melawan blok: pemberi lebar di garis samping, dua pemain di half-space di antara lini, bek tengah di belakang lini pertama lawan', () => {
+    const m = new Match({ seed: 'shape24', ...teams(1) });
+    const v = m as unknown as R;
+    let checked = 0;
+    while (!v.done && checked < 20) {
+      m.step();
+      const o = v.owner;
+      if (!o || o.side !== 0 || v.restart || v.dead || v.t - v.wonAt[0] < 5) continue;
+      const bfx = m.fx(0, o.x);
+      if (bfx < 50 || bfx > 80) continue;
+      const line = v.offsideLine(0);
+      const sh = v.attackShape(0, v.mates(0), v.mates(1), bfx, m.fy(0, o.y), line);
+      if (!sh || sh.w < 0.5) continue;
+      checked++;
+      const kinds = [...sh.spots.values()];
+      const wide = kinds.filter((s) => s[3] === 'w');
+      const half = kinds.filter((s) => s[3] === 'h');
+      expect(wide.length).toBe(2);
+      for (const s of wide) {
+        expect(Math.abs(s[1] - 34)).toBeGreaterThan(25);
+        expect(s[0]).toBeGreaterThan(Math.min(line - 8, bfx + 22));
+      }
+      expect(half.length).toBeGreaterThanOrEqual(1);
+      for (const s of half) {
+        expect(Math.abs(s[1] - 34)).toBeGreaterThan(9);
+        expect(Math.abs(s[1] - 34)).toBeLessThan(16);
+        expect(s[0]).toBeLessThan(line - 3);
+      }
+      // half-space di kedua sisi, bukan dua pemain di sisi yang sama
+      if (half.length === 2) expect(Math.sign(half[0][1] - 34)).not.toBe(Math.sign(half[1][1] - 34));
+      for (const [b, s] of sh.spots) if (/^(RCB|LCB|CB)$/.test(b.p.slot) && s[3] === 'c') expect(s[0]).toBeLessThan(bfx);
+    }
+    expect(checked).toBeGreaterThan(5);
+  });
+
+  it('positional play: dua rekan terdekat menawarkan sudut di kedua sisi pembawa bola (segitiga); jalur tertutup lawan terdeteksi', () => {
+    const m = new Match({ seed: 'tri24', ...teams(2) });
+    const v = m as unknown as R;
+    let checked = 0;
+    while (!v.done && checked < 15) {
+      m.step();
+      const o = v.owner;
+      if (!o || o.p.slot === 'GK' || v.restart || v.dead || v.t - v.wonAt[o.side] < 2 || m.fx(o.side, o.x) > 80) continue;
+      const sp = v.supportSpots(o.side, v.mates(o.side), null);
+      if (!sp || sp.size < 2) continue;
+      checked++;
+      const [a, b] = [...sp.values()];
+      const oy = m.fy(o.side, o.y);
+      // satu di kiri, satu di kanan pembawa bola, satu di belakang (opsi aman), satu di depan
+      expect(Math.sign(a[1] - oy)).not.toBe(Math.sign(b[1] - oy));
+      expect(Math.min(a[0], b[0])).toBeLessThan(m.fx(o.side, o.x));
+      for (const s of [a, b]) expect(Math.hypot(s[0] - m.fx(o.side, o.x), s[1] - oy)).toBeLessThan(14);
+    }
+    expect(checked).toBeGreaterThan(5);
+    const opp = v.mates(1)[3];
+    opp.x = 50;
+    opp.y = 34;
+    expect(v.laneOpen(40, 34, 60, 34, [opp])).toBe(false);
+    expect(v.laneOpen(40, 30, 60, 30, [opp])).toBe(true);
+  });
+
+  it('menutup jalur umpan: gelandang bertahan bergeser ke jalur antara pembawa bola dan lawan di dekatnya', () => {
+    const m = new Match({ seed: 'lane24', ...teams(3) });
+    const v = m as unknown as R;
+    for (let i = 0; i < 50; i++) m.step();
+    const att = v.mates(1).filter((b) => b.p.slot !== 'GK');
+    const def = v.mates(0).find((b) => MID.includes(b.p.slot))!;
+    // pembawa bola lawan di (60, 34), penerima di (60 - 20, 20) bingkai tim kita; gelandang kita di dekat penerima
+    const carrier = att[0];
+    const recv = att[1];
+    for (const b of att.slice(2)) b.x = m.dir(0) > 0 ? 100 : 5;
+    const W = (fx: number) => (m.dir(0) > 0 ? fx : 105 - fx);
+    const WY = (fy: number) => (m.fy(0, 20) === 20 ? fy : 68 - fy);
+    carrier.x = W(60);
+    carrier.y = WY(34);
+    recv.x = W(40);
+    recv.y = WY(20);
+    v.owner = carrier;
+    v.poss = 1;
+    const [x, y] = v.laneBlock(def, 0, 44, 26);
+    // titik baru lebih dekat ke garis lurus pembawa bola -> penerima
+    const distToLane = (px: number, py: number) => {
+      const ax = 60, ay = 34, bx = 40, by = 20;
+      const t = ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2);
+      return Math.hypot(px - (ax + (bx - ax) * t), py - (ay + (by - ay) * t));
+    };
+    expect(distToLane(x, y)).toBeLessThan(distToLane(44, 26) * 0.7);
+  });
+});

@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 23;
+export const ENGINE_VERSION = 24;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -75,7 +75,7 @@ const PC_R = 30;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 5.2, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 6.2, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -143,6 +143,22 @@ export const TUNE = {
   back: 0.25,
   /** jarak garis bek di belakang bola saat timnya menguasai bola */
   backLine: 27,
+  /** v24 jarak terjauh lini belakang ke lini tengah saat bertahan (0 = mati) */
+  squeeze: 13,
+  /** v24 garis tidak ikut mundur mengikuti penyerang yang diam di belakangnya saat bola jauh (0 = mati) */
+  stepUp: 1,
+  /** v24 empat bek lebih rapat (0 = lebar lama) */
+  back4: 1,
+  /** v24 struktur serangan melawan blok yang sudah siap: lebar, half-space, sirkulasi (0 = mati) */
+  shape: 1,
+  /** v24 dua rekan terdekat menawarkan sudut umpan (segitiga) di sekitar pembawa bola (0 = mati) */
+  support: 0.6,
+  /** v24 bobot jalur umpan terbuka saat mencari kantong ruang (0 = mati) */
+  laneW: 0.12,
+  /** v24 lari ke belakang garis berkurang saat menjaga struktur melawan blok (0 = mati) */
+  runHold: 0.7,
+  /** v24 gelandang & penyerang menutup jalur umpan saat bertahan (0 = mati) */
+  screenK: 0.5,
   /** keunggulan kandang (poin atribut mental & teknik) */
   home: 1.1,
   /** performa harian: simpangan tim & pemain (poin atribut; simpangan pemain dikali faktor Consistency) */
@@ -728,6 +744,8 @@ const CORNER_ROUTINES: [CornerRoutine, number][] = [['short', 0.12], ['near', 0.
 /** v22 perlambatan bola yang didorong saat dribel (m/s²): menentukan seberapa jauh bola menggelinding di depan kaki */
 const TOUCH_DEC = 3;
 /** selisih sudut a - b dalam rentang -π..π */
+/** v24 struktur serangan: titik tujuan per pemain (bingkai tim), bobot, jenis (w = lebar, h = half-space, c = sirkulasi) */
+type Shape = { w: number; spots: Map<Body, [number, number, number, 'w' | 'h' | 'c']> };
 const angDiff = (a: number, b: number) => {
   const d = (a - b) % (2 * Math.PI);
   return d > Math.PI ? d - 2 * Math.PI : d < -Math.PI ? d + 2 * Math.PI : d;
@@ -821,6 +839,8 @@ export class Match {
   private tk: [TacticK | null, TacticK | null] = [null, null];
   /** detik permainan saat tim terakhir merebut bola (untuk serangan balik & counter-press) */
   private wonAt: [number, number] = [-99, -99];
+  /** v24 bobot struktur serangan yang sedang dipakai tiap tim (0 = transisi / tanpa struktur) */
+  private shapeW: [number, number] = [0, 0];
   done = false;
   /**
    * Wasit (mengikuti bola menyusuri diagonal) dan asisten wasit di garis samping: AR1 di sisi atas menjaga
@@ -1650,7 +1670,20 @@ export class Match {
     const k = this.k[side];
     if (inPoss) return clamp(bfx - TUNE.backLine + k.line * 0.5, 14, 52 - k.line);
     // v17: mundur menutup ruang di belakang garis dari penyerang yang lebih cepat
-    let line = clamp(bfx - TUNE.lineGap - k.line, 7, 42 - k.line) - (raw ? 0 : this.depth[side]);
+    let line = clamp(bfx - TUNE.lineGap - k.line, 7, 42 - k.line);
+    // v24 blok rapat: lini belakang naik menyusul lini tengah yang menekan ke depan, jarak antar lini paling jauh
+    // ~TUNE.squeeze m (tetap di belakang bola, paling tinggi sekitar garis tengah)
+    if (TUNE.squeeze > 0) {
+      let mfx = 0;
+      let n = 0;
+      for (const b of this.mates(side)) {
+        if (!isCentralMid(b.p.slot) && !isWideMid(b.p.slot)) continue;
+        mfx += this.fx(side, b.x);
+        n++;
+      }
+      if (n) line = Math.max(line, Math.min(mfx / n - TUNE.squeeze, 50 - k.line * 2, bfx - 10));
+    }
+    line -= raw ? 0 : this.depth[side];
     // pembawa bola lawan bebas menghadap gawang: mundur menutup ruang di belakang
     // (v22: garis mundur dan naik kembali secara bertahap, tidak melompat 5 m bolak-balik)
     if (TUNE.steady > 0) line -= this.lineDrop[side];
@@ -1664,6 +1697,22 @@ export class Match {
     if (!o || o.side === side) return false;
     const [, pd] = this.nearest(this.mates(side), o.x, o.y);
     return pd > 4 && this.dir(side) * o.vx < -1;
+  }
+
+  /** v24 pembawa bola menghadap ke depan dan tidak ditekan: saatnya rekan berlari ke belakang garis */
+  private canPlayForward(o: Body): boolean {
+    if (Math.cos(angDiff(o.face, this.goalDir(o))) < 0.4) return false;
+    const [, pd] = this.nearest(this.opponents(o.side), o.x, o.y);
+    return pd > 4;
+  }
+
+  /** v24 pembawa bola lawan tidak bebas mengirim bola ke belakang garis: ditekan (lawan dalam 7 m) atau masih jauh di belakang */
+  private carrierPressed(side: 0 | 1): boolean {
+    const o = this.owner;
+    if (!o || o.side === side) return true;
+    if (this.freeCarrier(side)) return false;
+    const [, pd] = this.nearest(this.mates(side), o.x, o.y);
+    return pd < 7 || this.fx(side, o.x) > 62;
   }
 
   /** v22 garis pertahanan mundur bertahap (± 4 m/s) saat pembawa bola lawan bebas berlari ke arah gawang */
@@ -1684,6 +1733,221 @@ export class Match {
     if (!o || TUNE.touch <= 0) return this.ball;
     const sp = Math.hypot(o.vx, o.vy);
     return sp > 0.3 ? { x: o.x + (o.vx / sp) * 0.6, y: o.y + (o.vy / sp) * 0.6 } : { x: o.x + this.dir(o.side) * 0.6, y: o.y };
+  }
+
+  /**
+   * v24 struktur serangan saat lawan sudah membentuk blok (referensi Wilson: menyerang blok rendah, "Spaces &
+   * Intentions"): satu pemain di tiap sayap memberi lebar di garis samping setinggi garis bek lawan, dua pemain di
+   * half-space di antara lini tengah & lini belakang lawan, sisanya (bek tengah, bek sayap, gelandang bertahan)
+   * mengalirkan bola dalam bentuk kotak / segi lima di belakang lini pertama lawan.
+   */
+  private attackShape(side: 0 | 1, team: Body[], opps: Body[], bfx: number, bfy: number, oppLine: number): Shape | null {
+    if (TUNE.shape <= 0 || this.counterPhase(side)) return null;
+    const ofx = opps.filter((o) => o.p.slot !== 'GK').map((o) => this.fx(side, o.x)).sort((p, q) => p - q);
+    if (ofx.length < 7) return null;
+    // penguasaan bola tenang (bukan transisi), bola sudah keluar dari sepertiga awal, lawan sudah di belakang bola
+    // (tinggi titik-titiknya mengikuti lini lawan: membangun serangan melawan pressing tinggi, blok tengah, blok rendah)
+    const settled = clamp((this.t - this.wonAt[side] - 1.5) / 2.5, 0, 1);
+    const high = clamp((bfx - 28) / 12, 0, 1);
+    // (lawan yang sejajar bola atau di belakangnya: blok sudah terbentuk)
+    const block = clamp((ofx.filter((v) => v > bfx - 6).length - 3) / 3, 0, 1);
+    const w = settled * high * block * TUNE.shape;
+    if (w < 0.05) return null;
+    const tk = this.tk[side];
+    const k = this.k[side];
+    // lini lawan: lini pertama (dua pemain terdepan) dan lini tengah (empat pemain di depan empat bek terakhir)
+    const first = ofx[1];
+    const mid4 = ofx.slice(-8, -4);
+    const midL = mid4.reduce((t, v) => t + v, 0) / mid4.length;
+    const between = clamp((midL + oppLine) / 2, oppLine - 12, oppLine - 4);
+    const spots: Shape['spots'] = new Map();
+    const used = new Set<Body>();
+    const flankOf = (b: Body) => {
+      const by = this.baseOf(b)[1];
+      return by < 32 ? -1 : by > 36 ? 1 : 0;
+    };
+    // pemberi lebar per sayap: sayap murni dulu; sayap terbalik (inside forward, inverted winger) masuk ke half-space
+    // dan bek sayap / wing back yang overlap memberi lebar
+    const inverted = (b: Body) => b.rk.cutIn >= 0.4 || b.rk.wide < -0.2;
+    const rankW = (b: Body) => {
+      const sl = b.p.slot;
+      if (isWing(sl)) return inverted(b) ? 6 : 0;
+      if (isWideMid(sl)) return inverted(b) ? 7 : 1;
+      if (isWB(sl)) return b.p.role === 'iwb' ? 99 : 2;
+      if (isFB(sl)) return b.p.role === 'ifb' || b.p.role === 'iwb' || b.p.role === 'nfb' ? 99 : 3;
+      return 99;
+    };
+    const tw = 1 + 0.05 * (tk?.width ?? 0);
+    for (const f of [-1, 1]) {
+      const c = team.filter((b) => b.p.slot !== 'GK' && flankOf(b) === f && rankW(b) < 99).sort((p, q) => rankW(p) - rankW(q))[0];
+      if (!c) continue;
+      used.add(c);
+      const fwd = isWing(c.p.slot) || isWideMid(c.p.slot);
+      const x = Math.min(oppLine - (fwd ? 1.5 + (20 - c.p.a.otb) * 0.08 : isWB(c.p.slot) ? 3 : 5), bfx + 30);
+      // sisi jauh saat bola sudah dekat garis gawang di sayap lain: kembali menyerang tiang jauh
+      const far = (bfy - 34) * f < -8 ? clamp((88 - bfx) / 8, 0, 1) : 1;
+      spots.set(c, [x, 34 + f * Math.min(31, 29 * tw), far, 'w']);
+    }
+    // dua pemain di half-space di antara lini
+    const hx = between - (team.filter((b) => isST(b.p.slot)).length > 1 ? 2 : 0);
+    const half = new Set<number>();
+    const toHalf = (b: Body, f: number) => {
+      half.add(f);
+      used.add(b);
+      spots.set(b, [hx, 34 + f * 12.5, 1, 'h']);
+    };
+    for (const b of team) {
+      if (used.has(b) || !(isWing(b.p.slot) || isWideMid(b.p.slot))) continue;
+      const f = flankOf(b);
+      if (f && !half.has(f)) toHalf(b, f);
+    }
+    const att = (b: Body) =>
+      b.rk.up + (b.p.duty === 'At' ? 6 : b.p.duty === 'De' ? -5 : 1) + (b.p.slot === 'AM' ? 6 : isBox(b.p.slot) ? 2 : isHold(b.p.slot) ? -3 : 0) + b.rk.runs * 2;
+    const mids = team.filter((b) => !used.has(b) && isCentralMid(b.p.slot) && b.p.role !== 'hb' && att(b) > 0).sort((p, q) => att(q) - att(p));
+    for (const b of mids) {
+      if (half.size >= 2) break;
+      let f = flankOf(b);
+      if (!f || half.has(f)) f = half.has(-1) ? 1 : half.has(1) ? -1 : this.fy(side, b.y) < 34 ? -1 : 1;
+      if (!half.has(f)) toHalf(b, f);
+    }
+    // sirkulasi di belakang lini pertama lawan: bek tengah + gelandang bertahan (+ bek sayap) membentuk kotak / segi lima
+    const lineS = clamp(Math.min(first - 8, bfx - 8), this.defLine(side, true), 54 - k.line);
+    for (const b of team) {
+      const sl = b.p.slot;
+      if (used.has(b) || sl === 'GK' || isST(sl)) continue;
+      const by = this.baseOf(b)[1];
+      // libero tetap maju dari lini belakang ke lini tengah
+      if (b.p.role === 'lib') spots.set(b, [lineS + 10 + (b.p.duty === 'At' ? 5 : 0), NaN, 1, 'c']);
+      else if (isCB(sl) || b.p.role === 'hb') spots.set(b, [lineS + (b.p.role === 'hb' ? 1 : b.rk.up * 0.5), NaN, 1, 'c']);
+      else if (isFB(sl)) {
+        const inv = b.p.role === 'ifb' || b.p.role === 'iwb';
+        spots.set(b, [lineS + (inv ? 9 : 6), 34 + Math.sign(by - 34) * (inv ? 12 : 21), 1, 'c']);
+      } else if (isCentralMid(sl)) spots.set(b, [lineS + 11 + Math.max(-4, b.rk.up * 0.3), 34 + (by - 34) * 0.55, 1, 'c']);
+      else if (isWing(sl) || isWideMid(sl)) spots.set(b, [hx - 4, 34 + Math.sign(by - 34) * 16, 0.7, 'c']);
+    }
+    return { w, spots };
+  }
+
+  /**
+   * v24 positional play: dua rekan terdekat menawarkan sudut umpan di kedua sisi pembawa bola (segitiga), satu di
+   * diagonal belakang (opsi aman) dan satu di diagonal depan
+   */
+  private supportSpots(side: 0 | 1, team: Body[], shape: Shape | null): Map<Body, [number, number]> | null {
+    const o = this.owner;
+    if (!o || o.side !== side || o.p.slot === 'GK' || this.t - this.wonAt[side] < 1) return null;
+    const ofx = this.fx(side, o.x);
+    const ofy = this.fy(side, o.y);
+    if (ofx > 86) return null;
+    const near = team
+      .filter((b) => b !== o && b.p.slot !== 'GK' && b.run <= 0 && shape?.spots.get(b)?.[3] !== 'w' && !(isST(b.p.slot) && b.rk.drop < 5))
+      .map((b) => [b, Math.hypot(b.x - o.x, b.y - o.y)] as const)
+      .filter(([, d]) => d < 26)
+      .sort((p, q) => p[1] - q[1])
+      .slice(0, 2)
+      .map(([b]) => b)
+      .sort((p, q) => this.fx(side, p.x) - this.fx(side, q.x));
+    if (!near.length) return null;
+    const oppLine = this.offsideLine(side);
+    const res = new Map<Body, [number, number]>();
+    let prev = 0;
+    near.forEach((b, i) => {
+      const back = near.length > 1 ? i === 0 : this.fx(side, b.x) < ofx;
+      let f = Math.sign(this.fy(side, b.y) - ofy) || 1;
+      if (i === 1 && f === prev) f = -f;
+      if (ofy + f * 10 < 3 || ofy + f * 10 > 65) f = -f;
+      prev = f;
+      res.set(b, [clamp(ofx + (back ? -6 : 8), 3, oppLine - 1), clamp(ofy + f * 10, 3, 65)]);
+    });
+    return res;
+  }
+
+  /** v24 tarik titik tujuan ke struktur tim & titik dukungan (disiplin taktik: Teamwork, Decisions, pemahaman taktik) */
+  private shapeBlend(b: Body, shape: Shape | null, support: Map<Body, [number, number]> | null, x: number, y: number, skip: boolean): [number, number] {
+    if (skip || b.run > 0) return [x, y];
+    const a = b.p.a;
+    const disc = (0.6 + 0.4 * (b.p.fam ?? 1)) * (0.5 + (a.tea + a.dec) / 80);
+    const sp = shape?.spots.get(b);
+    if (sp && shape) {
+      const w = clamp(shape.w * sp[2] * (0.35 + 0.85 * disc), 0, 1);
+      x += (sp[0] - x) * w;
+      if (!Number.isNaN(sp[1])) y += (sp[1] - y) * w;
+    }
+    const su = support?.get(b);
+    if (su) {
+      const w = clamp(TUNE.support * disc, 0, 1);
+      x += (su[0] - x) * w;
+      y += (su[1] - y) * w;
+    }
+    return [x, y];
+  }
+
+  /** v24 nilai kantong ruang dari sisi jalur umpan: terbuka dari pembawa bola, tidak bersembunyi di belakang rekan lain */
+  private laneValue(b: Body, c: Body, x: number, y: number): number {
+    const side = b.side;
+    const wx = this.wx(side, x);
+    const wy = this.wy(side, y);
+    const d = Math.hypot(wx - c.x, wy - c.y);
+    if (d < 4 || d > 38) return 0;
+    let v = this.laneOpen(c.x, c.y, wx, wy, this.opponents(side)) ? TUNE.laneW : 0;
+    const ang = Math.atan2(wy - c.y, wx - c.x);
+    for (const m of this.mates(side)) {
+      if (m === b || m === c || m.p.slot === 'GK') continue;
+      const dm = Math.hypot(m.x - c.x, m.y - c.y);
+      if (dm > 30 || dm < 3) continue;
+      if (Math.abs(angDiff(Math.atan2(m.y - c.y, m.x - c.x), ang)) < 0.2) {
+        v -= TUNE.laneW * 0.5;
+        break;
+      }
+    }
+    return v;
+  }
+
+  /**
+   * v24 menutup jalur umpan: pemain bertahan (bukan lini belakang) bergeser ke titik di jalur umpan dari pembawa bola
+   * ke lawan terdekat di sekitar posisinya, supaya umpan itu tertutup bayangan badannya (cover shadow)
+   */
+  private laneBlock(b: Body, side: 0 | 1, x: number, y: number): [number, number] {
+    const c = this.owner;
+    if (!c || c.side === side || TUNE.screenK <= 0) return [x, y];
+    const wx = this.wx(side, x);
+    const wy = this.wy(side, y);
+    let best: Body | null = null;
+    let bd = 11;
+    for (const o of this.opponents(side)) {
+      if (o === c || o.p.slot === 'GK') continue;
+      const dc = Math.hypot(o.x - c.x, o.y - c.y);
+      if (dc < 7 || dc > 32) continue;
+      const d = Math.hypot(o.x - wx, o.y - wy);
+      if (d < bd) {
+        bd = d;
+        best = o;
+      }
+    }
+    if (!best) return [x, y];
+    const dx = best.x - c.x;
+    const dy = best.y - c.y;
+    const l2 = dx * dx + dy * dy;
+    const t = clamp(((wx - c.x) * dx + (wy - c.y) * dy) / l2, 0.35, 0.75);
+    const a = b.p.a;
+    const k = TUNE.screenK * clamp((a.ant + a.pos + a.tea) / 60, 0.3, 1);
+    const px = this.fx(side, c.x + dx * t);
+    const py = this.fy(side, c.y + dy * t);
+    return [x + (px - x) * k, y + (py - y) * k];
+  }
+
+  /** jalur lurus terbuka: tidak ada lawan dalam 1,8 m dari garis (setelah 1,5 m pertama) */
+  private laneOpen(ax: number, ay: number, bx: number, by: number, opps: Body[]): boolean {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    if (l2 < 1) return true;
+    const l = Math.sqrt(l2);
+    for (const o of opps) {
+      const t = ((o.x - ax) * dx + (o.y - ay) * dy) / l2;
+      if (t <= 0 || t >= 1 || t * l < 1.5) continue;
+      if (Math.hypot(o.x - (ax + dx * t), o.y - (ay + dy * t)) < 1.8) return false;
+    }
+    return true;
   }
 
   private targets(live: boolean) {
@@ -1713,6 +1977,11 @@ export class Match {
         if (tk?.trap) trapOn = this.offsideTrap(side, line, team, opps);
         if (tk?.marking === 'man' && this.t >= this.markNext[side]) this.assignMarks(side, team, opps);
       }
+      // v24 struktur serangan (blok lawan sudah siap) & segitiga dukungan di sekitar pembawa bola
+      const shape = inPoss && live && !gkOwn && !rs ? this.attackShape(side, team, opps, bfx, bfy, oppLine) : null;
+      this.shapeW[side] = shape?.w ?? 0;
+      const support = inPoss && live && !rs && TUNE.support > 0 ? this.supportSpots(side, team, shape) : null;
+      const carrier = inPoss && this.owner?.side === side ? this.owner : null;
       for (const b of team) {
         if (b.think > 0 || b === this.owner) continue;
         const a = b.p.a;
@@ -1795,6 +2064,7 @@ export class Match {
               x += (Math.max(x, 91) - x) * rk.box * adv;
               y += (34 - y) * 0.5 * rk.box * adv;
             }
+            [x, y] = this.shapeBlend(b, shape, support, x, y, pin && b.check > 0);
             if (b.run > 0) {
               x = Math.min(100, oppLine + 5);
               // v17: lari ke celah yang dipilih saat mulai berlari
@@ -1803,13 +2073,20 @@ export class Match {
             } else {
               // v17 mencari ruang: bergeser ke kantong ruang terdekat yang dikuasai timnya (Off the Ball)
               x = Math.min(x, oppLine - gap + b.lean);
-              let bc = this.ctrl(side, this.wx(side, x), this.wy(side, y)) + 0.04;
+              // v24 positional play: kantong yang jalur umpannya dari pembawa bola terbuka & tidak sejajar rekan lain
+              const lane = carrier && TUNE.laneW > 0 && Math.hypot(carrier.x - b.x, carrier.y - b.y) < 38 ? carrier : null;
+              const wideHold = shape?.spots.get(b)?.[3] === 'w';
+              let bc = this.ctrl(side, this.wx(side, x), this.wy(side, y)) + 0.04 + (lane ? this.laneValue(b, lane, x, y) : 0);
               let px = 0;
               let py = 0;
               for (const [ddx, ddy] of POCKETS) {
                 // penyerang yang menahan garis hanya bergeser ke samping, tidak turun meninggalkan garis
                 if (pin && ddx < 0) continue;
-                const c = this.ctrl(side, this.wx(side, clamp(x + ddx, 1, 104)), this.wy(side, clamp(y + ddy, 2, 66)));
+                // pemberi lebar tetap di garis samping
+                if (wideHold && (ddy > 0) === (y < 34)) continue;
+                const c =
+                  this.ctrl(side, this.wx(side, clamp(x + ddx, 1, 104)), this.wy(side, clamp(y + ddy, 2, 66))) +
+                  (lane ? this.laneValue(b, lane, clamp(x + ddx, 1, 104), clamp(y + ddy, 2, 66)) : 0);
                 if (c > bc) {
                   bc = c;
                   px = ddx;
@@ -1829,6 +2106,7 @@ export class Match {
               x = Math.min(x, oppLine - gap + b.lean);
             }
           }
+          if (def || b.p.role === 'hb') [x, y] = this.shapeBlend(b, shape, support, x, y, false);
           // kebebasan bergerak: pemain dengan peran bebas & flair tinggi berpindah ke ruang kosong
           if (!def && b.run <= 0) {
             const roam = clamp(b.rk.roam * (0.5 + a.fla / 20) * (1 + 0.4 * (tk?.creative ?? 0)), 0, 1.2);
@@ -1880,7 +2158,8 @@ export class Match {
             } else {
               // cover & libero berdiri sedikit di belakang garis untuk menyapu bola terobosan
               x = line + (fb ? 1 : Math.min(0, rk.step));
-              y = 34 + (by - 34) * (fb ? 0.78 : 0.62) + (bfy - 34) * 0.32;
+              // (v24 empat bek rapat: jarak bek sayap ke bek tengah ~10 m, bergeser bersama ke sisi bola)
+              y = 34 + (by - 34) * (fb ? (TUNE.back4 > 0 ? 0.64 : 0.78) : 0.62) + (bfy - 34) * 0.32;
             }
           } else if (mid) {
             if (rk.screen > 0) {
@@ -1925,6 +2204,9 @@ export class Match {
               y = 34 + (bfy - 34) * 0.15;
             }
           }
+          // v24 menutup jalur umpan (cover shadow): gelandang & penyerang bergeser ke jalur umpan pembawa bola
+          // ke lawan terdekat di zonanya
+          if (!def && live && !rs) [x, y] = this.laneBlock(b, side, x, y);
           // disiplin posisi: positioning & konsentrasi rendah = sering tidak sejajar; lini belakang yang
           // terorganisasi (teamwork, positioning, konsentrasi) bergerak sebagai satu unit
           const err = ((21 - (a.pos + a.con) / 2) / 20) * famErr;
@@ -2141,7 +2423,14 @@ export class Match {
     // cover menjaga ruang: tidak terlalu terpancing mengikuti lawan ke samping
     const ny = y + (oy - y) * (0.25 + a.mar * 0.025) * (step < 0 ? 0.6 : 1);
     // lawan sudah lolos ke belakang garis: kejar dan tetap di sisi gawang
-    if (ox < line - 1) return [Math.max(1, ox - 1.5), ny, true];
+    // (v24: penyerang yang hanya berdiri di belakang garis saat bola masih jauh dan pembawa bola ditekan tidak diikuti
+    // mundur: garis tetap naik, penyerang itu tertinggal offside)
+    if (ox < line - 1) {
+      const bfx = this.fx(side, this.refBall().x);
+      const still = att.run <= 0 && this.dir(side) * att.vx > -2.5;
+      if (TUNE.stepUp > 0 && still && bfx > 45 && bfx - line > 18 && this.carrierPressed(side)) return [x, ny, false];
+      return [Math.max(1, ox - 1.5), ny, true];
+    }
     // stopper: keluar dari garis menempel penyerang yang turun menjemput bola (tetap di sisi gawang)
     if (step > 0 && ox > line + 1.5) return [Math.max(x, ox - 1.6), y + (oy - y) * 0.85, ox - x > 6];
     return [x, ny, false];
@@ -4950,7 +5239,9 @@ export class Match {
         // (v23: Teamwork tinggi lebih sering berlari untuk membantu pembawa bola)
         this.rng.chance(
           b.p.a.otb * TUNE.runRate * b.rk.runs * (1 + 0.08 * (this.tk[b.side]?.mentality ?? 0)) * (this.counterPhase(b.side) ? 1.6 : 1) *
-            (1 + (b.p.a.tea - 10) * TUNE.teamRun),
+            (1 + (b.p.a.tea - 10) * TUNE.teamRun) *
+            // v24 menghadapi blok yang sudah siap: menjaga struktur, lari ke belakang garis saat pembawa bola bisa mengumpan ke depan
+            (1 - TUNE.runHold * this.shapeW[b.side] * (this.canPlayForward(this.owner) ? 0.3 : 1)),
         )
       ) {
         const mid = isCentralMid(b.p.slot) && !isHold(b.p.slot);
