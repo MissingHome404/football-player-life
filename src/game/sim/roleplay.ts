@@ -52,11 +52,16 @@ export interface RoleK {
   oneTwo: number;
   /** keras dalam duel (tekel lebih berani, lebih sering pelanggaran) */
   tackle: number;
+  /**
+   * bek saat bertahan (meter): + keluar dari garis menempel penyerang yang turun menjemput bola (stopper),
+   * - berdiri sedikit di belakang garis menyapu bola terobosan (cover, libero)
+   */
+  step: number;
 }
 
 const N: RoleK = {
   up: 0, wide: 0, drop: 0, box: 0, runs: 1, press: 1, back: 1, hold: 1, carry: 0, takeOn: 0, shoot: 0, long: 0,
-  cross: 0, create: 0, safe: 0, direct: 0, clear: 0, cutIn: 0, target: 0, roam: 0, oneTwo: 0, tackle: 0,
+  cross: 0, create: 0, safe: 0, direct: 0, clear: 0, cutIn: 0, target: 0, roam: 0, oneTwo: 0, tackle: 0, step: 0,
 };
 const k = (o: Partial<RoleK>): RoleK => ({ ...N, ...o });
 
@@ -72,6 +77,8 @@ export const ROLE_PLAY: Record<string, RoleK> = {
   bpd: k({ carry: 0.1, direct: 0.12, create: 0.08, hold: 1.2, safe: 0.05 }),
   ncb: k({ clear: 0.35, carry: -0.2, create: -0.25, safe: -0.05, direct: 0.1, hold: 0.7 }),
   wcb: k({ up: 6, wide: 0.45, carry: 0.1, cross: 0.06, runs: 0.6 }),
+  // libero: menyapu di belakang garis saat bertahan, maju ke lini tengah membawa bola saat menyerang
+  lib: k({ step: -2.5, carry: 0.16, create: 0.1, direct: 0.06, hold: 1.2, safe: 0.04, runs: 0.3 }),
   // bek sayap
   fb: N,
   wb: k({ up: 8, wide: 0.3, cross: 0.1, runs: 1.3, carry: 0.05 }),
@@ -86,6 +93,8 @@ export const ROLE_PLAY: Record<string, RoleK> = {
   bwm: k({ tackle: 0.6, press: 1.7, safe: 0.12, create: -0.05, runs: 0.5 }),
   reg: k({ roam: 0.4, hold: 1.35, create: 0.22, direct: 0.15, carry: 0.06, runs: 0.4, long: 0.05 }),
   hb: k({ up: -12, wide: -1, safe: 0.18, runs: 0, press: 0.8, create: -0.05 }),
+  // segundo volante: mulai sebagai gelandang bertahan, lalu menyusul masuk kotak dan menembak dari jauh
+  sv: k({ up: 8, runs: 1.5, box: 0.45, long: 0.1, shoot: 0.08, carry: 0.06, press: 1.1 }),
   // gelandang tengah
   cm: N,
   b2b: k({ up: 4, runs: 1.6, press: 1.25, box: 0.35, shoot: 0.08, long: 0.04 }),
@@ -123,13 +132,48 @@ export function rolePlay(role: string | undefined): RoleK {
   return (role && ROLE_PLAY[role]) || N;
 }
 
-export type Duty = 'De' | 'Su' | 'At';
+/**
+ * Tugas dari pelatih: Bertahan / Dukungan / Menyerang; untuk bek tengah juga Stopper (keluar menempel
+ * penyerang) dan Cover (menyapu di belakang garis); Otomatis mengikuti mentalitas tim selama laga.
+ */
+export type Duty = 'De' | 'Su' | 'At' | 'St' | 'Co' | 'Au';
 
 /** Tugas mengubah seberapa sering pemain ikut menyerang / tetap di belakang */
 const DUTY_K: Record<Duty, Partial<RoleK>> = {
   De: { up: -5, runs: 0.4, box: -0.25, back: 1.15, safe: 0.05 },
   Su: {},
   At: { up: 4, runs: 1.35, box: 0.15, back: 0.85, shoot: 0.04, cross: 0.03 },
+  St: { step: 3, press: 1.4, tackle: 0.2 },
+  Co: { step: -2.5, press: 0.65, clear: 0.05 },
+  // otomatis: dipilih mesin laga dari mentalitas tim (lihat Match.mentality); sebelum itu = dukungan
+  Au: {},
+};
+
+/** Profil tugas khusus per peran (di atas efek tugas umum): tiap peran memainkan tugasnya dengan caranya sendiri */
+const ROLE_DUTY_K: Record<string, Partial<Record<Duty, Partial<RoleK>>>> = {
+  ncb: { St: { tackle: 0.15 }, Co: { clear: 0.08 } },
+  lib: { At: { carry: 0.08, runs: 2, create: 0.04, shoot: 0.03 } },
+  fb: { De: { up: -4, cross: -0.04, takeOn: -0.04 }, At: { up: 4, cross: 0.05, runs: 1.2 } },
+  wb: { De: { up: -4, runs: 0.7 }, At: { up: 6, cross: 0.05, takeOn: 0.05 } },
+  iwb: { At: { up: 6, create: 0.05, box: 0.15 } },
+  dm: { De: { up: -3, back: 1.1, create: -0.04 }, Su: { up: 2, create: 0.04 } },
+  dlp: { De: { up: -3, safe: 0.04 }, Su: { up: 3, create: 0.05 } },
+  bwm: { De: { up: -3, back: 1.1 }, Su: { up: 4, runs: 1.3, carry: 0.04 } },
+  sv: { At: { up: 4, box: 0.2, runs: 1.2, shoot: 0.04 } },
+  cm: { De: { up: -4, back: 1.15, box: -0.2, safe: 0.04 }, At: { up: 4, box: 0.3, shoot: 0.05 } },
+  ap: { At: { up: 3, box: 0.3, runs: 1.4, shoot: 0.04 } },
+  mez: { At: { box: 0.25, runs: 1.2, shoot: 0.04 } },
+  wm: { De: { up: -4, back: 1.2, press: 1.1, cross: -0.03 }, At: { up: 5, runs: 1.3, cross: 0.05 } },
+  w: { At: { up: 3, takeOn: 0.06, runs: 1.2 } },
+  wp: { At: { box: 0.2, shoot: 0.05, cutIn: 0.1 } },
+  dw: { De: { back: 1.15, press: 1.1 }, Su: { up: 3, cross: 0.04 } },
+  if: { At: { box: 0.25, shoot: 0.05 } },
+  iw: { At: { box: 0.15, takeOn: 0.06 } },
+  am: { At: { box: 0.35, runs: 1.4, shoot: 0.05 } },
+  cf: { At: { box: 0.35, runs: 1.3 } },
+  dlf: { At: { drop: -4, runs: 1.5, box: 0.25 } },
+  tf: { At: { box: 0.3 } },
+  pf: { De: { press: 1.15, back: 1.4, up: -6, runs: 0.5 }, At: { runs: 1.35, box: 0.3 } },
 };
 const MULT = new Set<keyof RoleK>(['runs', 'hold', 'back', 'press']);
 
@@ -149,7 +193,11 @@ function add(rk: RoleK, d: Partial<RoleK>): RoleK {
  */
 export function playStyle(role: string | undefined, duty: Duty | undefined, traitK: Partial<RoleK>[] = [], fam = 1): RoleK {
   let rk = rolePlay(role);
-  if (duty) rk = add(rk, DUTY_K[duty]);
+  if (duty) {
+    rk = add(rk, DUTY_K[duty]);
+    const own = role ? ROLE_DUTY_K[role]?.[duty] : undefined;
+    if (own) rk = add(rk, own);
+  }
   const s = 0.6 + 0.4 * Math.max(0, Math.min(1, fam));
   if (s < 1) {
     const scaled = { ...N };

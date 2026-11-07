@@ -188,6 +188,7 @@ describe('sifat bawaan di match engine', () => {
       const mate = m.bodies.find((b) => b.side === 0 && b.p.slot === 'LW')!;
       let goals = 0;
       let dev = 0;
+      // tembakan dulu semua (urutan acak sama untuk kedua pemain: perbandingan berpasangan), lalu umpan
       for (let i = 0; i < 1500; i++) {
         // 12 m di depan gawang lawan, tanpa tekanan
         me.x = m.fx(0, 93);
@@ -195,6 +196,8 @@ describe('sifat bawaan di match engine', () => {
         mm.shoot(me, 0.03, 0);
         if (mm.shot?.outcome === 'goal') goals++;
         mm.shot = null;
+      }
+      for (let i = 0; i < 1500; i++) {
         // umpan datar 20 m ke rekan yang diam
         me.x = 50;
         me.y = 34;

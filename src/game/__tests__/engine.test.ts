@@ -366,7 +366,7 @@ describe('match engine versi 10', () => {
     const { xi, bench } = pickXI(squad, undefined, false, '4-3-3');
     const ok: Record<string, string[]> = {
       GK: ['gk', 'sk'], RB: ['fb', 'wb', 'ifb', 'nfb', 'cwb', 'iwb'], LB: ['fb', 'wb', 'ifb', 'nfb', 'cwb', 'iwb'],
-      RCB: ['cd', 'bpd', 'ncb', 'wcb'], LCB: ['cd', 'bpd', 'ncb', 'wcb'], ST: ['af', 'p', 'cf', 'f9', 'dlf', 'tf', 'pf'],
+      RCB: ['cd', 'bpd', 'ncb', 'lib', 'wcb'], LCB: ['cd', 'bpd', 'ncb', 'lib', 'wcb'], ST: ['af', 'p', 'cf', 'f9', 'dlf', 'tf', 'pf'],
     };
     for (const e of [...xi, ...bench]) expect(e.role).toBeTruthy();
     for (const e of xi) if (ok[e.slot]) expect(ok[e.slot]).toContain(e.role);

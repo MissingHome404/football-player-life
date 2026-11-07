@@ -164,7 +164,8 @@ export function ClubTactic({ club, squad }: { club: Club; squad: Player[] }) {
         <p className="muted small">
           Setiap pemain wajib memainkan peran dan tugas yang diminta pelatih untuk tempatnya, bukan peran favoritnya. Warna titik:{' '}
           <span className="duty-De">{DUTY_LABEL.De.toLowerCase()}</span>, <span className="duty-Su">{DUTY_LABEL.Su.toLowerCase()}</span>,{' '}
-          <span className="duty-At">{DUTY_LABEL.At.toLowerCase()}</span>. Susunan utama ini perkiraan dari kemampuan dan posisi pemain.
+          <span className="duty-At">{DUTY_LABEL.At.toLowerCase()}</span>. Bek tengah bisa bertugas Stopper (St, keluar menempel penyerang) atau Cover (Co, menyapu di
+          belakang garis); tugas Otomatis (Au) berubah mengikuti jalannya laga. Susunan utama ini perkiraan dari kemampuan dan posisi pemain.
         </p>
       </div>
       <FormationPitch formation={f} names={names} mine={mine} roles={t.slots} />

@@ -44,7 +44,7 @@ import { playTraits, traitK } from './traits';
 import { aiFamiliarity, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 14;
+export const ENGINE_VERSION = 15;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -61,7 +61,7 @@ const BOX_Y = 20.16;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 4.65, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 3.8, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -506,6 +506,8 @@ export interface Body {
   frus: number;
   /** atribut mental & teknik setelah performa harian, sebelum efek tekanan, frustrasi, dan kelelahan */
   base: Record<MindKey, number>;
+  /** tugas Otomatis: tugas yang sedang dimainkan (mengikuti mentalitas tim) */
+  autoDuty?: Duty;
 }
 
 export interface Ball {
@@ -754,6 +756,14 @@ export class Match {
       k.line = base.line - TUNE.mLine * rel + 2 * gs;
       k.press = base.press * (1 + TUNE.mPress * rel - 0.1 * gs);
       k.keep = base.keep * (1 + TUNE.mKeep * rel);
+      // tugas Otomatis mengikuti mentalitas tim: menyerang saat tim lebih kuat / tertinggal, bertahan saat unggul
+      const lean = (this.tk[side]?.mentality ?? 0) * 0.4 + rel * 0.8 - gs * 1.5;
+      const auto: Duty = lean > 0.6 ? 'At' : lean < -0.6 ? 'De' : 'Su';
+      for (const b of this.bodies) {
+        if (b.side !== side || b.p.duty !== 'Au' || b.autoDuty === auto) continue;
+        b.autoDuty = auto;
+        b.rk = playStyle(b.p.role, auto, traitK(b.p.traits), b.p.fam ?? 1);
+      }
     }
   }
 
@@ -829,8 +839,10 @@ export class Match {
     const a = ep.a;
     const qual = (a.pas + a.tec + a.ft + a.cmp + a.dec + a.vis + a.ant + a.pos + a.otb + a.tck) / 10;
     return {
-      p: ep, rk: playStyle(ep.role, ep.duty, traitK(ep.traits), ep.fam ?? 1), rx: 0, ry: 0, side, x: 52.5, y: 34, vx: 0, vy: 0, tx: 52.5, ty: 34, on, st, cool: 0, run: 0,
+      p: ep, rk: playStyle(ep.role, ep.duty === 'Au' ? 'Su' : ep.duty, traitK(ep.traits), ep.fam ?? 1), rx: 0, ry: 0, side, x: 52.5, y: 34, vx: 0, vy: 0, tx: 52.5, ty: 34, on, st, cool: 0, run: 0,
       think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1, frus: 0, base: mindOf(a),
+      // semua properti diisi sejak awal: bentuk objek sama untuk semua pemain (lebih cepat di V8)
+      autoDuty: ep.duty === 'Au' ? 'Su' : undefined, leaving: false, waiting: false, entering: false,
     };
   }
 
@@ -1161,6 +1173,10 @@ export class Match {
               // bek sayap terbalik: masuk ke tengah (jadi bek tengah ketiga atau gelandang tambahan)
               x = line + (b.p.role === 'iwb' ? 13 : 3);
               y = 34 + (by - 34) * 0.45;
+            } else if (b.p.role === 'lib') {
+              // libero: maju dari lini belakang ke lini tengah, makin jauh saat bola di depan
+              x = line + 9 + (b.p.duty === 'At' ? 5 : 0) + 6 * adv;
+              y = 34 + (by - 34) * 0.3 + (bfy - 34) * 0.15;
             } else {
               x = fb ? clamp(bfx - 12 + 12 * adv + rk.up + (tk?.overlap ? 6 * adv : 0), 16, 75 + Math.max(0, rk.up)) : line + rk.up * 0.5;
               y = 34 + (by - 34) * (fb ? 1.15 : 1.25) * (1 + rk.wide * 0.4 + (halfBack && !fb ? 0.45 : 0)) + (bfy - 34) * 0.12;
@@ -1242,7 +1258,8 @@ export class Match {
           const mid = isCentralMid(slot) || isWideMid(slot);
           if (def) {
             const fb = isFB(slot);
-            x = line + (fb ? 1 : 0);
+            // cover & libero berdiri sedikit di belakang garis untuk menyapu bola terobosan
+            x = line + (fb ? 1 : Math.min(0, b.rk.step));
             y = 34 + (by - 34) * (fb ? 0.78 : 0.62) + (bfy - 34) * 0.32;
           } else if (mid) {
             x = line + (isHold(slot) ? 9 : slot === 'AM' ? 16 : 12) - (b.rk.back - 1) * 6;
@@ -1292,13 +1309,16 @@ export class Match {
   /** Bek: geser ke lawan terdekat di sisinya, kejar lari lawan ke belakang garis (bingkai tim) */
   private markAdjust(b: Body, side: 0 | 1, line: number, x: number, y: number): [number, number, boolean] {
     const a = b.p.a;
+    const step = isCB(b.p.slot) ? b.rk.step : 0;
+    // stopper juga menjaga penyerang yang turun ke depan garis (sampai ~13 m)
+    const ahead = step > 0 ? 4 + step * 3 : 4;
     let bestD = 13;
     let att: Body | null = null;
     for (const o of this.opponents(side)) {
       if (o.p.slot === 'GK') continue;
       const ox = this.fx(side, o.x);
       const dy = Math.abs(this.fy(side, o.y) - y);
-      if (ox < line + 4 && dy < bestD) {
+      if (ox < line + ahead && dy < bestD) {
         bestD = dy;
         att = o;
       }
@@ -1306,9 +1326,12 @@ export class Match {
     if (!att) return [x, y, false];
     const ox = this.fx(side, att.x);
     const oy = this.fy(side, att.y);
-    const ny = y + (oy - y) * (0.25 + a.mar * 0.025);
+    // cover menjaga ruang: tidak terlalu terpancing mengikuti lawan ke samping
+    const ny = y + (oy - y) * (0.25 + a.mar * 0.025) * (step < 0 ? 0.6 : 1);
     // lawan sudah lolos ke belakang garis: kejar dan tetap di sisi gawang
     if (ox < line - 1) return [Math.max(1, ox - 1.5), ny, true];
+    // stopper: keluar dari garis menempel penyerang yang turun menjemput bola (tetap di sisi gawang)
+    if (step > 0 && ox > line + 1.5) return [Math.max(x, ox - 1.6), y + (oy - y) * 0.85, ox - x > 6];
     return [x, ny, false];
   }
 
@@ -1353,8 +1376,11 @@ export class Match {
         // pemain lini belakang hanya keluar menekan di zonanya sendiri; jauh di depan, gelandang yang menekan
         if (isDef(b.p.slot) || b.p.role === 'hb') {
           const [, by] = this.baseOf(b);
-          const zone = ofx < dline + 11 && Math.abs(ofy - (34 + (by - 34) * 0.8)) < (isFB(b.p.slot) ? 17 : 13);
+          // stopper keluar menekan lebih jauh dari garis; cover & libero jarang meninggalkan garis
+          const step = isCB(b.p.slot) ? b.rk.step : 0;
+          const zone = ofx < dline + 11 + step * 3 && Math.abs(ofy - (34 + (by - 34) * 0.8)) < (isFB(b.p.slot) ? 17 : 13);
           if (!zone && ofx > 22) tt += 2.5;
+          tt -= step * 0.08;
         }
         if (tt < bt) {
           second = best;
@@ -3393,7 +3419,9 @@ export class Match {
   /** Pemain pengganti mengambil tempat, peran, dan tugas yang diminta pelatih untuk tempat itu */
   private takeSlot(sub: Body, out: Body) {
     sub.p = { ...sub.p, slot: out.p.slot, role: out.p.role ?? sub.p.role, duty: out.p.duty ?? sub.p.duty };
-    sub.rk = playStyle(sub.p.role, sub.p.duty, traitK(sub.p.traits), sub.p.fam ?? 1);
+    const duty = sub.p.duty === 'Au' ? (out.autoDuty ?? 'Su') : sub.p.duty;
+    if (sub.p.duty === 'Au') sub.autoDuty = duty;
+    sub.rk = playStyle(sub.p.role, duty, traitK(sub.p.traits), sub.p.fam ?? 1);
   }
 
   /** Serangan balik: beberapa detik setelah merebut bola, tim yang diinstruksikan langsung menyerang */

@@ -9,6 +9,7 @@ import { PLAY_TRAITS, playTraits } from '../sim/traits';
 import { famStart, intensityDrain, learnTactic, tacticFam, understandWeek } from '../sim/understanding';
 import type { Career } from '../types';
 import { LEAGUE_STAKES, leagueStakes, stageStakes } from '../sim/stakes';
+import { ROLE_PLAY, type Duty } from '../sim/roleplay';
 
 const w = generateWorld({ seed: 'TACT', activeLeagues: ['ENG1', 'IDN1'] });
 const eng = w.clubs.filter((c) => c.leagueId === 'ENG1');
@@ -360,4 +361,93 @@ describe('match engine versi 14: kepribadian & mental', () => {
     expect(dirty).toBeGreaterThan(clean * 1.25);
     expect(dives).toBeGreaterThan(0);
   }, 30000);
+});
+
+describe('match engine versi 15: tugas per peran', () => {
+  const withRoles = (t: ETeam, f: (slot: string) => { role: string; duty: Duty } | null): ETeam => ({
+    ...t,
+    xi: t.xi.map((p) => {
+      const r = f(p.slot);
+      return r ? { ...p, ...r } : p;
+    }),
+  });
+  /** rata-rata posisi maju (bingkai tim sendiri) tiap pemain tim tuan rumah saat bola dikuasai lawan / dikuasai sendiri */
+  const depth = (m: Match, inPoss: boolean, ok: () => boolean = () => true) => {
+    const sum = new Map<string, number[]>();
+    for (let i = 0; i < 4000 && !m.done; i++) {
+      m.step();
+      if (!m.owner || (m.owner.side === 0) !== inPoss || !ok()) continue;
+      for (const b of m.bodies) if (b.on && b.side === 0) (sum.get(b.p.id) ?? sum.set(b.p.id, []).get(b.p.id)!).push(m.fx(0, b.x));
+    }
+    return (id: string) => {
+      const xs = sum.get(id) ?? [];
+      return xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length);
+    };
+  };
+
+  it('peran & tugas baru tersedia: Stopper/Cover untuk bek tengah, Libero, Segundo Volante, Otomatis', () => {
+    for (const r of ['cd', 'bpd', 'ncb']) expect(ROLE_DUTIES[r]).toEqual(expect.arrayContaining(['De', 'St', 'Co']));
+    expect(POSITION_ROLES.DC).toContain('lib');
+    expect(POSITION_ROLES.DM).toContain('sv');
+    for (const r of ['fb', 'wb', 'cm', 'wm']) expect(ROLE_DUTIES[r]).toContain('Au');
+    // setiap peran punya gaya main sendiri di mesin laga
+    for (const list of Object.values(POSITION_ROLES)) for (const r of list) expect(ROLE_PLAY[r]).toBeDefined();
+    // pelatih AI memakainya
+    const duties = new Set<string>();
+    const roles = new Set<string>();
+    for (const c of w.clubs) {
+      for (const s of clubTactic(c).slots) {
+        duties.add(s.duty);
+        roles.add(s.role);
+      }
+    }
+    for (const d of ['St', 'Co', 'Au']) expect(duties).toContain(d);
+    for (const r of ['lib', 'sv']) expect(roles).toContain(r);
+  });
+
+  it('cover berdiri lebih dalam daripada stopper; stopper keluar menempel penyerang', () => {
+    const home = withRoles(side(eng[0].id), (s) => (s === 'RCB' ? { role: 'cd', duty: 'St' } : s === 'LCB' ? { role: 'cd', duty: 'Co' } : null));
+    const m = new Match({ seed: 'stco', home, away: side(eng[1].id) });
+    const at = depth(m, false);
+    const st = home.xi.find((p) => p.slot === 'RCB')!;
+    const co = home.xi.find((p) => p.slot === 'LCB')!;
+    expect(at(st.id) - at(co.id)).toBeGreaterThan(1.5);
+  });
+
+  it('libero maju ke lini tengah saat timnya menguasai bola', () => {
+    const t = makeTactic('lib-test', 'Possession', '3-5-2');
+    const home = withRoles(side(eng[2].id, t), (s) => (s === 'CB' ? { role: 'lib', duty: 'Su' } : s === 'RCB' || s === 'LCB' ? { role: 'cd', duty: 'De' } : null));
+    const m = new Match({ seed: 'lib', home, away: side(eng[3].id) });
+    const at = depth(m, true);
+    const lib = home.xi.find((p) => p.slot === 'CB')!;
+    const others = home.xi.filter((p) => p.slot === 'RCB' || p.slot === 'LCB');
+    expect(others).toHaveLength(2);
+    for (const o of others) expect(at(lib.id) - at(o.id)).toBeGreaterThan(5);
+  });
+
+  it('segundo volante menyusul ke depan saat serangan sampai di sepertiga akhir, gelandang bertahan biasa tidak', () => {
+    const t = makeTactic('sv-test', 'Counter', '4-2-3-1');
+    const home = withRoles(side(eng[4].id, t), (s) => (s === 'RDM' ? { role: 'sv', duty: 'At' } : s === 'LDM' ? { role: 'dm', duty: 'De' } : null));
+    const m = new Match({ seed: 'sv', home, away: side(eng[5].id) });
+    const at = depth(m, true, () => m.fx(0, m.ball.x) > 70);
+    const sv = home.xi.find((p) => p.slot === 'RDM')!;
+    const dm = home.xi.find((p) => p.slot === 'LDM')!;
+    expect(at(sv.id) - at(dm.id)).toBeGreaterThan(6);
+  });
+
+  it('tugas Otomatis: menyerang saat tertinggal di akhir laga, bertahan saat unggul', () => {
+    const home = withRoles(side(eng[6].id), (s) => (s === 'RB' || s === 'LB' ? { role: 'fb', duty: 'Au' } : null));
+    const m = new Match({ seed: 'auto', home, away: side(eng[7].id) });
+    const v = m as unknown as { mentality(): void };
+    const fbs = m.bodies.filter((b) => b.side === 0 && b.p.duty === 'Au');
+    expect(fbs.length).toBe(2);
+    m.half = 2;
+    m.t = 150 * 1.9;
+    m.score = [0, 2];
+    v.mentality();
+    for (const b of fbs) expect(b.autoDuty).toBe('At');
+    m.score = [2, 0];
+    v.mentality();
+    for (const b of fbs) expect(b.autoDuty).toBe('De');
+  });
 });

@@ -695,6 +695,8 @@ input { font: inherit; }
 .fm-De .fm-dot { fill: #8fb8ff; }
 .fm-Su .fm-dot { fill: #9fe0b6; }
 .fm-At .fm-dot { fill: #ffb27a; }
+.fm-St .fm-dot, .fm-Co .fm-dot { fill: #8fb8ff; }
+.fm-Au .fm-dot { fill: #d9d4c7; }
 .fm-me .fm-dot { fill: var(--star, #f5c542); }
 .duty-De { color: #8fb8ff; font-weight: 600; }
 .duty-Su { color: #9fe0b6; font-weight: 600; }

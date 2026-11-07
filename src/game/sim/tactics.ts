@@ -7,9 +7,10 @@ import { Rng, clamp } from '../rng';
 import { ROLES } from '../data/roles';
 import { FORMATIONS, clubFormation, isBox, isCB, isFB, isHold, isST, isWideMid, isWing, nationFormation, type FormationId, type Slot } from './formation';
 import type { Club, Player, PlayingStyle } from '../types';
+import type { Duty } from './roleplay';
 
-export type Duty = 'De' | 'Su' | 'At';
-export const DUTY_LABEL: Record<Duty, string> = { De: 'Bertahan', Su: 'Dukungan', At: 'Menyerang' };
+export type { Duty };
+export const DUTY_LABEL: Record<Duty, string> = { De: 'Bertahan', Su: 'Dukungan', At: 'Menyerang', St: 'Stopper', Co: 'Cover', Au: 'Otomatis' };
 export const STYLE_LABEL: Record<PlayingStyle, string> = {
   Possession: 'Penguasaan bola',
   Gegenpress: 'Gegenpress',
@@ -75,11 +76,11 @@ export const mentalityLabel = (m: number) => MENTALITY_LABEL[clamp(Math.round(m)
 /** Tugas yang tersedia untuk tiap peran (seperti di FM) */
 export const ROLE_DUTIES: Record<string, Duty[]> = {
   gk: ['De'], sk: ['De', 'Su', 'At'],
-  cd: ['De'], bpd: ['De'], ncb: ['De'], wcb: ['De', 'Su', 'At'],
-  fb: ['De', 'Su', 'At'], wb: ['De', 'Su', 'At'], ifb: ['De'], nfb: ['De'], cwb: ['Su', 'At'], iwb: ['De', 'Su', 'At'],
-  dm: ['De', 'Su'], a: ['De'], dlp: ['De', 'Su'], bwm: ['De', 'Su'], reg: ['Su'], hb: ['De'],
-  cm: ['De', 'Su', 'At'], b2b: ['Su'], ap: ['Su', 'At'], mez: ['Su', 'At'], car: ['Su'], rpm: ['Su'],
-  wm: ['De', 'Su', 'At'], w: ['Su', 'At'], wp: ['Su', 'At'], dw: ['De', 'Su'],
+  cd: ['De', 'St', 'Co'], bpd: ['De', 'St', 'Co'], ncb: ['De', 'St', 'Co'], lib: ['Su', 'At'], wcb: ['De', 'Su', 'At'],
+  fb: ['De', 'Su', 'At', 'Au'], wb: ['De', 'Su', 'At', 'Au'], ifb: ['De'], nfb: ['De'], cwb: ['Su', 'At'], iwb: ['De', 'Su', 'At'],
+  dm: ['De', 'Su'], a: ['De'], dlp: ['De', 'Su'], bwm: ['De', 'Su'], reg: ['Su'], hb: ['De'], sv: ['Su', 'At'],
+  cm: ['De', 'Su', 'At', 'Au'], b2b: ['Su'], ap: ['Su', 'At'], mez: ['Su', 'At'], car: ['Su'], rpm: ['Su'],
+  wm: ['De', 'Su', 'At', 'Au'], w: ['Su', 'At'], wp: ['Su', 'At'], dw: ['De', 'Su'],
   if: ['Su', 'At'], iw: ['Su', 'At'], rmd: ['At'], wtf: ['Su', 'At'],
   am: ['Su', 'At'], ss: ['At'], eng: ['Su'], t: ['At'],
   af: ['At'], p: ['At'], cf: ['Su', 'At'], f9: ['Su'], dlf: ['Su', 'At'], tf: ['Su', 'At'], pf: ['De', 'Su', 'At'],
@@ -106,9 +107,9 @@ type W = [string, number][];
 /** Peran yang disukai tiap gaya main per kelompok tempat (bobot) */
 const STYLE_ROLES: Record<PlayingStyle, Record<Group, W>> = {
   Possession: {
-    gk: [['sk', 3], ['gk', 1]], cb: [['bpd', 3], ['cd', 2]], cb3: [['bpd', 2], ['cd', 1], ['wcb', 2]],
+    gk: [['sk', 3], ['gk', 1]], cb: [['bpd', 3], ['cd', 2]], cb3: [['bpd', 2], ['cd', 1], ['wcb', 2], ['lib', 1]],
     fb: [['wb', 2], ['fb', 2], ['ifb', 1]], wb: [['cwb', 1], ['wb', 2], ['iwb', 1]],
-    pivot: [['dlp', 3], ['reg', 1], ['hb', 1], ['dm', 1]], dm2: [['dlp', 2], ['dm', 2], ['reg', 1]],
+    pivot: [['dlp', 3], ['reg', 1], ['hb', 1], ['dm', 1]], dm2: [['dlp', 2], ['dm', 2], ['reg', 1], ['sv', 0.5]],
     cm: [['mez', 2], ['ap', 1], ['cm', 1], ['rpm', 1], ['b2b', 1]], wm: [['wp', 2], ['w', 1], ['wm', 1]],
     wing: [['iw', 2], ['if', 2], ['w', 1]], am: [['ap', 2], ['am', 1], ['t', 1], ['eng', 1]],
     st: [['f9', 2], ['cf', 1], ['dlf', 1], ['af', 1]],
@@ -116,15 +117,15 @@ const STYLE_ROLES: Record<PlayingStyle, Record<Group, W>> = {
   Gegenpress: {
     gk: [['sk', 2], ['gk', 1]], cb: [['cd', 2], ['bpd', 2]], cb3: [['cd', 2], ['wcb', 2], ['bpd', 1]],
     fb: [['wb', 2], ['fb', 1]], wb: [['wb', 2], ['cwb', 1]],
-    pivot: [['dm', 2], ['bwm', 1], ['dlp', 1]], dm2: [['bwm', 2], ['dm', 2], ['dlp', 1]],
+    pivot: [['dm', 2], ['bwm', 1], ['dlp', 1]], dm2: [['bwm', 2], ['dm', 2], ['dlp', 1], ['sv', 1]],
     cm: [['b2b', 3], ['bwm', 1], ['mez', 1], ['cm', 1]], wm: [['wm', 1], ['w', 1], ['dw', 1]],
     wing: [['if', 2], ['w', 1], ['rmd', 1]], am: [['am', 2], ['ss', 1]],
     st: [['pf', 3], ['af', 2], ['cf', 1]],
   },
   Counter: {
-    gk: [['gk', 3], ['sk', 1]], cb: [['cd', 3], ['ncb', 1]], cb3: [['cd', 2], ['wcb', 1]],
+    gk: [['gk', 3], ['sk', 1]], cb: [['cd', 3], ['ncb', 1]], cb3: [['cd', 2], ['wcb', 1], ['lib', 0.5]],
     fb: [['fb', 2], ['wb', 1]], wb: [['wb', 2]],
-    pivot: [['dm', 2], ['a', 1], ['dlp', 1]], dm2: [['dm', 2], ['dlp', 1], ['bwm', 1]],
+    pivot: [['dm', 2], ['a', 1], ['dlp', 1]], dm2: [['dm', 2], ['dlp', 1], ['bwm', 1], ['sv', 1]],
     cm: [['b2b', 2], ['cm', 1], ['car', 1], ['rpm', 1]], wm: [['w', 2], ['wm', 1]],
     wing: [['w', 2], ['if', 2], ['iw', 1]], am: [['ss', 2], ['am', 1]],
     st: [['af', 3], ['cf', 1], ['pf', 1]],
@@ -140,13 +141,13 @@ const STYLE_ROLES: Record<PlayingStyle, Record<Group, W>> = {
   'Wing Play': {
     gk: [['gk', 2], ['sk', 1]], cb: [['cd', 2], ['bpd', 1]], cb3: [['cd', 2], ['wcb', 1]],
     fb: [['wb', 3], ['fb', 1]], wb: [['cwb', 2], ['wb', 2]],
-    pivot: [['dm', 2], ['dlp', 1]], dm2: [['dm', 2], ['dlp', 1]],
+    pivot: [['dm', 2], ['dlp', 1]], dm2: [['dm', 2], ['dlp', 1], ['sv', 0.5]],
     cm: [['cm', 2], ['b2b', 1], ['car', 1]], wm: [['w', 3], ['wm', 1]],
     wing: [['w', 3], ['if', 1], ['wtf', 1]], am: [['am', 2], ['ap', 1]],
     st: [['tf', 2], ['p', 2], ['af', 1], ['cf', 1]],
   },
   Defensive: {
-    gk: [['gk', 3]], cb: [['cd', 3], ['ncb', 2]], cb3: [['cd', 2], ['ncb', 1]],
+    gk: [['gk', 3]], cb: [['cd', 3], ['ncb', 2]], cb3: [['cd', 2], ['ncb', 1], ['lib', 1]],
     fb: [['fb', 2], ['nfb', 2]], wb: [['wb', 2], ['iwb', 1]],
     pivot: [['a', 2], ['dm', 2], ['hb', 1]], dm2: [['dm', 2], ['a', 1], ['bwm', 1]],
     cm: [['car', 2], ['cm', 2], ['bwm', 1]], wm: [['dw', 2], ['wm', 2]],
@@ -184,11 +185,24 @@ const STYLE_BASE: Record<PlayingStyle, [number, number, number, number, number, 
   Defensive: [-2, -1, 1, -1, -2, -2, -1],
 };
 
+/** Kecenderungan bek tengah Stopper / Cover tiap gaya (bobot, dibanding Bertahan dari STYLE_DUTY) */
+const STYLE_CB_DUTY: Record<PlayingStyle, [number, number]> = {
+  Possession: [0.6, 0.5],
+  Gegenpress: [1.2, 0.3],
+  Counter: [0.5, 0.9],
+  Direct: [0.6, 0.5],
+  'Wing Play': [0.5, 0.5],
+  Defensive: [0.7, 1.4],
+};
+
 function pickDuty(rng: Rng, role: string, style: PlayingStyle, prefer?: Duty): Duty {
   const ok = ROLE_DUTIES[role] ?? ['Su'];
   if (prefer && ok.includes(prefer)) return prefer;
   const w = STYLE_DUTY[style];
-  return rng.weighted(ok.map((d) => [d, w[d === 'De' ? 0 : d === 'Su' ? 1 : 2]] as const));
+  const cb = STYLE_CB_DUTY[style];
+  const weight = (d: Duty) =>
+    d === 'De' ? w[0] : d === 'Su' ? w[1] : d === 'At' ? w[2] : d === 'St' ? w[0] * cb[0] : d === 'Co' ? w[0] * cb[1] : w[1] * 0.35;
+  return rng.weighted(ok.map((d) => [d, weight(d)] as const));
 }
 
 /** Buat taktik deterministik dari seed (klub+pelatih atau negara), gaya main, dan formasi */
@@ -208,6 +222,8 @@ export function makeTactic(seed: string, style: PlayingStyle, formation: Formati
     const prev = pairDuty.get(g);
     if (prev && (g === 'st' || g === 'cm' || g === 'dm2')) prefer = prev === 'At' ? 'Su' : prev === 'De' ? 'Su' : g === 'dm2' ? 'De' : 'At';
     if (g === 'fb' && prev) prefer = prev === 'At' ? 'Su' : undefined;
+    // duet bek tengah: stopper ditemani cover (dan sebaliknya)
+    if ((g === 'cb' || g === 'cb3') && (prev === 'St' || prev === 'Co')) prefer = prev === 'St' ? 'Co' : 'St';
     const duty = pickDuty(rng, role, style, prefer);
     pairDuty.set(g, duty);
     slots.push({ role, duty });
