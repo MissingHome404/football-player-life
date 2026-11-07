@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 21;
+export const ENGINE_VERSION = 22;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -75,7 +75,7 @@ const PC_R = 30;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 6, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 6.4, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -93,6 +93,11 @@ export const TUNE = {
   checkRate: 0.0012,
   /** v21: bentuk tim saat tendangan gawang (0 = perilaku lama) */
   gkShape: 1,
+  /** v22: pemain berdiri mantap di posisinya, baru bergerak lagi kalau posisinya bergeser cukup jauh (0 = perilaku lama) */
+  steady: 1,
+  walk: 1,
+  /** v22 dribel dengan sentuhan: bola didorong sedikit ke depan lalu dikejar (0 = bola menempel di kaki) */
+  touch: 1,
   /** pergantian taktis pelatih AI per tim, dan batas tenaga pemain yang dianggap kelelahan */
   aiSubs: 3,
   subTired: 0.72,
@@ -636,6 +641,11 @@ export interface Body {
   tdrop: number;
   /** v19 tempat asli pemain (posisi alaminya), dipakai pelatih saat menyusun ulang bentuk tim */
   home: Slot;
+  /** v22 sudah sampai di posisinya dan berdiri mantap (tidak mengejar setiap geseran kecil) */
+  settled: boolean;
+  /** v22 geseran ke kantong ruang yang sedang dituju (dihaluskan) */
+  pkx: number;
+  pky: number;
 }
 
 export interface Ball {
@@ -671,7 +681,6 @@ interface Pass {
   cross: boolean;
   tx: number;
   ty: number;
-  offside: Body[];
   setPiece: boolean;
 }
 
@@ -684,6 +693,8 @@ interface Restart {
   kind: RestartKind;
   /** tendangan bebas langsung ke gawang */
   direct?: boolean;
+  /** v22 tendangan bebas tidak langsung (offside, diving): tidak boleh langsung ditembak ke gawang */
+  indirect?: boolean;
   /** tendangan bebas dari sayap: diumpan ke kotak seperti sepak pojok */
   cross?: boolean;
   /** lama menunggu pemain menuju posisinya (detik permainan) */
@@ -699,6 +710,9 @@ interface Restart {
 
 type CornerRoutine = 'short' | 'near' | 'far' | 'edge' | 'mix';
 const CORNER_ROUTINES: [CornerRoutine, number][] = [['short', 0.12], ['near', 0.25], ['far', 0.2], ['edge', 0.08], ['mix', 0.35]];
+
+/** v22 perlambatan bola yang didorong saat dribel (m/s²): menentukan seberapa jauh bola menggelinding di depan kaki */
+const TOUCH_DEC = 3;
 
 /** Lama selebrasi gol (detik permainan, jam berhenti); 2,5 detik terakhir pemain mulai kembali ke posisi */
 const CELEBRATE = 9;
@@ -726,6 +740,8 @@ interface Dead {
   x: number;
   y: number;
   t: number;
+  /** v22 tendangan bebas tidak langsung */
+  indirect?: boolean;
 }
 
 export const minuteOf = (t: number) => Math.min(90, Math.floor((t / FULL) * 90) + (t >= FULL ? 0 : 1));
@@ -812,6 +828,23 @@ export class Match {
   private spSide: 0 | 1 = 0;
   /** bola baru saja dibuang tim ini ke luar: rekan setim (termasuk kiper) tidak menjemputnya */
   private noTouch: { side: 0 | 1; until: number } | null = null;
+  /**
+   * v22 offside (IFAB Law 11): rekan yang berada di posisi offside saat bola terakhir dimainkan / disentuh
+   * rekan setimnya. Tetap berlaku setelah bola memantul dari lawan atau ditepis kiper; hilang saat lawan
+   * sengaja memainkan bola, bola mati, atau rekan lain menyentuh bola. `leave`: yang sadar dirinya offside
+   * dan membiarkan bola.
+   */
+  private offPos: { side: 0 | 1; list: Body[]; leave: Body[] } | null = null;
+  /** v22 bola mati yang sedang diambil pada langkah ini (tendangan gawang, lemparan, sepak pojok bebas offside) */
+  private taking: RestartKind | null = null;
+  /** v22 pengambil bola mati tidak boleh menyentuh bola lagi sebelum pemain lain menyentuhnya (Law 13) */
+  private noRe: Body | null = null;
+  /** v22 garis pertahanan yang sedang mundur menutup ruang di belakang (m) */
+  private lineDrop: [number, number] = [0, 0];
+  /** v22 dribel dengan sentuhan: kecepatan bola relatif terhadap tanah (m/s) dan arahnya */
+  private touchV = 0;
+  private touchDx = 1;
+  private touchDy = 0;
 
   /** v17 kontrol ruang: waktu tercepat tiap tim sampai di tiap petak, dan penguasaan ruang tim tuan rumah (0..1) */
   private pcT: [Float64Array, Float64Array] = [new Float64Array(PC_N), new Float64Array(PC_N)];
@@ -1012,6 +1045,7 @@ export class Match {
       think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1, frus: 0, base: mindOf(a),
       // semua properti diisi sejak awal: bentuk objek sama untuk semua pemain (lebih cepat di V8)
       autoDuty: ep.duty === 'Au' ? 'Su' : undefined, leaving: false, waiting: false, entering: false, runY: -1, check: 0, tdrop: traitK(ep.traits).reduce((d, k) => d + (k.drop ?? 0), 0), home: ep.slot,
+      settled: false, pkx: 0, pky: 0,
     };
   }
 
@@ -1069,6 +1103,8 @@ export class Match {
   /** Sepak mula. Awal babak: pemain langsung di posisinya; setelah gol: pemain berjalan kembali (jam berhenti) */
   private kickoff(side: 0 | 1, teleport = true) {
     this.restart = { side, x: 52.5, y: 34, wait: 0.8, kind: 'kickoff' };
+    this.offPos = null;
+    this.noRe = null;
     for (const b of this.active()) {
       const [x, y] = this.kickoffSpot(b);
       b.tx = x;
@@ -1254,6 +1290,31 @@ export class Match {
   private isOffside(m: Body, line: number, ballFx: number) {
     const f = this.fx(m.side, m.x);
     return f > line + 0.15 && f > ballFx + 0.15 && f > PITCH_W / 2;
+  }
+
+  /**
+   * v22 IFAB Law 11: posisi offside dinilai saat bola dimainkan atau disentuh rekan setim `c` (umpan, tembakan,
+   * sapuan, sundulan, sentuhan yang lepas). Tidak ada offside langsung dari tendangan gawang, lemparan ke dalam,
+   * dan sepak pojok. Pemain yang sadar dirinya offside (Decisions, Off the Ball, Anticipation) membiarkan bola.
+   */
+  private judgeOffside(c: Body) {
+    const t = this.taking;
+    if (t === 'goalkick' || t === 'throw' || t === 'corner' || t === 'kickoff') {
+      this.offPos = null;
+      return;
+    }
+    const side = c.side;
+    const line = this.offsideLine(side);
+    const bfx = this.fx(side, this.ball.x);
+    const list: Body[] = [];
+    const leave: Body[] = [];
+    for (const m of this.mates(side)) {
+      if (m === c || !this.isOffside(m, line, bfx)) continue;
+      list.push(m);
+      const a = m.p.a;
+      if (this.rng.chance(clamp(0.3 + ((a.dec + a.otb + a.ant) / 3) * 0.025, 0.3, 0.85))) leave.push(m);
+    }
+    this.offPos = list.length ? { side, list, leave } : null;
   }
 
   private inBox(side: 0 | 1, x: number, y: number) {
@@ -1565,23 +1626,48 @@ export class Match {
 
   /** Garis pertahanan tim (bingkai tim sendiri) */
   private defLine(side: 0 | 1, inPoss: boolean, raw = false): number {
-    const bfx = this.fx(side, this.ball.x);
+    const bfx = this.fx(side, this.refBall().x);
     const k = this.k[side];
     if (inPoss) return clamp(bfx - TUNE.backLine + k.line * 0.5, 14, 52 - k.line);
     // v17: mundur menutup ruang di belakang garis dari penyerang yang lebih cepat
     let line = clamp(bfx - TUNE.lineGap - k.line, 7, 42 - k.line) - (raw ? 0 : this.depth[side]);
     // pembawa bola lawan bebas menghadap gawang: mundur menutup ruang di belakang
-    const o = this.owner;
-    if (o && o.side !== side) {
-      const [, pd] = this.nearest(this.mates(side), o.x, o.y);
-      const towardUs = this.dir(side) * o.vx < -1;
-      if (pd > 4 && towardUs) line -= 5;
-    }
+    // (v22: garis mundur dan naik kembali secara bertahap, tidak melompat 5 m bolak-balik)
+    if (TUNE.steady > 0) line -= this.lineDrop[side];
+    else if (this.freeCarrier(side)) line -= 5;
     return clamp(Math.min(line, bfx - 3), 6, 42 - k.line);
   }
 
+  /** pembawa bola lawan bebas (tidak ditekan) dan berlari ke arah gawang tim `side` */
+  private freeCarrier(side: 0 | 1): boolean {
+    const o = this.owner;
+    if (!o || o.side === side) return false;
+    const [, pd] = this.nearest(this.mates(side), o.x, o.y);
+    return pd > 4 && this.dir(side) * o.vx < -1;
+  }
+
+  /** v22 garis pertahanan mundur bertahap (± 4 m/s) saat pembawa bola lawan bebas berlari ke arah gawang */
+  private stepLineDrop() {
+    for (const side of [0, 1] as const) {
+      const want = this.freeCarrier(side) ? 5 : 0;
+      const d = this.lineDrop[side];
+      this.lineDrop[side] = want > d ? Math.min(want, d + 4 * DT) : Math.max(want, d - 3 * DT);
+    }
+  }
+
+  /**
+   * v22 titik bola untuk posisi tim: saat bola didribel, posisi pembawa bola (bukan bola yang bergulir maju-mundur
+   * di depan kakinya), supaya bentuk tim tidak ikut bergoyang mengikuti tiap sentuhan
+   */
+  private refBall(): { x: number; y: number } {
+    const o = this.owner;
+    if (!o || TUNE.touch <= 0) return this.ball;
+    const sp = Math.hypot(o.vx, o.vy);
+    return sp > 0.3 ? { x: o.x + (o.vx / sp) * 0.6, y: o.y + (o.vy / sp) * 0.6 } : { x: o.x + this.dir(o.side) * 0.6, y: o.y };
+  }
+
   private targets(live: boolean) {
-    const ball = this.ball;
+    const ball = this.refBall();
     for (const side of [0, 1] as const) {
       const inPoss = this.poss === side;
       const bfx = this.fx(side, ball.x);
@@ -1615,9 +1701,10 @@ export class Match {
         const famErr = 1.45 - 0.5 * fam;
         // konsentrasi rendah (apalagi saat lelah di akhir laga): lebih lambat membaca ulang situasi
         b.think = 0.15 + (20 - a.ant) * 0.018 + this.rng.float(0, 0.12) + (1 - fam) * 0.12 + Math.max(0, 13 - a.con) * 0.008;
-        // kesalahan posisi pribadi bergerak pelan
-        b.ox = clamp(b.ox * 0.85 + this.rng.normal(0, 0.9), -3, 3);
-        b.oy = clamp(b.oy * 0.85 + this.rng.normal(0, 0.9), -3, 3);
+        // kesalahan posisi pribadi bergerak pelan (v22: lebih halus, besarnya sama: tidak lagi melompat-lompat tiap membaca ulang)
+        const [nk, ns] = TUNE.steady > 0 ? [0.95, 0.5] : [0.85, 0.9];
+        b.ox = clamp(b.ox * nk + this.rng.normal(0, ns), -3, 3);
+        b.oy = clamp(b.oy * nk + this.rng.normal(0, ns), -3, 3);
         if (this.rng.chance(0.05)) b.lean = this.rng.normal(0, 1) * (22 - (a.otb + a.ant + a.dec) / 3) * 0.07;
         const slot = b.p.slot;
         const [bx, by] = this.baseOf(b);
@@ -1709,6 +1796,13 @@ export class Match {
                   py = ddy;
                 }
               }
+              // v22 tidak melompat-lompat antar kantong ruang: geser bertahap ke kantong yang dipilih
+              if (TUNE.steady > 0) {
+                b.pkx += (px - b.pkx) * 0.35;
+                b.pky += (py - b.pky) * 0.35;
+                px = b.pkx;
+                py = b.pky;
+              }
               x += px * (a.otb / 20);
               y += py * (a.otb / 20);
               // berdiri tepat di garis offside: pemain cerdas tidak terjebak
@@ -1718,7 +1812,7 @@ export class Match {
           // kebebasan bergerak: pemain dengan peran bebas & flair tinggi berpindah ke ruang kosong
           if (!def && b.run <= 0) {
             const roam = clamp(b.rk.roam * (0.5 + a.fla / 20) * (1 + 0.4 * (tk?.creative ?? 0)), 0, 1.2);
-            if (roam > 0.05 && this.rng.chance(0.25)) {
+            if (roam > 0.05 && this.rng.chance(TUNE.steady > 0 ? 0.1 : 0.25)) {
               let best = -1;
               for (let i = 0; i < 6; i++) {
                 const ang = this.rng.float(0, Math.PI * 2);
@@ -2178,6 +2272,9 @@ export class Match {
           else hands = false;
         }
         if (pass && b === pass.from && pass.from.side === side) continue;
+        // v22 pemain yang sadar dirinya offside tidak mengejar bola
+        const op = this.offPos;
+        if (op && op.side === side && op.leave.includes(b) && b !== pass?.to) continue;
         r ??= this.reachPoint(b, hands);
         // penerima umpan selalu menjemput bola; bek tidak mengejar bola jauh di depan garisnya
         let tt = pass && b === pass.to ? r[2] - 0.5 : r[2];
@@ -2297,7 +2394,8 @@ export class Match {
     // tempat di kotak, diisi menurut urutan tempat formasi yang cocok (formasi apa pun)
     const spots: [Slot[], number, number][] = corner
       ? [[['RCB', 'CB', 'LCB'], 95, 34 + near * 2], [['LCB', 'CB', 'RCB'], 94.5, 34 - near * 4], [['ST', 'RS', 'LS'], 97.5, 34 + near * 4.5], [['CM', 'RDM', 'LDM', 'RCM', 'LCM'], 92, 34 - near * 1], [['LW', 'LS', 'LM', 'AM'], 96.5, 34 - near * 7.5], [['RW', 'RM', 'AM', 'RCM'], 88, 34 + near * 6]]
-      : [[['RCB', 'CB', 'LCB'], 91, 34 + near * 2], [['LCB', 'CB', 'RCB'], 90.5, 34 - near * 4], [['ST', 'RS', 'LS'], 92, 34 + near * 5], [['CM', 'RDM', 'LDM', 'RCM', 'LCM'], 88, 34 - near * 1], [['LW', 'LS', 'LM', 'AM'], 91, 34 - near * 8], [['RW', 'RM', 'AM', 'RCM'], 85, 34 + near * 8]];
+      : // tendangan bebas (v22): penyerang berbaris sejajar / sedikit di belakang garis bek supaya tidak offside saat bola ditendang
+        [[['RCB', 'CB', 'LCB'], 90, 34 + near * 2], [['LCB', 'CB', 'RCB'], 89.5, 34 - near * 4], [['ST', 'RS', 'LS'], 91, 34 + near * 5], [['CM', 'RDM', 'LDM', 'RCM', 'LCM'], 87, 34 - near * 1], [['LW', 'LS', 'LM', 'AM'], 90, 34 - near * 8], [['RW', 'RM', 'AM', 'RCM'], 84, 34 + near * 8]];
     const taker = this.restartTaker();
     const up: Body[] = [];
     const pick = (team: Body[], prefs: Slot[], used: Set<Body>) => {
@@ -2377,12 +2475,25 @@ export class Match {
     const dx = b.tx - b.x;
     const dy = b.ty - b.y;
     const d = Math.hypot(dx, dy);
-    const want = d < 0.25 ? 0 : Math.min(cap, d * 1.6 + 0.4);
+    const sp0 = Math.hypot(b.vx, b.vy);
+    // v22 berdiri mantap: setelah sampai di posisinya pemain diam, dan baru bergerak lagi kalau posisinya bergeser
+    // cukup jauh (dekat bola dan bek yang menjaga garis lebih cepat bereaksi), bukan mengejar setiap geseran kecil
+    if (TUNE.steady > 0 && !isOwner && !b.sprint && b.dive <= 0 && b.p.slot !== 'GK' && b.on && !b.entering) {
+      if (b.settled) {
+        const nearBall = Math.hypot(this.ball.x - b.x, this.ball.y - b.y) < 14;
+        let hold = nearBall ? 0.55 : this.poss === b.side ? 1.4 : isBack(b.p.slot) ? 0.6 : 1.0;
+        // bola mati: semua harus benar-benar di tempatnya sebelum peluit
+        if (this.restart || this.dead) hold = Math.min(hold, 0.7);
+        if (d > hold * TUNE.steady) b.settled = false;
+      } else if (d < 0.35 && sp0 < 1.2) b.settled = true;
+    } else b.settled = false;
+    // v22 penyesuaian kecil dilakukan dengan berjalan / berlari kecil, bukan melesat; yang jauh dari posisinya tetap bergegas
+    const walk = TUNE.steady > 0 && TUNE.walk > 0 && !b.sprint && b.dive <= 0 && !isOwner;
+    const want = b.settled || d < 0.25 ? 0 : Math.min(cap, walk && d < 3 ? d * 1.1 + 0.3 : walk ? 3.6 + (d - 3) * 1.6 : d * 1.6 + 0.4);
     const wvx = d ? (dx / d) * want : 0;
     const wvy = d ? (dy / d) * want : 0;
     // akselerasi & kelincahan menentukan seberapa cepat mengubah kecepatan dan arah;
     // makin dekat kecepatan puncak, makin kecil tambahan kecepatannya (mengerem tetap penuh)
-    const sp0 = Math.hypot(b.vx, b.vy);
     const speeding = want > sp0 ? 1 - 0.6 * Math.min(1, sp0 / vmax) : 1;
     const amax = accOf(b) * (b.sprint || b.dive > 0 ? 1 : 0.8) * speeding;
     let ax = wvx - b.vx;
@@ -2420,6 +2531,8 @@ export class Match {
   private gain(b: Body) {
     this.owner = b;
     this.lastTouch = b;
+    // menguasai bola = memainkan bola dengan sengaja: penilaian offside sebelumnya selesai
+    this.offPos = null;
     if (this.poss !== b.side) this.wonAt[b.side] = this.t;
     this.poss = b.side;
     this.pass = null;
@@ -2432,12 +2545,17 @@ export class Match {
         ? 0.12 + (20 - a.ft) * 0.01
         : (TUNE.hold + (20 - a.ft) * 0.012 + (20 - a.dec) * 0.012) * this.k[b.side].hold * b.rk.hold;
     b.run = 0;
+    this.touchV = 0;
     const ball = this.ball;
     ball.vx = ball.vy = ball.vz = 0;
     ball.z = 0;
   }
 
-  private decide(c: Body) {
+  /**
+   * mustKick (v22): bola mati (tendangan bebas, tendangan gawang) harus ditendang, tidak boleh dibawa lari;
+   * noShot: tendangan bebas tidak langsung tidak boleh langsung ditembak
+   */
+  private decide(c: Body, mustKick = false, noShot = false) {
     const side = c.side;
     const a = c.p.a;
     const fx = this.fx(side, c.x);
@@ -2447,7 +2565,7 @@ export class Match {
     const pressure = pd < 2 ? 1 : pd < 4 ? 0.5 : 0;
     // diving: penyerang dengan Sportsmanship rendah menjatuhkan diri saat dijaga ketat di sekitar kotak penalti
     if (
-      near && a.spo < 9 && pd < 1.8 && near.p.slot !== 'GK' && fx > PITCH_W - BOX_X - 6 && Math.abs(fy - 34) < BOX_Y + 4 &&
+      !mustKick && near && a.spo < 9 && pd < 1.8 && near.p.slot !== 'GK' && fx > PITCH_W - BOX_X - 6 && Math.abs(fy - 34) < BOX_Y + 4 &&
       this.rng.chance((9 - a.spo) * TUNE.dive)
     ) {
       this.simulate(c, near);
@@ -2481,7 +2599,7 @@ export class Match {
 
     // tembak
     const distGoal = Math.hypot(PITCH_W - fx, 34 - fy);
-    if (distGoal < 35 && !keeper) {
+    if (distGoal < 35 && !keeper && !noShot) {
       const xg = this.xgAt(fx, fy);
       const v =
         this.shotProb(c, fx, fy, pressure) * TUNE.shootV * k.shoot * (1 + rk.shoot) -
@@ -2591,7 +2709,7 @@ export class Match {
     }
 
     // dribel / membawa bola: dribbling, flair, dan technique membuat pemain lebih suka membawa bola
-    if (!keeper) {
+    if (!keeper && !mustKick) {
       const flair = (a.dri - 10) * 0.02 + (a.fla - 10) * 0.012 + (a.tec - 10) * 0.006 + (a.cmp - 10) * 0.005;
       // di sayap dekat garis gawang tidak ada ruang lagi: saatnya mengumpan silang
       const corner = fx > 84 && Math.abs(fy - 34) > 14 ? 0.12 : 0;
@@ -2618,17 +2736,20 @@ export class Match {
 
   /** Tendang bola: arah, kecepatan, dan tinggi dihitung supaya sampai di titik tujuan */
   private kick(c: Body, tx: number, ty: number, air: boolean, err: number, lob = 0, soft = false) {
-    const d0 = Math.hypot(tx - c.x, ty - c.y) || 1;
+    const from = this.kickFrom(c);
+    const sx = from ? from[0] : c.x;
+    const sy = from ? from[1] : c.y;
+    const d0 = Math.hypot(tx - sx, ty - sy) || 1;
     // salah arah dan salah jarak sesuai kemampuan
     const ang = this.rng.normal(0, err);
     const len = d0 * (1 + this.rng.normal(0, err * 0.4));
-    const ux = (tx - c.x) / d0;
-    const uy = (ty - c.y) / d0;
+    const ux = (tx - sx) / d0;
+    const uy = (ty - sy) / d0;
     const dx = ux * Math.cos(ang) - uy * Math.sin(ang);
     const dy = ux * Math.sin(ang) + uy * Math.cos(ang);
     const b = this.ball;
-    b.x = c.x + dx * 0.5;
-    b.y = c.y + dy * 0.5;
+    b.x = from ? sx : c.x + dx * 0.5;
+    b.y = from ? sy : c.y + dy * 0.5;
     b.z = 0.1;
     if (air) {
       const T = clamp(0.8 + len * 0.032 + lob, 0.7, 2.6);
@@ -2658,6 +2779,8 @@ export class Match {
   private passTo(c: Body, m: Body, air: boolean, setPiece: boolean, lob = 0, intoBox = false, spot?: [number, number]) {
     const a = c.p.a;
     const side = c.side;
+    // offside dinilai saat bola dimainkan (v22: juga tendangan bebas, termasuk umpan silang dari tendangan bebas)
+    this.judgeOffside(c);
     let tx: number;
     let ty: number;
     const vEnd = 8 + a.pas * 0.2;
@@ -2698,16 +2821,9 @@ export class Match {
     const err = thrown
       ? (21 - a.thr) * 0.006
       : ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1) * weak;
-    // offside dinilai saat bola dimainkan
-    const offside: Body[] = [];
-    if (!setPiece) {
-      const line = this.offsideLine(c.side);
-      const bfx = this.fx(c.side, c.x);
-      for (const t of this.mates(c.side)) if (t !== c && this.isOffside(t, line, bfx)) offside.push(t);
-    }
     this.kick(c, tx, ty, air, err, lob, !!spot);
     const cross = intoBox || (air && this.fx(c.side, m.x) > 84);
-    this.pass = { from: c, to: m, air, cross, tx, ty, offside, setPiece };
+    this.pass = { from: c, to: m, air, cross, tx, ty, setPiece };
     m.tx = tx;
     m.ty = ty;
     m.sprint = true;
@@ -2757,6 +2873,7 @@ export class Match {
     const tx = this.wx(side, clamp(fx + 35 + this.rng.float(0, 15), 30, 95));
     const ty = this.wy(side, clamp(fy + (fy < 34 ? -1 : 1) * this.rng.float(5, 20), 3, 65));
     this.pass = null;
+    this.judgeOffside(c);
     this.kick(c, tx, ty, true, 0.12 + (20 - c.p.a.tec) * 0.01);
     this.lastPasser = null;
   }
@@ -2951,14 +3068,19 @@ export class Match {
       h = forced.h;
     }
     const tyWorld = this.wy(side, aimY);
-    const dx = goalX - c.x;
-    const dy = tyWorld - c.y;
+    const from = this.kickFrom(c);
+    const sx = from ? from[0] : c.x;
+    const sy = from ? from[1] : c.y;
+    const dx = goalX - sx;
+    const dy = tyWorld - sy;
     const d = Math.hypot(dx, dy) || 1;
     const speed = header ? 13 + a.hea * 0.2 : setPiece && dist > 14 ? 21 + a.fk * 0.3 : 20 + skill * 0.4 + (dist > 18 ? 3 : 0);
     const tl = d / speed;
+    // v22 rekan yang offside saat tembakan dilepas tetap offside kalau menyambar bola muntah (tepisan kiper, blok)
+    this.judgeOffside(c);
     const ball = this.ball;
-    ball.x = c.x + (dx / d) * 0.4;
-    ball.y = c.y + (dy / d) * 0.4;
+    ball.x = from ? sx : c.x + (dx / d) * 0.4;
+    ball.y = from ? sy : c.y + (dy / d) * 0.4;
     ball.z = header ? 1.8 : 0.1;
     ball.vx = (dx / d) * speed;
     ball.vy = (dy / d) * speed;
@@ -3184,6 +3306,7 @@ export class Match {
     this.shot = null;
     this.pass = null;
     this.owner = null;
+    this.offPos = null;
     this.inNet = true;
     // bola sudah melewati garis: tahan di dalam jaring (tidak tembus ke belakang gawang)
     const gx = ball.x < PITCH_W / 2 ? 0 : PITCH_W;
@@ -3205,8 +3328,13 @@ export class Match {
     let best: Body | null = null;
     let bd = Infinity;
     const nt = this.noTouch && this.t < this.noTouch.until ? this.noTouch.side : -1;
+    if (this.noRe && this.lastTouch !== this.noRe) this.noRe = null;
+    const op = this.offPos;
     for (const b of this.active()) {
       if (pass && b === pass.from && sp > 3) continue;
+      // pengambil bola mati belum boleh menyentuh bola lagi; pemain yang sadar dirinya offside membiarkan bola
+      if (b === this.noRe) continue;
+      if (op && op.side === b.side && op.leave.includes(b) && !(pass && b === pass.to)) continue;
       if (b.side === nt) continue;
       if (b.cool > (b.p.slot === 'GK' ? 1 : 0.5)) continue; // baru saja dilewati / kiper masih terjatuh
       const hands = b.p.slot === 'GK' && this.inBox(b.side, b.x, b.y);
@@ -3286,11 +3414,13 @@ export class Match {
     const high = ball.z > 1.3;
     const hands = best.p.slot === 'GK' && this.inBox(side, best.x, best.y);
 
-    // offside: rekan yang berdiri offside saat umpan dimainkan menyentuh bola
-    if (pass && pass.from.side === side && pass.offside.includes(best)) {
+    // offside: rekan yang berdiri offside saat bola terakhir dimainkan rekan setimnya ikut memainkan bola
+    // (juga bola muntah dari tepisan kiper / pantulan lawan): tendangan bebas tidak langsung di tempat itu
+    if (op && op.side === side && op.list.includes(best)) {
       best.st.offsides++;
       this.log('offside', side, best.p.name);
       this.toDead('free', (1 - side) as 0 | 1, best.x, best.y, 0.9);
+      this.dead!.indirect = true;
       return;
     }
 
@@ -3384,6 +3514,8 @@ export class Match {
       gk.cool = 1.2;
       return;
     }
+    // meninju bola = memainkan bola dengan sengaja
+    this.offPos = null;
     // tinju menjauh dari gawang, condong ke sisi tempat bola datang
     const out = -this.dir((1 - gk.side) as 0 | 1);
     const sy = Math.sign(ball.y - 34) || 1;
@@ -3416,6 +3548,7 @@ export class Match {
     this.pass = null;
     this.lastPasser = null;
     if (!intercept) this.poss = side;
+    this.judgeOffside(b);
     this.kick(b, tx, ty, true, 0.18 + (20 - b.p.a.hea) * 0.012, -0.2);
     this.ball.z = 1.8;
     b.cool = 0.4;
@@ -3525,6 +3658,8 @@ export class Match {
   }
 
   private deflect(b: Body, speed: number) {
+    // sentuhan rekan setim = penilaian offside baru; bola memantul dari lawan (tidak sengaja) tidak menghapus offside
+    if (!this.offPos || this.offPos.side === b.side) this.judgeOffside(b);
     this.pass = null;
     this.owner = null;
     this.lastTouch = b;
@@ -3540,6 +3675,8 @@ export class Match {
   /** Bola mati: bola masih bergerak keluar, lalu ditaruh di titik restart */
   private toDead(kind: RestartKind, side: 0 | 1, x: number, y: number, t = kind === 'throw' ? 0.5 : 0.9) {
     this.dead = { kind, side, x, y, t };
+    this.offPos = null;
+    this.noRe = null;
     this.pass = null;
     this.owner = null;
     this.poss = side;
@@ -3582,7 +3719,7 @@ export class Match {
         this.log('penalty', side);
       } else {
         const wide = Math.abs(this.fy(side, y) - 34);
-        direct = fx > 74 && dist < 30 && wide < 18 && this.rng.chance(0.7);
+        direct = !d.indirect && fx > 74 && dist < 30 && wide < 18 && this.rng.chance(0.7);
         if (direct) this.log('freekick', side);
         // tendangan bebas dari sayap / agak jauh di sepertiga akhir: diumpan ke kotak
         else cross = fx > 68;
@@ -3598,7 +3735,8 @@ export class Match {
     this.poss = side;
     // kiper menaruh bola dan menunggu rekan menyebar sebelum tendangan gawang
     const wait = k === 'throw' ? 0.3 : k === 'penalty' ? 2 : k === 'goalkick' ? 1.5 : k === 'corner' || cross ? 1.2 : 0.8;
-    this.restart = { side, x, y, wait, kind: k, direct, cross };
+    this.restart = { side, x, y, wait, kind: k, direct, cross, indirect: d.indirect };
+    this.offPos = null;
     if (k === 'corner') {
       this.corners[side]++;
       let r = this.rng.next();
@@ -3649,6 +3787,8 @@ export class Match {
       taker.x = taker.tx;
       taker.y = taker.ty;
       this.restart = null;
+      this.taking = r.kind;
+      this.noRe = taker;
       this.ball.x = r.x;
       this.ball.y = r.y;
       this.lastTouch = taker;
@@ -3681,6 +3821,10 @@ export class Match {
     taker.x = taker.tx;
     taker.y = taker.ty;
     this.restart = null;
+    // v22 jenis bola mati yang sedang diambil (offside tidak berlaku langsung dari tendangan gawang, lemparan, sepak pojok)
+    this.taking = r.kind;
+    // pengambil tidak boleh menyentuh bola lagi sebelum disentuh pemain lain (Law 13, 15, 16, 17)
+    this.noRe = taker;
     const ball = this.ball;
     ball.x = r.x;
     ball.y = r.y;
@@ -3762,12 +3906,13 @@ export class Match {
         this.ball.z = 2;
       } else this.gain(taker);
     } else {
-      // tendangan gawang & bebas tidak langsung: dimainkan seperti biasa
+      // tendangan gawang & tendangan bebas biasa: bola diam lalu langsung ditendang (umpan / sapuan), tidak dibawa lari
+      // (v22; sebelumnya pengambil tendangan bebas mendapat bola seperti permainan biasa dan kadang menggiringnya)
       this.gain(taker);
+      this.noRe = taker;
       taker.cool = 0.2;
-      if (r.kind === 'goalkick') this.decide(taker);
+      this.decide(taker, true, !!r.indirect);
       if (this.pass) this.pass.setPiece = r.kind === 'goalkick';
-      if (this.pass && r.kind === 'goalkick') this.pass.offside = [];
     }
   }
 
@@ -3855,7 +4000,9 @@ export class Match {
       return;
     }
     if (r < fooled + 0.3) {
+      // diving dihukum kartu kuning dan tendangan bebas tidak langsung
       this.toDead('free', d.side, c.x, c.y, 1.6);
+      this.dead!.indirect = true;
       this.book(c, 'yellow', true);
       return;
     }
@@ -4586,6 +4733,7 @@ export class Match {
 
   step() {
     if (this.done) return;
+    this.taking = null;
     if (this.so) {
       this.shootoutStep();
       return;
@@ -4767,6 +4915,7 @@ export class Match {
     }
 
     const live = !this.restart && !this.dead;
+    this.stepLineDrop();
     if (live && this.t >= this.pcNext) {
       this.pcNext = this.t + 0.5;
       this.updateControl();
@@ -4801,8 +4950,11 @@ export class Match {
       const sp = Math.hypot(o.vx, o.vy);
       const fdx = sp > 0.3 ? o.vx / sp : this.dir(o.side);
       const fdy = sp > 0.3 ? o.vy / sp : 0;
-      this.ball.x = o.x + fdx * 0.6;
-      this.ball.y = o.y + fdy * 0.6;
+      if (TUNE.touch > 0) this.carry(o, sp, fdx, fdy);
+      else {
+        this.ball.x = o.x + fdx * 0.6;
+        this.ball.y = o.y + fdy * 0.6;
+      }
       this.ball.z = 0;
       this.ball.vx = this.ball.vy = this.ball.vz = 0;
       this.tackles();
@@ -4810,6 +4962,60 @@ export class Match {
       this.ballPhysics(!this.dead);
     }
     this.moveOfficials();
+  }
+
+  /**
+   * v22 dribel dengan sentuhan: saat berlari, pembawa bola mendorong bola sedikit ke depan lalu mengejarnya.
+   * Makin cepat larinya makin jauh dorongannya; Dribbling, Technique, dan First Touch membuat sentuhannya lebih rapat.
+   * Saat pelan / berdiri bola tetap di kaki; setelah berbelok, pemain menjangkau bola dulu sebelum mendorongnya lagi.
+   */
+  private carry(o: Body, sp: number, fdx: number, fdy: number) {
+    const ball = this.ball;
+    const FOOT = 0.5;
+    const toFoot = (k: number) => {
+      ball.x += (o.x + fdx * FOOT - ball.x) * k;
+      ball.y += (o.y + fdy * FOOT - ball.y) * k;
+    };
+    // kiper memegang bola dengan tangan; pemain yang pelan / berdiri menjaga bola di kakinya
+    if (sp < 1.5 || o.p.slot === 'GK') {
+      this.touchV = 0;
+      toFoot(0.4);
+    } else {
+      // bola masih bergulir setelah sentuhan terakhir
+      if (this.touchV > 0) {
+        ball.x += this.touchDx * this.touchV * DT;
+        ball.y += this.touchDy * this.touchV * DT;
+        this.touchV = Math.max(0, this.touchV - TOUCH_DEC * DT);
+      }
+      const rx = ball.x - o.x;
+      const ry = ball.y - o.y;
+      const dist = Math.hypot(rx, ry);
+      const ahead = rx * fdx + ry * fdy;
+      if (dist > 0.7 && ahead < dist * 0.7) {
+        // arah lari berubah: bola tidak lagi di depan, pemain menjangkaunya dulu
+        this.touchV = 0;
+        toFoot(0.35);
+      } else if (ahead <= FOOT + 0.05 || dist > 3) {
+        // sampai di bola: sentuhan berikutnya
+        const a = o.p.a;
+        const ctrl = (a.dri * 2 + a.tec + a.ft) / 4;
+        const push = clamp((0.3 + sp * 0.3) * (1.35 - ctrl / 40) * TUNE.touch, 0.2, 3.5);
+        this.touchV = sp + push;
+        this.touchDx = fdx;
+        this.touchDy = fdy;
+        ball.x = o.x + fdx * FOOT;
+        ball.y = o.y + fdy * FOOT;
+      }
+    }
+    ball.x = clamp(ball.x, 0.2, PITCH_W - 0.2);
+    ball.y = clamp(ball.y, 0.2, PITCH_H - 0.2);
+  }
+
+  /** v22 titik bola ditendang: dari bola yang sedang didribel (kalau sudah di depan kaki), bukan dari badan pemain */
+  private kickFrom(c: Body): [number, number] | null {
+    if (TUNE.touch <= 0 || this.owner !== c) return null;
+    const ball = this.ball;
+    return Math.hypot(ball.x - c.x, ball.y - c.y) > 0.75 ? [ball.x, ball.y] : null;
   }
 
   /** Pemain pengganti mengambil tempat, peran, dan tugas yang diminta pelatih untuk tempat itu */

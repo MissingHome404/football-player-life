@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { Match, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
+import { Match, TUNE, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
 import { FORMATIONS } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
@@ -167,6 +167,7 @@ describe('match engine versi 12', () => {
     t: number;
     entering: number;
     shot: { diveY?: number } | null;
+    pendingSubs: { at: number }[];
   };
 
   it('pergantian hanya saat bola mati; jam berhenti sampai pemain pengganti di posisinya', { timeout: 60_000 }, () => {
@@ -179,13 +180,14 @@ describe('match engine versi 12', () => {
       while (!m.done) {
         const t0 = v.t;
         const walking = v.entering > 0 && !!v.restart;
+        const pending = v.pendingSubs[0]?.at;
         m.step();
         const ev = m.result().events.filter((e) => e.kind === 'sub');
         if (ev.length > seen) {
           seen = ev.length;
           subs++;
-          // pergantian dilakukan saat bola mati
-          expect(v.restart).not.toBeNull();
+          // pergantian dilakukan saat bola mati (v18: kecuali bola sudah lama tidak mati)
+          if (pending === undefined || v.t - pending <= TUNE.subWait) expect(v.restart).not.toBeNull();
         }
         if (walking) expect(v.t).toBe(t0);
         for (const q of m.subbing) {
@@ -1157,4 +1159,206 @@ describe('match engine versi 21: penyerang menahan garis & tendangan gawang', ()
     expect(poor.tgt).toBeGreaterThan(good.tgt + 1);
   });
 
+});
+
+describe('match engine versi 22: gerak tenang, tendangan bebas, offside IFAB, dribel dengan sentuhan', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    tx: number;
+    ty: number;
+    sprint: boolean;
+    st: { offsides: number };
+  };
+  type R = {
+    restart: { kind: string; side: 0 | 1; direct?: boolean; cross?: boolean; indirect?: boolean } | null;
+    dead: { kind: string; side: 0 | 1; indirect?: boolean } | null;
+    owner: B | null;
+    shot: unknown;
+    pass: unknown;
+    done: boolean;
+    pause: number;
+    ball: { x: number; y: number; z: number; vx: number; vy: number; vz: number };
+    taking: string | null;
+    offPos: { side: 0 | 1; list: B[]; leave: B[] } | null;
+    mates(s: 0 | 1): B[];
+    keeper(s: 0 | 1): B;
+    restartTaker(): B | null;
+    judgeOffside(c: B): void;
+    deflect(b: B, speed: number): void;
+    gain(b: B): void;
+    receive(px: number, py: number): void;
+    carry(o: B, sp: number, fdx: number, fdy: number): void;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 4].id, clubTactic(eng[i + 4])) });
+
+  it('tendangan bebas setelah pelanggaran / offside langsung ditendang, tidak digiring; tendangan bebas tidak langsung tidak ditembak', () => {
+    let n = 0;
+    let owned = 0;
+    let ind = 0;
+    let indShot = 0;
+    for (let i = 0; i < 3; i++) {
+      const m = new Match({ seed: `fk22-${i}`, ...teams(i) });
+      const v = m as unknown as R;
+      while (!v.done) {
+        const r = v.restart;
+        const taker = r?.kind === 'free' ? v.restartTaker() : null;
+        m.step();
+        if (!r || v.restart || r.kind !== 'free' || r.direct || r.cross) continue;
+        n++;
+        // dulu pengambil tendangan bebas mendapat bola seperti permainan biasa dan kadang menggiringnya
+        if (v.owner && v.owner === taker) owned++;
+        if (r.indirect) {
+          ind++;
+          if (v.shot) indShot++;
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(15);
+    expect(owned).toBe(0);
+    expect(ind).toBeGreaterThan(0);
+    expect(indShot).toBe(0);
+  });
+
+  /** posisi buatan: tim 0 menyerang ke kanan, bek tim 1 sejajar di x = 80, kiper di x = 103 */
+  const scene = () => {
+    const m = new Match({ seed: 'off22', ...teams(0) });
+    const v = m as unknown as R;
+    const att = v.mates(0).filter((b) => b.p.slot !== 'GK');
+    const def = v.mates(1);
+    def.forEach((b, i) => {
+      b.x = b.p.slot === 'GK' ? 103 : 80;
+      b.y = 6 + i * 6;
+    });
+    att.forEach((b, i) => {
+      b.x = 50;
+      b.y = 6 + i * 6;
+    });
+    const [c, st, lev, behind] = att;
+    c.x = 60;
+    st.x = 85; // di depan bek kedua terakhir & bola, di separuh lawan: posisi offside
+    lev.x = 80; // sejajar bek kedua terakhir: onside
+    behind.x = 58; // di belakang bola
+    v.ball.x = 60.6;
+    v.ball.y = c.y;
+    return { m, v, c, st, lev, behind, def };
+  };
+
+  it('offside menurut IFAB: dinilai saat bola dimainkan, termasuk tendangan bebas; tidak dari sepak pojok, lemparan, tendangan gawang', () => {
+    const { v, c, st, lev, behind } = scene();
+    for (const t of [null, 'free']) {
+      v.taking = t;
+      v.judgeOffside(c);
+      expect(v.offPos?.list).toContain(st);
+      expect(v.offPos?.list).not.toContain(lev);
+      expect(v.offPos?.list).not.toContain(behind);
+    }
+    for (const t of ['corner', 'throw', 'goalkick']) {
+      v.taking = t;
+      v.judgeOffside(c);
+      expect(v.offPos).toBeNull();
+    }
+    // di separuh lapangan sendiri tidak pernah offside
+    v.taking = null;
+    st.x = 52;
+    v.judgeOffside(c);
+    expect(v.offPos?.list ?? []).not.toContain(st);
+  });
+
+  it('offside tetap berlaku setelah bola memantul dari lawan / ditepis kiper; hilang saat lawan menguasai bola', () => {
+    const { v, c, st, def } = scene();
+    v.taking = null;
+    v.judgeOffside(c);
+    // kiper menepis (bukan memainkan bola dengan sengaja): penyerang yang tadi offside tetap offside
+    v.deflect(v.keeper(1), 3);
+    expect(v.offPos?.list).toContain(st);
+    // penyerang itu menyambar bola muntah: tendangan bebas tidak langsung untuk lawan
+    v.offPos!.leave = [];
+    v.owner = null;
+    v.pass = null;
+    v.shot = null;
+    v.ball.x = st.x - 0.3;
+    v.ball.y = st.y;
+    v.ball.z = 0;
+    v.ball.vx = v.ball.vy = v.ball.vz = 0;
+    v.receive(v.ball.x, v.ball.y);
+    expect(st.st.offsides).toBe(1);
+    expect(v.dead?.kind).toBe('free');
+    expect(v.dead?.side).toBe(1);
+    expect(v.dead?.indirect).toBe(true);
+    // lawan menguasai bola dengan sengaja: penilaian offside selesai
+    v.judgeOffside(c);
+    v.gain(def[1]);
+    expect(v.offPos).toBeNull();
+  });
+
+  it('pemain berdiri mantap di posisinya, tidak terus bergeser kecil', () => {
+    const still = (steady: number) => {
+      const old = TUNE.steady;
+      TUNE.steady = steady;
+      try {
+        let n = 0;
+        let s = 0;
+        for (let i = 0; i < 2; i++) {
+          const m = new Match({ seed: `st22-${i}`, ...teams(i) });
+          const v = m as unknown as R;
+          while (!v.done) {
+            m.step();
+            if (v.restart || v.dead || v.pause > 0) continue;
+            for (const b of [...v.mates(0), ...v.mates(1)]) {
+              if (b === v.owner || b.p.slot === 'GK' || b.sprint || Math.hypot(b.tx - b.x, b.ty - b.y) > 1.5) continue;
+              n++;
+              if (Math.hypot(b.vx, b.vy) < 0.3) s++;
+            }
+          }
+        }
+        return s / n;
+      } finally {
+        TUNE.steady = old;
+      }
+    };
+    const before = still(0);
+    const after = still(1);
+    expect(after).toBeGreaterThan(before + 0.1);
+  });
+
+  it('dribel dengan sentuhan: bola didorong ke depan lalu dikejar; dribbler hebat menjaga bola lebih dekat', () => {
+    const m = new Match({ seed: 'touch22', ...teams(1) });
+    const v = m as unknown as R;
+    const leads: number[] = [];
+    while (!v.done) {
+      m.step();
+      const o = v.owner;
+      if (!o || v.restart || v.dead || Math.hypot(o.vx, o.vy) < 4) continue;
+      leads.push(Math.hypot(v.ball.x - o.x, v.ball.y - o.y));
+    }
+    const mean = leads.reduce((p, q) => p + q, 0) / leads.length;
+    const sd = Math.sqrt(leads.reduce((p, q) => p + (q - mean) ** 2, 0) / leads.length);
+    expect(leads.length).toBeGreaterThan(50);
+    // dulu bola selalu 0,6 m di depan kaki
+    expect(sd).toBeGreaterThan(0.2);
+    expect(Math.max(...leads)).toBeGreaterThan(1.1);
+    expect(Math.max(...leads)).toBeLessThan(3.5);
+    // lari lurus 6 m/s dengan bola: jarak terjauh bola dari kaki
+    const run = (skill: number) => {
+      const o = v.mates(0).find((b) => b.p.slot !== 'GK')!;
+      o.p.a.dri = o.p.a.tec = o.p.a.ft = skill;
+      o.x = 30;
+      o.y = 34;
+      v.ball.x = 30.5;
+      v.ball.y = 34;
+      let far = 0;
+      for (let i = 0; i < 40; i++) {
+        o.x += 0.6;
+        v.carry(o, 6, 1, 0);
+        far = Math.max(far, v.ball.x - o.x);
+      }
+      return far;
+    };
+    expect(run(20)).toBeLessThan(run(5));
+  });
 });
