@@ -68,6 +68,12 @@ export function simScore(rng: Rng, home: number, away: number): [number, number]
   return [poisson(rng, 1.4 * Math.exp(0.5 * d)), poisson(rng, 1.1 * Math.exp(-0.45 * d))];
 }
 
+/** v20 perpanjangan waktu 2 x 15 menit (simulasi cepat): sepertiga laga, pemain sudah lelah */
+export function extraTime(rng: Rng, home: number, away: number): [number, number] {
+  const d = (home - away) / 30;
+  return [poisson(rng, 0.38 * Math.exp(0.5 * d)), poisson(rng, 0.3 * Math.exp(-0.45 * d))];
+}
+
 /** Rata-rata CA 11 pemain terbaik */
 export function topEleven(cas: number[]): number {
   const top = cas.sort((a, b) => b - a).slice(0, 11);

@@ -185,6 +185,9 @@ export function engineGame(o: {
   neutral?: boolean;
   /** tingkat tekanan laga 0..1 (lihat stakes.ts) */
   stakes?: number;
+  /** v20 laga gugur: perpanjangan waktu & adu penalti kalau imbang; `agg` = gol leg sebelumnya [kita, lawan] */
+  knockout?: boolean;
+  agg?: [number, number];
 }): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord>; result: EngineResult } {
   const { p, career, status, rng, home } = o;
   const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
@@ -241,6 +244,10 @@ export function engineGame(o: {
   const sim: EngineInput = { seed: o.seed, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
   if (o.neutral) sim.neutral = true;
   if (o.stakes !== undefined) sim.stakes = o.stakes;
+  if (o.knockout) {
+    sim.knockout = true;
+    if (o.agg) sim.agg = home ? o.agg : [o.agg[1], o.agg[0]];
+  }
   const r = playEngine(sim);
   const us = home ? 0 : 1;
   const score: [number, number] = [r.score[us], r.score[1 - us]];
@@ -270,6 +277,8 @@ export function engineGame(o: {
     shots: [r.shots[us], r.shots[1 - us]],
     possession: [r.possession[us], r.possession[1 - us]],
     ...(o.ours.tactic ? { intensity: Math.round(tacticIntensity(o.ours.tactic) * 100) / 100 } : {}),
+    ...(r.et ? { aet: true } : {}),
+    ...(r.pens ? { pens: [r.pens[us], r.pens[1 - us]] as [number, number] } : {}),
   };
   return { score, perf, sim, extra, result: r };
 }

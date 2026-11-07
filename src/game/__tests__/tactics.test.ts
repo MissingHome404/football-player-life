@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { Match, engineAttrs, pickXI, topSpeed, type ETeam } from '../sim/engine';
+import { Match, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
 import { FORMATIONS } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
@@ -952,5 +952,93 @@ describe('match engine versi 19: pelatih mengubah taktik di tengah laga', () => 
       return JSON.stringify(m.events.filter((e) => e.kind === 'tactic' || e.kind === 'goal'));
     };
     expect(run()).toBe(run());
+  });
+});
+
+describe('match engine versi 20: perpanjangan waktu & adu penalti', () => {
+  const ko = (i: number, knockout = true) =>
+    new Match({ seed: `ko20-${i}`, home: side(eng[i % 10].id, clubTactic(eng[i % 10])), away: side(eng[(i + 3) % 10].id, clubTactic(eng[(i + 3) % 10])), knockout, neutral: true });
+
+  it('laga gugur imbang: perpanjangan waktu 2 x 15 menit, lalu adu penalti sampai ada pemenang', () => {
+    let found = 0;
+    let et = 0;
+    for (let i = 0; i < 60 && found < 2; i++) {
+      const m = ko(i);
+      const r = m.run();
+      if (!r.et) {
+        expect(r.events.some((e) => e.kind === 'extra')).toBe(false);
+        continue;
+      }
+      et++;
+      expect(r.events.some((e) => e.kind === 'extra')).toBe(true);
+      expect(r.events.find((e) => e.kind === 'full')!.min).toBe(120);
+      expect(Math.max(...Object.values(r.stats).map((st) => minutesPlayed(st)))).toBe(120);
+      // jatah pergantian: maksimal satu tambahan di perpanjangan waktu
+      expect(Math.max(...m.subs)).toBeLessThanOrEqual(6);
+      if (!r.pens) {
+        expect(r.score[0]).not.toBe(r.score[1]);
+        continue;
+      }
+      found++;
+      expect(r.score[0]).toBe(r.score[1]);
+      expect(r.pens[0]).not.toBe(r.pens[1]);
+      expect(m.periodLabel()).toBe(`Adu penalti ${r.pens[0]}-${r.pens[1]}`);
+      const first = r.events.find((e) => e.kind === 'pens')!.side;
+      const kicks = r.events.filter((e) => e.kind === 'shootout');
+      const goals = [0, 0];
+      const taken = [0, 0];
+      kicks.forEach((k, j) => {
+        // bergantian, tim yang menang undian menendang lebih dulu
+        expect(k.side).toBe(j % 2 === 0 ? first : 1 - first);
+        // belum ada pemenang sebelum tendangan terakhir
+        const [g0, g1] = goals;
+        const [n0, n1] = taken;
+        const decided = n0 <= 5 && n1 <= 5 && (n0 < 5 || n1 < 5) ? g0 + (5 - n0) < g1 || g1 + (5 - n1) < g0 : n0 === n1 && g0 !== g1;
+        expect(decided).toBe(false);
+        if (k.scored) goals[k.side]++;
+        taken[k.side]++;
+        expect(k.pens).toEqual(goals);
+      });
+      expect(goals).toEqual(r.pens);
+      expect(kicks.length).toBeGreaterThanOrEqual(6);
+    }
+    expect(et).toBeGreaterThanOrEqual(found);
+    expect(found).toBe(2);
+  }, 60_000);
+
+  it('laga biasa tetap boleh imbang; agregat leg pertama ikut dihitung', () => {
+    for (let i = 0; i < 6; i++) {
+      const r = ko(i, false).run();
+      expect(r.et).toBeUndefined();
+      expect(r.events.some((e) => e.kind === 'extra' || e.kind === 'shootout')).toBe(false);
+    }
+    const m = new Match({ seed: 'agg', home: side(eng[0].id), away: side(eng[1].id), knockout: true, agg: [0, 1] });
+    const level = () => (m as unknown as { level(): boolean }).level();
+    m.score = [1, 0];
+    expect(level()).toBe(true);
+    m.score = [1, 1];
+    expect(level()).toBe(false);
+  });
+
+  it('adu penalti: penendang jago & tenang lebih sering mencetak gol', () => {
+    const m = ko(0);
+    const pv = m as unknown as { startShootout(): void; spotKick(c: unknown, gk: unknown): void; so: { out: string } };
+    pv.startShootout();
+    const c = m.bodies.find((b) => b.on && b.side === 0 && b.p.slot !== 'GK')!;
+    const gk = m.bodies.find((b) => b.on && b.side === 1 && b.p.slot === 'GK');
+    const rate = (v: number) => {
+      Object.assign(c.p.a, { pen: v, cmp: v, pre: v });
+      let n = 0;
+      for (let i = 0; i < 3000; i++) {
+        pv.spotKick(c, gk);
+        if (pv.so.out === 'goal') n++;
+      }
+      return n / 3000;
+    };
+    const good = rate(20);
+    const bad = rate(3);
+    expect(good).toBeGreaterThan(bad + 0.12);
+    expect(good).toBeLessThan(0.95);
+    expect(bad).toBeGreaterThan(0.45);
   });
 });

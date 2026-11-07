@@ -8,7 +8,7 @@ import type { Career, Competition, Cup, CupHonour, CupRound, CupTie, League, Lea
 import { Rng, clamp } from '../rng';
 import { addDays } from '../date';
 import { COUNTRY_BY_ID } from '../data/countries';
-import { clubStrengths, roundDate, seasonForm, simScore, squadOf } from './season';
+import { clubStrengths, extraTime, roundDate, seasonForm, simScore, squadOf } from './season';
 import { addStats, clubSide, engineGame, selection } from './match';
 import type { EngineInput } from './engine';
 import { afterGame, serveBan } from './discipline';
@@ -156,6 +156,12 @@ export function cupWeek(
           const g = userTie(world, career, p, cup, round, tie, final, h - a, rng, notes);
           if (g) games.push(g);
         }
+        // v20 imbang: perpanjangan waktu, lalu adu penalti (laga klubmu sudah diselesaikan match engine)
+        if (tie.score[0] === tie.score[1] && !tie.pens && !tie.aet) {
+          const x = final ? (extraTime(trng, a, h).reverse() as [number, number]) : extraTime(trng, h, a);
+          tie.score = [tie.score[0] + x[0], tie.score[1] + x[1]];
+          tie.aet = true;
+        }
         if (tie.score[0] === tie.score[1] && !tie.pens) tie.pens = shootout(trng, h - a);
       }
       if (final) {
@@ -212,6 +218,11 @@ export function playClubGame(o: {
   bonus: number;
   rng: Rng;
   tag: string;
+  /**
+   * v20 laga gugur: imbang = perpanjangan waktu lalu adu penalti. `edge` = selisih kekuatan (kita - lawan),
+   * `agg` = gol leg sebelumnya [kita, lawan]
+   */
+  ko?: { edge: number; agg?: [number, number] };
 }): CupGame {
   const { world, career, p, rng } = o;
   const clubId = p.contract!.clubId;
@@ -236,10 +247,21 @@ export function playClubGame(o: {
       seed: `${career.characterSeed}:${o.date}:${club.id}:${o.tag}`,
       feats: true,
       stakes: o.stakes,
+      knockout: !!o.ko,
+      agg: o.ko?.agg,
     });
     score = g.score;
     perf = { ...g.perf, ...g.extra };
     sim = g.sim;
+  } else if (o.ko) {
+    // tidak dimainkan match engine: perpanjangan waktu & adu penalti disimulasikan cepat
+    const agg = o.ko.agg ?? [0, 0];
+    if (score[0] + agg[0] === score[1] + agg[1]) {
+      const x = extraTime(rng, o.ko.edge, 0);
+      score = [score[0] + x[0], score[1] + x[1]];
+      perf.aet = true;
+      if (score[0] + agg[0] === score[1] + agg[1]) perf.pens = shootout(rng, o.ko.edge);
+    }
   }
   const rec: MatchRecord = {
     date: o.date,
@@ -298,14 +320,12 @@ function userTie(
     bonus: early ? 5 : 0,
     rng,
     tag: 'cup',
+    ko: { edge: home ? edge : -edge },
   });
   const score = g.rec.score;
   tie.score = home ? score : [score[1], score[0]];
-  if (score[0] === score[1]) {
-    const pens = shootout(rng, edge);
-    tie.pens = pens;
-    g.rec.pens = home ? pens : [pens[1], pens[0]];
-  }
+  if (g.rec.aet) tie.aet = true;
+  if (g.rec.pens) tie.pens = home ? g.rec.pens : [g.rec.pens[1], g.rec.pens[0]];
   recordClubGame(career, g.rec, clubId, rng, notes, p);
   return g;
 }

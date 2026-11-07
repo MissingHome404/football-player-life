@@ -46,12 +46,14 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 19;
+export const ENGINE_VERSION = 20;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
 export const HALF = 150; // detik permainan per babak
 export const FULL = HALF * 2;
+/** v20 satu babak perpanjangan waktu (15 menit) */
+export const ET_HALF = HALF / 3;
 export const DT = 0.1;
 export const GOAL_HALF = 3.66;
 export const BAR = 2.44;
@@ -303,6 +305,21 @@ export interface ETeam {
   tactic?: TacticK;
 }
 
+/** v20 adu penalti: urutan penendang, skor, dan tahap tendangan yang sedang berjalan */
+export interface Shootout {
+  order: [Body[], Body[]];
+  next: [number, number];
+  goals: [number, number];
+  taken: [number, number];
+  /** tim yang sedang menendang */
+  turn: 0 | 1;
+  phase: 'gather' | 'walk' | 'run' | 'fly';
+  timer: number;
+  taker: Body | null;
+  out: 'goal' | 'save' | 'miss';
+  saved: boolean;
+}
+
 /** v19 keadaan pelatih dalam laga */
 interface Coach {
   /** watak -1 (sabar) .. 1 (cepat bereaksi & berani) */
@@ -356,6 +373,12 @@ export interface EngineInput {
    * Matches tinggi tampil lebih tenang di laga besar, yang rendah gugup.
    */
   stakes?: number;
+  /**
+   * v20 laga gugur (piala): kalau imbang setelah 90 menit, perpanjangan waktu 2 x 15 menit, lalu adu
+   * penalti. Untuk leg kedua, `agg` = gol leg sebelumnya [tim tuan rumah laga ini, tim tamu laga ini].
+   */
+  knockout?: boolean;
+  agg?: [number, number];
 }
 
 /** Risiko cedera dari Injury Proneness (sama dengan rumus cedera mingguan) */
@@ -532,7 +555,7 @@ export interface PStats {
 
 export type EventKind =
   | 'goal' | 'shot' | 'save' | 'miss' | 'block' | 'half' | 'full' | 'sub' | 'kickoff' | 'penalty' | 'corner' | 'added'
-  | 'freekick' | 'offside' | 'yellow' | 'red' | 'injury' | 'tactic';
+  | 'freekick' | 'offside' | 'yellow' | 'red' | 'injury' | 'tactic' | 'extra' | 'pens' | 'shootout';
 export interface MatchEvent {
   t: number;
   min: number;
@@ -552,6 +575,9 @@ export interface MatchEvent {
   plus?: number;
   /** v19 keputusan pelatih (event 'tactic'): mentalitas, instruksi, atau formasi baru */
   note?: string;
+  /** v20 tendangan adu penalti (event 'shootout'): masuk atau tidak, dan skor adu penalti setelahnya */
+  scored?: boolean;
+  pens?: [number, number];
 }
 
 export interface Body {
@@ -713,7 +739,8 @@ export class Match {
   readonly input: EngineInput;
   readonly rng: Rng;
   t = 0;
-  half: 1 | 2 = 1;
+  /** babak: 1-2 waktu normal, 3-4 perpanjangan waktu, 5 adu penalti */
+  half: 1 | 2 | 3 | 4 | 5 = 1;
   score: [number, number] = [0, 0];
   events: MatchEvent[] = [];
   bodies: Body[] = [];
@@ -980,7 +1007,7 @@ export class Match {
 
   /** Arah serangan tim: +1 ke kanan, -1 ke kiri (tukar saat babak kedua) */
   dir(side: 0 | 1): 1 | -1 {
-    return (side === 0) === (this.half === 1) ? 1 : -1;
+    return (side === 0) === (this.half % 2 === 1) ? 1 : -1;
   }
   /** Koordinat lapangan -> bingkai tim (gawang sendiri di x = 0) */
   fx(side: 0 | 1, x: number) {
@@ -1061,12 +1088,23 @@ export class Match {
     this.events.push(e);
   }
 
-  /** Menit tambahan tiap babak (-1 = belum diumumkan) */
-  added: [number, number] = [-1, -1];
+  /** Menit tambahan tiap babak, termasuk dua babak perpanjangan waktu (-1 = belum diumumkan) */
+  added: number[] = [-1, -1, -1, -1];
+  /** v20 detik permainan saat babak perpanjangan waktu dimulai */
+  private etStart: [number, number] = [0, 0];
+  /** v20 adu penalti (null = belum / tidak ada) */
+  so: Shootout | null = null;
 
-  /** Jam pertandingan: menit (1-90) dan menit tambahan kalau sedang injury time */
+  /** Jam pertandingan: menit (1-90, perpanjangan waktu 91-120) dan menit tambahan kalau sedang injury time */
   clock(): { min: number; plus: number } {
     const per = HALF / 45;
+    if (this.half >= 3) {
+      if (this.half === 5) return { min: 120, plus: 0 };
+      const base = this.half === 3 ? 90 : 105;
+      const t3 = this.t - this.etStart[this.half - 3];
+      if (t3 <= ET_HALF) return { min: Math.min(base + 15, base + Math.floor(Math.max(0, t3) / per) + 1), plus: 0 };
+      return { min: base + 15, plus: Math.max(1, Math.ceil((t3 - ET_HALF) / per)) };
+    }
     if (this.half === 1) {
       if (this.t <= HALF) return { min: Math.min(45, Math.floor(this.t / per) + 1), plus: 0 };
       return { min: 45, plus: Math.max(1, Math.ceil((this.t - HALF) / per)) };
@@ -1078,19 +1116,30 @@ export class Match {
 
   /** Teks jam untuk layar: 67' atau 90+3' */
   clockLabel(): string {
+    if (this.half === 5) return 'Adu penalti';
     const c = this.clock();
     return c.plus ? `${c.min}+${c.plus}'` : `${c.min}'`;
   }
 
+  /** Nama babak untuk layar */
+  periodLabel(): string {
+    if (this.half === 5) return this.so ? `${this.done ? 'Adu penalti' : 'Skor'} ${this.so.goals[0]}-${this.so.goals[1]}` : 'Adu penalti';
+    if (this.half >= 3) return `Perpanjangan waktu ${this.half - 2}`;
+    return `Babak ${this.half}`;
+  }
+
   /** Perkiraan lama laga dalam detik permainan (termasuk menit tambahan yang sudah diumumkan) */
   length(): number {
-    return FULL + (Math.max(0, this.added[0]) + Math.max(0, this.added[1])) * (HALF / 45);
+    const per = HALF / 45;
+    let len = FULL + (Math.max(0, this.added[0]) + Math.max(0, this.added[1])) * per;
+    if (this.half >= 3) len += 2 * ET_HALF + (Math.max(0, this.added[2]) + Math.max(0, this.added[3])) * per;
+    return len;
   }
 
   /** Wasit menentukan menit tambahan dari gol, pergantian, cedera, dan kartu di babak ini */
-  private addedTime(half: 1 | 2): number {
-    const from = half === 1 ? 0 : HALF + Math.max(0, this.added[0]) * (HALF / 45);
-    let m = half === 1 ? 0.6 : 1.8;
+  private addedTime(half: 1 | 2 | 3 | 4): number {
+    const from = half === 1 ? 0 : half === 2 ? HALF + Math.max(0, this.added[0]) * (HALF / 45) : this.etStart[half - 3];
+    let m = half === 1 ? 0.6 : half === 2 ? 1.8 : half === 3 ? 0.3 : 0.9;
     for (const e of this.events) {
       if (e.t < from) continue;
       if (e.kind === 'goal') m += 0.45;
@@ -3784,7 +3833,7 @@ export class Match {
 
   /** Cadangan yang masuk menggantikan pemain ini: seposisi dulu, kiper hanya diganti kiper */
   private reserveFor(out: Body): Body | undefined {
-    if (this.subs[out.side] >= MAX_SUBS) return undefined;
+    if (this.subs[out.side] >= this.maxSubs()) return undefined;
     const pool = this.reserves.filter((r) => r.side === out.side && r.st.on < 0 && !this.inSub(r));
     const group = slotGroup(out.p.slot);
     const same = pool.find((r) => slotGroup(r.p.slot) === group);
@@ -3893,6 +3942,209 @@ export class Match {
   /** Pelatih mengganti pemain: kaki segar untuk yang kelelahan, penyerang tambahan kalau tertinggal */
   private nextCoach: [number, number] = [0, 0];
   private tactical: [number, number] = [0, 0];
+  // --- v20 laga gugur: perpanjangan waktu & adu penalti -----------------------------------------
+
+  /** laga gugur yang masih imbang (termasuk agregat leg sebelumnya) */
+  private level(): boolean {
+    if (!this.input.knockout) return false;
+    const agg = this.input.agg ?? [0, 0];
+    return this.score[0] + agg[0] === this.score[1] + agg[1];
+  }
+
+  /** jatah pergantian: satu tambahan di perpanjangan waktu */
+  private maxSubs(): number {
+    return MAX_SUBS + (this.half >= 3 ? 1 : 0);
+  }
+
+  /** peluit panjang; pemain yang bermain sampai akhir perpanjangan waktu tercatat 120 menit */
+  private finish() {
+    if (this.half >= 3) for (const b of this.bodies) if (b.on && b.st.on >= 0 && b.st.offMin === undefined) b.st.offMin = 120;
+    this.done = true;
+    this.log('full', 0);
+  }
+
+  /**
+   * Adu penalti: lima penendang tiap tim (yang paling tenang & jago penalti lebih dulu, kiper terakhir),
+   * bergantian ke gawang yang sama, lalu sudden death. Tim dengan pemain lebih banyak menyamakan jumlah penendang.
+   */
+  private startShootout() {
+    for (const b of this.bodies) if (b.on && b.st.on >= 0 && b.st.offMin === undefined) b.st.offMin = 120;
+    this.half = 5;
+    this.pendingSubs = [];
+    this.restart = null;
+    this.dead = null;
+    this.pass = null;
+    this.shot = null;
+    this.owner = null;
+    const val = (b: Body) => b.p.a.pen * 2 + b.p.a.cmp + (b.p.a.pre + b.p.a.imp) / 4 - (b.p.slot === 'GK' ? 60 : 0);
+    const order = ([0, 1] as const).map((side) => [...this.onPitch[side]].sort((a, b) => val(b) - val(a))) as [Body[], Body[]];
+    const n = Math.min(order[0].length, order[1].length);
+    order[0] = order[0].slice(0, n);
+    order[1] = order[1].slice(0, n);
+    const first = this.rng.chance(0.5) ? 0 : 1;
+    this.so = { order, next: [0, 0], goals: [0, 0], taken: [0, 0], turn: first, phase: 'gather', timer: 0, taker: null, out: 'goal', saved: false };
+    this.log('pens', first);
+    this.ball = { x: PITCH_W - 11, y: 34, z: 0, vx: 0, vy: 0, vz: 0 };
+    this.inNet = false;
+    for (const b of this.bodies) b.dive = 0;
+  }
+
+  private shootoutStep() {
+    const so = this.so!;
+    so.timer += DT;
+    const spotX = PITCH_W - 11;
+    const shooter = so.turn;
+    const keeper = this.keeper((1 - shooter) as 0 | 1);
+    const idle = this.keeper(shooter);
+    // pemain menunggu di garis tengah, kiper yang tidak bertugas berdiri di tepi kotak penalti
+    for (const side of [0, 1] as const) {
+      let i = 0;
+      for (const b of this.onPitch[side]) {
+        if (b === so.taker || b === keeper) continue;
+        if (b === idle) {
+          b.tx = PITCH_W - 18;
+          b.ty = 34 - 14;
+        } else {
+          b.tx = PITCH_W / 2;
+          b.ty = side ? 35 + i * 1.3 : 33 - i * 1.3;
+          i++;
+        }
+        b.sprint = false;
+        this.move(b);
+      }
+    }
+    if (keeper && so.phase !== 'fly') {
+      keeper.tx = PITCH_W - 0.4;
+      keeper.ty = 34;
+      keeper.dive = 0;
+      keeper.sprint = false;
+      this.move(keeper);
+    }
+    this.walkSubs();
+    this.moveOfficials();
+    const ball = this.ball;
+    if (so.phase === 'gather') {
+      if (so.timer >= 3) {
+        so.phase = 'walk';
+        so.timer = 0;
+      }
+      return;
+    }
+    if (so.phase === 'walk') {
+      const list = so.order[shooter];
+      so.taker ??= list[so.next[shooter] % list.length];
+      const c = so.taker;
+      c.tx = spotX - 2.6;
+      c.ty = 34 + (c.p.a.wf < 10 ? 1.2 : -1.2);
+      c.sprint = Math.hypot(c.x - c.tx, c.y - c.ty) > 4;
+      this.move(c);
+      ball.x = spotX;
+      ball.y = 34;
+      ball.z = 0;
+      ball.vx = ball.vy = ball.vz = 0;
+      if (Math.hypot(c.x - c.tx, c.y - c.ty) < 0.6 && so.timer > 1) {
+        so.phase = 'run';
+        so.timer = 0;
+      }
+      return;
+    }
+    const c = so.taker!;
+    if (so.phase === 'run') {
+      c.tx = spotX - 0.4;
+      c.ty = 34;
+      c.sprint = false;
+      this.move(c);
+      if (so.timer < 0.5 || (Math.hypot(c.x - c.tx, c.y - c.ty) > 0.45 && so.timer < 2.5)) return;
+      this.spotKick(c, keeper);
+      so.phase = 'fly';
+      so.timer = 0;
+      return;
+    }
+    // bola melayang ke gawang, kiper terjun
+    this.ballPhysics(false);
+    if (keeper) {
+      keeper.sprint = true;
+      this.move(keeper);
+      if (so.out === 'save' && !so.saved && ball.x >= keeper.x - 0.4) {
+        so.saved = true;
+        keeper.y += (ball.y - keeper.y) * 0.6;
+        ball.vx = -Math.abs(ball.vx) * 0.25;
+        ball.vy = this.rng.float(-5, 5);
+        ball.vz = this.rng.float(0.5, 2.5);
+      }
+    }
+    this.move(c);
+    if (so.timer < 2) return;
+    // catat hasil tendangan
+    const scored = so.out === 'goal';
+    if (scored) so.goals[shooter]++;
+    so.taken[shooter]++;
+    const e: MatchEvent = { t: this.t, min: 120, kind: 'shootout', side: shooter, name: c.p.name, scored, pens: [so.goals[0], so.goals[1]] };
+    this.events.push(e);
+    const [g0, g1] = so.goals;
+    const [n0, n1] = so.taken;
+    const decided = n0 <= 5 && n1 <= 5 && (n0 < 5 || n1 < 5) ? g0 + (5 - n0) < g1 || g1 + (5 - n1) < g0 : n0 === n1 && g0 !== g1;
+    if (decided) {
+      this.so = { ...so, taker: null };
+      this.finish();
+      return;
+    }
+    so.next[shooter]++;
+    so.turn = (1 - shooter) as 0 | 1;
+    so.taker = null;
+    so.phase = 'walk';
+    so.timer = 0;
+    so.saved = false;
+    this.inNet = false;
+    ball.x = spotX;
+    ball.y = 34;
+    ball.z = 0;
+    ball.vx = ball.vy = ball.vz = 0;
+    if (keeper) keeper.dive = 0;
+  }
+
+  /**
+   * Satu tendangan adu penalti: seperti penalti biasa (sisi pilihan penendang, tebakan kiper), ditambah
+   * tekanan: penendang yang gugup (Pressure & Composure rendah) dan lelah lebih sering gagal, apalagi di
+   * tendangan penentu (kelima dan sudden death).
+   */
+  private spotKick(c: Body, gk: Body | undefined) {
+    const so = this.so!;
+    const a = c.p.a;
+    const ga = gk?.p.a;
+    const decisive = so.taken[c.side] >= 4;
+    const nerve = (decisive ? 0.06 : 0.025) * clamp(1.6 - (a.pre + a.cmp) / 25, 0.2, 1.4) + (1 - c.energy) * 0.05;
+    const side = this.rng.chance(0.1) ? 0 : this.rng.chance(0.5) ? -1 : 1;
+    const read = ga ? (ga.ant - 10) * 0.012 : 0;
+    const guess = this.rng.chance(0.08) ? 0 : this.rng.chance(0.5 + (side !== 0 ? read * side : 0)) ? 1 : -1;
+    const miss = clamp(0.075 + (12 - a.pen) * 0.007 - (a.cmp - 10) * 0.004 + nerve, 0.02, 0.32);
+    const gkSkill = ga ? (ga.ref * 2 + ga.ono + ga.han) / 4 : 8;
+    let save = 0;
+    if (side !== 0 && guess === side) save = clamp(0.2 + (gkSkill - 10) * 0.02 - (a.pen - 10) * 0.02, 0.15, 0.65);
+    else if (side === 0 && guess === 0) save = 0.85;
+    else if (side !== 0 && guess === 0) save = 0.1;
+    const r = this.rng.next();
+    so.out = r < miss ? 'miss' : r < miss + (1 - miss) * save ? 'save' : 'goal';
+    so.saved = false;
+    const aimY = so.out === 'miss' ? 34 + (side || 1) * this.rng.float(GOAL_HALF + 0.3, GOAL_HALF + 1.5) : 34 + side * this.rng.float(1.9, 3.2);
+    const h = so.out === 'miss' && this.rng.chance(0.4) ? this.rng.float(BAR + 0.2, BAR + 1.2) : this.rng.float(0.15, 1.6);
+    const ball = this.ball;
+    const dx = PITCH_W - ball.x;
+    const dy = aimY - ball.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const speed = 20 + a.pen * 0.4;
+    const tl = d / speed;
+    ball.z = 0.1;
+    ball.vx = (dx / d) * speed;
+    ball.vy = (dy / d) * speed;
+    ball.vz = (h - ball.z + (G * tl * tl) / 2) / tl;
+    if (gk) {
+      gk.dive = 1.2;
+      gk.tx = PITCH_W - 0.6;
+      gk.ty = so.out === 'save' ? aimY : 34 + guess * 2.6;
+    }
+  }
+
   // --- v19 pelatih membaca laga: mentalitas, instruksi, dan bentuk tim di tengah laga ---------------
 
   /** v19 bentuk tim saat ini: nama dan tempat-tempatnya (untuk papan susunan pemain) */
@@ -4024,7 +4276,7 @@ export class Match {
     const id = n <= 9 ? '4-3-1' : back >= 5 ? (chase ? '4-3-2' : '5-3-1') : back === 3 ? (chase ? '3-4-2' : '4-4-1') : chase ? '4-3-2' : '4-4-1';
     if (id !== cur) this.reshape(side, id, `Formasi diubah: ${cur} → ${id} (bermain dengan ${n} orang)`);
     else this.reshape(side, id);
-    if (slotGroup(red.home) === 'DEF' && c.min < 80 && this.subs[side] < MAX_SUBS - 1) {
+    if (slotGroup(red.home) === 'DEF' && c.min < 80 && this.subs[side] < this.maxSubs() - 1) {
       const sub = this.reserves.find((r) => r.side === side && r.st.on < 0 && !this.inSub(r) && slotGroup(r.p.slot) === 'DEF');
       const out = this.onPitch[side]
         .filter((b) => slotGroup(b.p.slot) === 'ATT' && !b.p.user && !this.inSub(b))
@@ -4056,7 +4308,7 @@ export class Match {
       this.coachNext[side] = this.t + 5 * per;
       const cs = this.coach[side];
       const opp = (1 - side) as 0 | 1;
-      const min = c.min + (this.half === 2 ? c.plus : 0);
+      const min = c.min + (this.half >= 2 ? c.plus : 0);
       const d = this.score[side] - this.score[opp];
       const rel = clamp((q[side] - q[opp]) * TUNE.rel, -1, 1);
       const man = this.sentOff(opp) - this.sentOff(side);
@@ -4112,7 +4364,7 @@ export class Match {
         const id = strikers >= 2 && back === 3 ? '5-3-2' : '5-4-1';
         this.reshape(side, id, `Formasi diubah: ${cur} → ${id} (lima bek menjaga keunggulan)`);
         // bek dari bangku cadangan masuk menggantikan penyerang yang paling lelah
-        if (this.tactical[side] < TUNE.aiSubs + 1 && this.subs[side] < MAX_SUBS - 1) {
+        if (this.tactical[side] < TUNE.aiSubs + 1 && this.subs[side] < this.maxSubs() - 1) {
           const sub = this.reserves.find((r) => r.side === side && r.st.on < 0 && !this.inSub(r) && slotGroup(r.p.slot) === 'DEF');
           const out = this.onPitch[side].filter((b) => slotGroup(b.p.slot) === 'ATT' && !b.p.user && !this.inSub(b)).sort((a, b) => a.energy - b.energy)[0];
           if (sub && out) {
@@ -4159,7 +4411,7 @@ export class Match {
   }
 
   private coachSubs() {
-    if (this.half !== 2 || (!this.dead && !this.restart) || this.restart?.kind === 'penalty') return;
+    if (this.half < 2 || this.half > 4 || (!this.dead && !this.restart) || this.restart?.kind === 'penalty') return;
     const c = this.clock();
     if (c.min < 55) return;
     const per = HALF / 45;
@@ -4167,7 +4419,7 @@ export class Match {
       if (this.t < this.nextCoach[side]) continue;
       this.nextCoach[side] = this.t + 5 * per;
       // sisakan satu pergantian untuk pemain cedera
-      if (this.tactical[side] >= TUNE.aiSubs || this.subs[side] >= MAX_SUBS - 1) continue;
+      if (this.tactical[side] >= TUNE.aiSubs + (this.half >= 3 ? 1 : 0) || this.subs[side] >= this.maxSubs() - 1) continue;
       const pool = this.reserves.filter((r) => r.side === side && r.st.on < 0 && !this.inSub(r));
       if (!pool.length) continue;
       const fieldOn = this.onPitch[side].filter((b) => b.p.slot !== 'GK' && this.t - Math.max(0, b.st.on) > 10 * per && !this.inSub(b));
@@ -4243,6 +4495,10 @@ export class Match {
 
   step() {
     if (this.done) return;
+    if (this.so) {
+      this.shootoutStep();
+      return;
+    }
     if (this.pause > 0) {
       // selebrasi gol: pencetak lari ke bendera sudut, rekan mengerumuninya, kiper merayakan di dekat gawang;
       // tim lawan berjalan kembali. Lalu semua kembali ke posisi untuk sepak mula (jam berhenti)
@@ -4346,8 +4602,37 @@ export class Match {
         this.events.push({ t: this.t, min: 90, kind: 'added', side: 0, plus: this.added[1] });
       }
       if (this.added[1] >= 0 && t2 >= HALF + this.added[1] * per) {
-        this.done = true;
-        this.log('full', 0);
+        if (this.level()) {
+          // v20 laga gugur masih imbang: perpanjangan waktu (jeda singkat, sedikit tenaga pulih)
+          for (const b of this.bodies) {
+            b.tire *= 0.92;
+            b.energy = Math.min(1 - b.tire, b.energy + 0.04);
+          }
+          this.half = 3;
+          this.etStart[0] = this.t;
+          this.log('extra', 0);
+          this.kickoff(0);
+          return;
+        }
+        this.finish();
+        return;
+      }
+    }
+    if (this.half === 3 || this.half === 4) {
+      const h = this.half;
+      const t3 = this.t - this.etStart[h - 3];
+      if (t3 >= ET_HALF && this.added[h - 1] < 0) {
+        this.added[h - 1] = this.addedTime(h);
+        this.events.push({ t: this.t, min: h === 3 ? 105 : 120, kind: 'added', side: 0, plus: this.added[h - 1] });
+      }
+      if (this.added[h - 1] >= 0 && t3 >= ET_HALF + this.added[h - 1] * per) {
+        if (h === 3) {
+          this.half = 4;
+          this.etStart[1] = this.t;
+          this.log('half', 0);
+          this.kickoff(1);
+        } else if (this.level()) this.startShootout();
+        else this.finish();
         return;
       }
     }
@@ -4530,6 +4815,8 @@ export class Match {
       corners: [...this.corners] as [number, number],
       added: [Math.max(0, this.added[0]), Math.max(0, this.added[1])],
       fouls: [...this.fouls] as [number, number],
+      ...(this.etStart[0] > 0 ? { et: true } : {}),
+      ...(this.so ? { pens: [...this.so.goals] as [number, number] } : {}),
     };
   }
 }
@@ -4588,6 +4875,9 @@ export interface EngineResult {
   fouls: [number, number];
   /** menit tambahan babak 1 dan 2 */
   added?: [number, number];
+  /** v20 laga gugur: dimainkan sampai perpanjangan waktu, dan skor adu penalti (kalau ada) */
+  et?: boolean;
+  pens?: [number, number];
 }
 
 /** Menit bermain dari statistik laga (jam pertandingan; laga lama memakai detik permainan) */

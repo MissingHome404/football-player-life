@@ -7,7 +7,7 @@ import type { Career, ContComp, ContGroup, ContTie, CupHonour, League, Player, W
 import { Rng } from '../rng';
 import { addDays } from '../date';
 import { COUNTRY_BY_ID } from '../data/countries';
-import { clubStrengths, makeFixtures, seasonForm, simScore } from './season';
+import { clubStrengths, extraTime, makeFixtures, seasonForm, simScore } from './season';
 import { playClubGame, recordClubGame, shootout, type CupGame } from './cup';
 import { stageStakes } from './stakes';
 
@@ -316,7 +316,8 @@ export function continentalWeek(
     const isMine = (h: string, a: string) => mine && (h === myClubId || a === myClubId);
 
     // laga (h kandang, a tandang); neutral = final. Mengembalikan skor [h, a]
-    const play = (h: string, a: string, date: string, live: boolean, stage: string, neutral: boolean, trng: Rng): [number, number] => {
+    // ko = laga gugur penentu (final satu leg, atau leg kedua dengan agregat leg pertama [h, a])
+    const play = (h: string, a: string, date: string, live: boolean, stage: string, neutral: boolean, trng: Rng, ko?: { agg?: [number, number] }): [number, number] => {
       const ph = power(h, comp.year);
       const pa = power(a, comp.year);
       let score: [number, number] = neutral && trng.chance(0.5) ? (simScore(trng, pa, ph).reverse() as [number, number]) : simScore(trng, ph, pa);
@@ -338,6 +339,7 @@ export function continentalWeek(
           bonus: 0,
           rng,
           tag: def.id,
+          ...(ko ? { ko: { edge: home ? ph - pa : pa - ph, agg: ko.agg && (home ? ko.agg : ([ko.agg[1], ko.agg[0]] as [number, number])) } } : {}),
         });
         score = home ? g.rec.score : [g.rec.score[1], g.rec.score[0]];
         pending.push(g);
@@ -414,19 +416,32 @@ export function continentalWeek(
           if (t.legs[leg]) continue;
           const legName = round.dates.length > 1 ? ` · leg ${leg + 1}` : '';
           // leg 1 di kandang `home`, leg 2 di kandang `away`
-          if (leg === 0) t.legs[0] = play(t.home, t.away, date, live, `${round.name}${legName}`, final, trng);
+          const last = leg === round.dates.length - 1;
+          if (leg === 0) t.legs[0] = play(t.home, t.away, date, live, `${round.name}${legName}`, final, trng, last ? {} : undefined);
           else {
-            const s = play(t.away, t.home, date, live, `${round.name}${legName}`, false, trng);
+            // leg kedua: tuan rumahnya `away`, agregat leg pertama dari sudut pandang laga ini
+            const s = play(t.away, t.home, date, live, `${round.name}${legName}`, false, trng, { agg: [t.legs[0]![1], t.legs[0]![0]] });
             t.legs[1] = [s[1], s[0]];
           }
-          if (leg === round.dates.length - 1) {
-            const [h, a] = aggregate(t);
-            if (h === a) t.pens = shootout(trng, power(t.home, comp.year) - power(t.away, comp.year));
+          if (last) {
+            // v20 laga klubmu sudah diselesaikan match engine (perpanjangan waktu & adu penalti)
             const g = isMine(t.home, t.away) ? pending.find((x) => x.rec.date === date) : undefined;
-            if (g && t.pens) {
-              const home = t.home === myClubId;
-              g.rec.pens = home ? t.pens : [t.pens[1], t.pens[0]];
+            const home = t.home === myClubId;
+            if (g?.rec.aet) t.aet = true;
+            if (g?.rec.pens) t.pens = home ? g.rec.pens : [g.rec.pens[1], g.rec.pens[0]];
+            let [h, a] = aggregate(t);
+            if (h === a && !t.pens && !t.aet) {
+              // perpanjangan waktu di leg terakhir (simulasi cepat), dari sudut pandang tuan rumah leg itu
+              const lh = leg === 0 ? t.home : t.away;
+              const la = leg === 0 ? t.away : t.home;
+              const x = extraTime(trng, power(lh, comp.year), power(la, comp.year));
+              const l = t.legs[leg]!;
+              t.legs[leg] = leg === 0 ? [l[0] + x[0], l[1] + x[1]] : [l[0] + x[1], l[1] + x[0]];
+              t.aet = true;
+              [h, a] = aggregate(t);
             }
+            if (h === a && !t.pens) t.pens = shootout(trng, power(t.home, comp.year) - power(t.away, comp.year));
+            if (g && t.pens && !g.rec.pens) g.rec.pens = home ? t.pens : [t.pens[1], t.pens[0]];
           }
         }
         settle();

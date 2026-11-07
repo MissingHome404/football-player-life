@@ -241,6 +241,8 @@ export interface IntlFixture {
   away: string;
   score?: [number, number];
   pens?: [number, number];
+  /** v20 imbang setelah 90 menit: skor termasuk perpanjangan waktu */
+  aet?: boolean;
 }
 
 export type TournamentKind = 'world' | 'euro' | 'asia';
@@ -281,6 +283,8 @@ export interface CupTie {
   away: string;
   score?: [number, number];
   pens?: [number, number];
+  /** v20 skor termasuk perpanjangan waktu */
+  aet?: boolean;
 }
 export interface CupRound {
   name: string;
@@ -312,6 +316,8 @@ export interface ContTie {
   away: string;
   legs: ([number, number] | null)[];
   pens?: [number, number];
+  /** v20 leg terakhir dilanjutkan perpanjangan waktu */
+  aet?: boolean;
 }
 export interface ContRound {
   name: string;
@@ -373,6 +379,8 @@ export interface MatchRecord {
   /** laga timnas: babak/kompetisi, mis. "Kualifikasi Piala Asia 2028" atau "Piala Dunia 2030 · Grup B" */
   stage?: string;
   pens?: [number, number];
+  /** v20 laga gugur yang dilanjutkan perpanjangan waktu (skor termasuk perpanjangan waktu) */
+  aet?: boolean;
   /** kartu: kuning, merah langsung, atau merah karena dua kuning */
   card?: 'Y' | 'R' | 'YR';
   /** cedera di laga ini */

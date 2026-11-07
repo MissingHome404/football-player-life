@@ -24,7 +24,7 @@ import { COUNTRIES, COUNTRY_BY_ID } from '../data/countries';
 import { Rng, clamp } from '../rng';
 import { addDays, yearOf } from '../date';
 import { ageOn } from '../gen/player';
-import { simScore, topEleven } from './season';
+import { extraTime, simScore, topEleven } from './season';
 import { addStats, engineGame, groupOf, recentForm, type GameSide } from './match';
 import { afterGame, serveBan } from './discipline';
 import { nationStyle, type EngineInput } from './engine';
@@ -453,6 +453,8 @@ export function nationalWeek(
       feats: team === 'senior',
       // turnamen besar (fase grup pun) bertekanan tinggi; laga U-20 lebih ringan
       stakes: Math.max(0.1, stageStakes(stage, knockout || neutral ? 0.7 : 0.5) - (team === 'u20' ? 0.15 : 0)),
+      // v20 babak gugur: perpanjangan waktu & adu penalti dimainkan di match engine
+      knockout,
     });
     const rec: MatchRecord = {
       date: f.date,
@@ -468,7 +470,7 @@ export function nationalWeek(
       ...g.perf,
       ...g.extra,
     };
-    if (knockout && g.score[0] === g.score[1]) rec.pens = penalties(rng, country, opp, world);
+    if (knockout && g.score[0] === g.score[1] && !rec.pens) rec.pens = penalties(rng, country, opp, world);
     afterGame(career, rec, rng, 'nat', addStats(career, rec), notes, p);
     if (rec.minutes > 0) {
       if (team === 'senior') {
@@ -484,6 +486,7 @@ export function nationalWeek(
     lastEngine = team === 'senior' ? { result: g.result, input: g.sim } : undefined;
     const s: [number, number] = home ? g.score : [g.score[1], g.score[0]];
     if (rec.pens) f.pens = home ? rec.pens : [rec.pens[1], rec.pens[0]];
+    if (rec.aet) f.aet = true;
     return s;
   };
 
@@ -559,7 +562,14 @@ export function nationalWeek(
         if (mine && nc.called === 'senior' && nc.calledFor === t.id && !career.injury) f.score = playUser(f, 'senior', stage, ko, true);
         else {
           f.score = quickScore(world, f);
-          if (ko && f.score[0] === f.score[1]) f.pens = penalties(new Rng(`${world.seed}:pens:${f.date}:${f.home}`), f.home, f.away, world);
+          if (ko && f.score[0] === f.score[1]) {
+            // v20 perpanjangan waktu, lalu adu penalti kalau masih imbang
+            const r = new Rng(`${world.seed}:pens:${f.date}:${f.home}`);
+            const x = extraTime(r, natStrength(world, f.home, 'senior', f.date), natStrength(world, f.away, 'senior', f.date));
+            f.score = [f.score[0] + x[0], f.score[1] + x[1]];
+            f.aet = true;
+            if (f.score[0] === f.score[1]) f.pens = penalties(r, f.home, f.away, world);
+          }
         }
         played.push({ date: f.date, home: f.home, away: f.away, score: f.score, engine: lastEngine });
       }

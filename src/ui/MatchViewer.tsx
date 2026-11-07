@@ -108,21 +108,27 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
     case 'injury':
       return `🚑 ${e.name} cedera dan harus ditarik keluar (${team})`;
     case 'half':
-      return 'Turun minum';
+      return e.min > 90 ? 'Jeda perpanjangan waktu' : 'Turun minum';
     case 'full':
       return 'Peluit panjang';
     case 'added':
       return `⏱️ Tambahan waktu ${e.plus} menit`;
     case 'tactic':
       return `📋 ${e.note} (${team})`;
+    case 'extra':
+      return '⏱️ Masih imbang: perpanjangan waktu 2 x 15 menit';
+    case 'pens':
+      return `Adu penalti! ${team} menendang lebih dulu`;
+    case 'shootout':
+      return `${e.scored ? '✅' : '❌'} ${e.name} (${team}) ${e.scored ? 'mencetak gol' : 'gagal'} · ${e.pens![0]}-${e.pens![1]}`;
     default:
       return null;
   }
 }
 
-const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red', 'injury', 'added', 'tactic']);
+const SHOWN = new Set(['goal', 'penalty', 'freekick', 'save', 'miss', 'offside', 'sub', 'half', 'full', 'yellow', 'red', 'injury', 'added', 'tactic', 'extra', 'pens', 'shootout']);
 /** Menit event: 67' atau 90+3' (event 'added' ditulis di menit 45/90) */
-const minLabel = (e: MatchEvent) => (e.plus && e.kind !== 'added' ? `${e.min}+${e.plus}'` : `${e.min}'`);
+const minLabel = (e: MatchEvent) => (e.kind === 'shootout' || e.kind === 'pens' ? 'Pen' : e.plus && e.kind !== 'added' ? `${e.min}+${e.plus}'` : `${e.min}'`);
 
 const RESTART_TEXT: Record<string, string> = {
   throw: 'Lemparan ke dalam',
@@ -695,7 +701,7 @@ function Live({
           }
           if (match.half !== half) {
             half = match.half;
-            setBanner('Turun minum');
+            setBanner(half === 2 ? 'Turun minum' : half === 3 ? 'Perpanjangan waktu' : half === 4 ? 'Jeda perpanjangan waktu' : 'Adu penalti');
             holdUntil = now + 1800;
             snapshot();
             acc = 0;
@@ -754,7 +760,7 @@ function Live({
       <div className="mv-top">
         <Scoreboard names={names} colors={colors} score={hud.score} mySide={mySide}>
           <span className="mv-clock num">{match.done ? 'Selesai' : hud.min}</span>
-          <span className="muted small">{match.half === 2 ? 'Babak 2' : 'Babak 1'}</span>
+          <span className="muted small">{match.periodLabel()}</span>
         </Scoreboard>
         <div className="mv-controls">
           <button className="chip" onClick={() => setPaused((p) => !p)} aria-pressed={paused}>
