@@ -1075,7 +1075,7 @@ describe('match engine versi 21: penyerang menahan garis & tendangan gawang', ()
     let n = 0;
     let wideCB = 0;
     let stAhead = 0;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const h = { ...clubTactic(eng[i]), gkShort: true };
       const aw = { ...clubTactic(eng[i + 5]), gkShort: true };
       atGoalKicks(new Match({ seed: `gk21-${i}`, home: side(eng[i].id, h), away: side(eng[i + 5].id, aw) }), (v, k) => {
@@ -1362,3 +1362,143 @@ describe('match engine versi 22: gerak tenang, tendangan bebas, offside IFAB, dr
     expect(run(20)).toBeLessThan(run(5));
   });
 });
+
+describe('match engine versi 23: Vision, Teamwork, Creativity', () => {
+  type B = {
+    p: { id: string; slot: string; role?: string; duty?: string; a: Record<string, number> };
+    rk: { roam: number };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    face: number;
+    scan: number;
+    st: { passes: number; shots: number; takeOns: number; throughBalls: number };
+  };
+  type R = {
+    t: number;
+    done: boolean;
+    owner: B | null;
+    shot: { outcome: string } | null;
+    mates(s: 0 | 1): B[];
+    bodies: B[];
+    sees(c: B, m: B): boolean;
+    creative(c: B): number;
+    creRisk(c: B, cr: number): number;
+    shoot(c: B, xg: number, pressure: number): void;
+    styleOf(p: B['p']): B['rk'];
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 5].id, clubTactic(eng[i + 5])) });
+
+  it('Vision = jangkauan pandang: rekan di belakang badan hanya terlihat setelah scanning; Vision tinggi melihat lebih lebar', () => {
+    const m = new Match({ seed: 'fov23', ...teams(0) });
+    const v = m as unknown as R;
+    const [c, mate] = v.mates(0).filter((b) => b.p.slot !== 'GK');
+    c.x = 50;
+    c.y = 34;
+    c.face = 0; // menghadap +x
+    c.scan = -99;
+    const at = (deg: number, dist = 15) => {
+      mate.x = c.x + Math.cos((deg * Math.PI) / 180) * dist;
+      mate.y = c.y + Math.sin((deg * Math.PI) / 180) * dist;
+    };
+    c.p.a.vis = 5;
+    at(20);
+    expect(v.sees(c, mate)).toBe(true);
+    at(180);
+    expect(v.sees(c, mate)).toBe(false);
+    // sangat dekat: terdengar memanggil
+    at(180, 3);
+    expect(v.sees(c, mate)).toBe(true);
+    // baru saja scanning: tahu posisi rekan di belakangnya
+    at(180);
+    c.scan = v.t;
+    expect(v.sees(c, mate)).toBe(true);
+    c.scan = -99;
+    // 120° dari arah hadap: Vision 20 melihatnya, Vision 5 tidak
+    at(120);
+    expect(v.sees(c, mate)).toBe(false);
+    c.p.a.vis = 20;
+    expect(v.sees(c, mate)).toBe(true);
+  });
+
+  it('Teamwork tinggi lebih sering mengoper; Teamwork rendah egois (lebih banyak dribel & tembakan)', () => {
+    const stats = (tea: number) => {
+      let passes = 0;
+      let selfish = 0;
+      for (let i = 0; i < 10; i++) {
+        const t = teams(i);
+        for (const p of t.home.xi) if (p.slot !== 'GK') p.a.tea = tea;
+        const m = new Match({ seed: `tea23-${i}`, ...t });
+        while (!m.done) m.step();
+        for (const b of (m as unknown as R).bodies.filter((q) => q.side === 0)) {
+          passes += b.st.passes;
+          selfish += b.st.shots + b.st.takeOns;
+        }
+      }
+      return { passes, selfish };
+    };
+    const lo = stats(5);
+    const hi = stats(20);
+    // 200 laga: oper 76 vs 83, tembakan + take-on 11,4 vs 8,7 per laga
+    expect(hi.passes).toBeGreaterThan(lo.passes * 1.04);
+    expect(lo.selfish).toBeGreaterThan(hi.selfish * 1.12);
+  });
+
+  it('Creativity hanya aktif dengan peran bebas; pemain kreatif lebih sering mencoba killer ball', () => {
+    const m = new Match({ seed: 'cre23', ...teams(1) });
+    const v = m as unknown as R;
+    const b = v.mates(0).find((q) => q.p.slot !== 'GK')!;
+    b.p.a.cre = 20;
+    b.rk = { ...b.rk, roam: 0 };
+    expect(v.creative(b)).toBe(0);
+    b.rk = { ...b.rk, roam: 0.8 };
+    expect(v.creative(b)).toBeGreaterThan(0.9);
+    b.p.a.cre = 7;
+    expect(v.creative(b)).toBe(0);
+    // Consistency menurunkan risiko percobaan kreatif (20 = lebih akurat dari biasa)
+    b.p.a.cons = 20;
+    expect(v.creRisk(b, 1)).toBeLessThan(0);
+    b.p.a.cons = 2;
+    expect(v.creRisk(b, 1)).toBeGreaterThan(0.3);
+
+    const through = (cre: number) => {
+      let n = 0;
+      for (let i = 0; i < 8; i++) {
+        const t = teams(i);
+        const star = t.home.xi.find((p) => ['AM', 'CM', 'RCM', 'LCM'].includes(p.slot))!;
+        star.role = 't';
+        star.duty = 'At';
+        star.a.cre = cre;
+        const mm = new Match({ seed: `cre23-${i}`, ...t });
+        while (!mm.done) mm.step();
+        n += (mm as unknown as R).mates(0).find((q) => q.p.id === star.id)?.st.throughBalls ?? 0;
+      }
+      return n;
+    };
+    expect(through(20)).toBeGreaterThan(through(5) * 1.4);
+  });
+
+  it('tembakan kreatif: Consistency tinggi jauh lebih sering masuk (high risk high reward)', () => {
+    const goals = (cons: number) => {
+      const m = new Match({ seed: 'shot23', ...teams(2) });
+      const v = m as unknown as R;
+      const c = v.mates(0).find((q) => q.p.slot !== 'GK')!;
+      c.rk = { ...c.rk, roam: 0.8 };
+      c.p.a.cre = 20;
+      c.p.a.cons = cons;
+      for (const o of v.mates(1)) if (o.p.slot !== 'GK') o.x = 10;
+      let g = 0;
+      for (let i = 0; i < 600; i++) {
+        c.x = m.dir(0) > 0 ? 85 : 20;
+        c.y = 30;
+        v.owner = c;
+        v.shoot(c, 0.12, 0);
+        if (v.shot?.outcome === 'goal') g++;
+        v.shot = null;
+      }
+      return g;
+    };
+    expect(goals(18)).toBeGreaterThan(goals(3) * 1.25);
+  });
+});
+

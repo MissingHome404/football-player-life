@@ -10,7 +10,7 @@ import {
   type VisibleAttr,
 } from '../data/attributes';
 import type { Player } from '../types';
-import { clamp, type Rng } from '../rng';
+import { Rng as SeedRng, clamp, type Rng } from '../rng';
 import { generateName } from './names';
 import { POSITION_ROLES, ROLES } from '../data/roles';
 
@@ -113,6 +113,15 @@ export function rollPA(rng: Rng, ca: number, age: number): number {
   return clamp(pa, ca, 200);
 }
 
+/**
+ * Creativity (hidden attribute baru, v0.39): sedikit berkorelasi dengan Flair dan Vision, sisanya acak tetapi tetap
+ * (diturunkan dari id pemain), jadi pemain dari save lama mendapat nilai yang sama setiap kali dimuat
+ */
+export function creativityOf(id: string, mental: { Flair: number; Vision: number }): number {
+  const r = new SeedRng(`creativity:${id}`);
+  return clamp(Math.round(3.6 + mental.Flair * 0.35 + mental.Vision * 0.25 + r.normal(0, 3.2)), 1, 20);
+}
+
 export function generatePlayer(rng: Rng, o: PlayerGenOptions): Player {
   const { firstName, lastName } = generateName(rng, o.countryId);
   const pos = o.position;
@@ -196,7 +205,9 @@ export function generatePlayer(rng: Rng, o: PlayerGenOptions): Player {
   // Personality dan hidden attributes
   const n = (mean: number, sd: number) => clamp(Math.round(rng.normal(mean, sd)), 1, 20);
   const personality = Object.fromEntries(PERSONALITY.map((k) => [k, n(11, 4.5)])) as Player['personality'];
-  const hidden = Object.fromEntries(HIDDEN.map((k) => [k, n(10, 4)])) as Player['hidden'];
+  // (Creativity tidak memakai rng dunia: urutan acak dunia tetap sama seperti sebelum atribut ini ada)
+  const hidden = Object.fromEntries(HIDDEN.filter((k) => k !== 'Creativity').map((k) => [k, n(10, 4)])) as Player['hidden'];
+  hidden.Creativity = creativityOf(o.id, attrs.mental);
   hidden['Injury Proneness'] = n(8, 4);
   hidden.Dirtiness = n(8, 4);
   // Natural fitness bagus cenderung jarang cedera

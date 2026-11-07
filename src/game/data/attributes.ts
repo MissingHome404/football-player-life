@@ -72,13 +72,14 @@ export const PERSONALITY = [
   'Temperament',
 ] as const;
 
-// Hidden attributes lain (sama dengan FM)
+// Hidden attributes lain (sama dengan FM), ditambah Creativity (khusus game ini, paling akhir supaya save lama tetap terbaca)
 export const HIDDEN = [
   'Consistency',
   'Dirtiness',
   'Important Matches',
   'Injury Proneness',
   'Versatility',
+  'Creativity',
 ] as const;
 
 export type TechnicalAttr = (typeof TECHNICAL)[number];

@@ -8,14 +8,14 @@ import { careerDefaults, migrateCareer } from '../sim/week';
 import { initRelations } from '../sim/relations';
 import { defaultLife } from '../sim/life';
 import { levelOf } from '../sim/economy';
-import { ageOn } from '../gen/player';
+import { ageOn, creativityOf } from '../gen/player';
 import { createSeasons } from '../sim/season';
 import { Rng } from '../rng';
 
 export const SAVE_MAGIC = 'FPL-SAVE';
 // 1: tahap 4 (karier dasar). 2: tahap 5 (minggu, latihan, inbox). 3: tahap 6 (musim, pertandingan).
-// 7: pelatih & staf pribadi bertingkat (boolean -> tingkat 0-3).
-export const SAVE_FORMAT = 7;
+// 7: pelatih & staf pribadi bertingkat (boolean -> tingkat 0-3). 8: hidden attribute Creativity.
+export const SAVE_FORMAT = 8;
 
 const GROUPS = {
   technical: TECHNICAL,
@@ -63,12 +63,16 @@ function unpackPlayer(raw: Record<string, unknown>): Player {
   const out: Record<string, unknown> = { ...raw };
   for (const g of GROUP_KEYS) {
     const arr = raw[g] as number[];
-    if (!Array.isArray(arr) || arr.length !== GROUPS[g].length) {
+    // save lama (format < 8) belum punya Creativity (atribut tersembunyi terakhir): diisi di bawah
+    const old = g === 'hidden' && Array.isArray(arr) && arr.length === GROUPS[g].length - 1;
+    if (!Array.isArray(arr) || (arr.length !== GROUPS[g].length && !old)) {
       throw new Error(`Data atribut ${g} rusak`);
     }
-    out[g] = Object.fromEntries(GROUPS[g].map((k, i) => [k, arr[i]]));
+    out[g] = Object.fromEntries(GROUPS[g].map((k, i) => [k, arr[i]]).filter(([, v]) => v !== undefined));
   }
-  return out as unknown as Player;
+  const p = out as unknown as Player;
+  if (typeof p.hidden.Creativity !== 'number') p.hidden.Creativity = creativityOf(p.id, p.mental);
+  return p;
 }
 
 export function buildSaveFile(

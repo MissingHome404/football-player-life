@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 22;
+export const ENGINE_VERSION = 23;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -75,7 +75,7 @@ const PC_R = 30;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 6.4, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 5.2, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -98,6 +98,14 @@ export const TUNE = {
   walk: 1,
   /** v22 dribel dengan sentuhan: bola didorong sedikit ke depan lalu dikejar (0 = bola menempel di kaki) */
   touch: 1,
+  /** v23 jangkauan pandang (Vision): hanya rekan yang terlihat bisa dioper (0 = melihat semua) */
+  fov: 1,
+  /** v23 scanning per detik = (0,15 + Teamwork x 0,045) x scan; ingatan hasil scanning (detik) */
+  scan: 1, scanMem: 1.5,
+  /** v23 Teamwork: tambahan nilai mengoper, dan nilai egois (dribel / tembak) untuk Teamwork rendah, per poin dari 10 */
+  teamPass: 0.008, selfish: 0.008, teamEye: 0.03, selfAsym: 1, teamRun: 0.02,
+  /** v23 kekuatan Creativity (peran bebas): killer ball dan tembakan tidak biasa */
+  creK: 1,
   /** pergantian taktis pelatih AI per tim, dan batas tenaga pemain yang dianggap kelelahan */
   aiSubs: 3,
   subTired: 0.72,
@@ -277,6 +285,8 @@ export interface EAttrs {
    * leadership (kapten menenangkan rekan), dirtiness (pelanggaran sengaja), sportsmanship (tidak diving)
    */
   pre: number; imp: number; cons: number; tem: number; det: number; lea: number; dirt: number; spo: number;
+  /** v23 Creativity (hidden): killer ball dan cara mencetak gol yang berisiko, hanya aktif dengan peran bebas */
+  cre: number;
 }
 
 export interface EP {
@@ -420,7 +430,7 @@ export function engineAttrs(p: Player): EAttrs {
     nf: ph['Natural Fitness'],
     pre: p.personality.Pressure, imp: p.hidden['Important Matches'], cons: p.hidden.Consistency,
     tem: p.personality.Temperament, det: m.Determination, lea: m.Leadership, dirt: p.hidden.Dirtiness,
-    spo: p.personality.Sportsmanship,
+    spo: p.personality.Sportsmanship, cre: p.hidden.Creativity ?? 10,
   };
 }
 
@@ -438,7 +448,7 @@ function fullAttrs(a: Partial<EAttrs>): EAttrs {
     rus: d(a.rus, 10), nf: d(a.nf, 10), com: d(a.com, gk), ecc: d(a.ecc, gk > 3 ? 8 : 3), pun: d(a.pun, gk > 3 ? 10 : 3),
     thr: d(a.thr, gk > 3 ? 10 : 3),
     pre: d(a.pre, 11), imp: d(a.imp), cons: d(a.cons), tem: d(a.tem, 11), det: d(a.det), lea: d(a.lea), dirt: d(a.dirt, 8),
-    spo: d(a.spo, 11),
+    spo: d(a.spo, 11), cre: d(a.cre),
   };
 }
 
@@ -646,6 +656,10 @@ export interface Body {
   /** v22 geseran ke kantong ruang yang sedang dituju (dihaluskan) */
   pkx: number;
   pky: number;
+  /** v23 arah hadap badan (radian, bingkai dunia): jangkauan pandang dihitung dari sini */
+  face: number;
+  /** v23 detik permainan saat terakhir scanning (menoleh melihat sekeliling) */
+  scan: number;
 }
 
 export interface Ball {
@@ -713,6 +727,11 @@ const CORNER_ROUTINES: [CornerRoutine, number][] = [['short', 0.12], ['near', 0.
 
 /** v22 perlambatan bola yang didorong saat dribel (m/s²): menentukan seberapa jauh bola menggelinding di depan kaki */
 const TOUCH_DEC = 3;
+/** selisih sudut a - b dalam rentang -π..π */
+const angDiff = (a: number, b: number) => {
+  const d = (a - b) % (2 * Math.PI);
+  return d > Math.PI ? d - 2 * Math.PI : d < -Math.PI ? d + 2 * Math.PI : d;
+};
 
 /** Lama selebrasi gol (detik permainan, jam berhenti); 2,5 detik terakhir pemain mulai kembali ke posisi */
 const CELEBRATE = 9;
@@ -1045,7 +1064,7 @@ export class Match {
       think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1, frus: 0, base: mindOf(a),
       // semua properti diisi sejak awal: bentuk objek sama untuk semua pemain (lebih cepat di V8)
       autoDuty: ep.duty === 'Au' ? 'Su' : undefined, leaving: false, waiting: false, entering: false, runY: -1, check: 0, tdrop: traitK(ep.traits).reduce((d, k) => d + (k.drop ?? 0), 0), home: ep.slot,
-      settled: false, pkx: 0, pky: 0,
+      settled: false, pkx: 0, pky: 0, face: 0, scan: -9,
     };
   }
 
@@ -1116,6 +1135,7 @@ export class Match {
       }
       b.run = 0;
       b.dive = 0;
+      b.face = this.dir(b.side) > 0 ? 0 : Math.PI;
     }
     this.ball = { x: 52.5, y: 34, z: 0, vx: 0, vy: 0, vz: 0 };
     this.owner = null;
@@ -2529,6 +2549,13 @@ export class Match {
   // --- aksi pemain yang menguasai bola -------------------------------------------
 
   private gain(b: Body) {
+    // v23 menerima bola sambil menghadap arah datangnya bola; yang baru saja scanning sudah membuka badan
+    // setengah ke arah gawang lawan (menerima dengan kaki belakang)
+    const ib = this.ball;
+    if (Math.hypot(ib.vx, ib.vy) > 2) {
+      const inc = Math.atan2(-ib.vy, -ib.vx);
+      b.face = inc + (this.t - b.scan < TUNE.scanMem ? angDiff(this.goalDir(b), inc) * 0.5 : 0);
+    }
     this.owner = b;
     this.lastTouch = b;
     // menguasai bola = memainkan bola dengan sengaja: penilaian offside sebelumnya selesai
@@ -2581,6 +2608,12 @@ export class Match {
     const k = this.k[side];
     const rk = c.rk;
     const options: [number, () => void][] = [];
+    // v23 Creativity aktif (peran bebas) & Teamwork (mengoper vs egois)
+    const cr = this.creative(c);
+    const team = (a.tea - 10) * TUNE.teamPass;
+    // egois hanya untuk Teamwork rendah; Teamwork tinggi tidak menolak menembak, tapi lebih mencari rekan yang posisinya lebih bagus
+    const selfish = (TUNE.selfAsym ? Math.max(0, 10 - a.tea) : 10 - a.tea) * TUNE.selfish;
+    const eye = 1 + (a.tea - 10) * TUNE.teamEye;
 
     // ruang di depan: lawan terdekat di koridor selebar 14 m ke arah gawang lawan
     let space = 20;
@@ -2607,7 +2640,9 @@ export class Match {
         (distGoal > 22 ? 0.14 - a.lon * 0.009 - rk.long - c.frus * 0.1 : 0) +
         (distGoal < 20 ? 0.12 : 0) +
         // bebas tanpa penjaga: langsung tembak hanya dari posisi bagus (bukan dari sudut sempit / jauh)
-        (pd > 3 && xg > TUNE.openXg ? TUNE.openShot : 0);
+        (pd > 3 && xg > TUNE.openXg ? TUNE.openShot : 0) +
+        // v23 Teamwork rendah = egois; Creativity (peran bebas) mencoba mencetak gol dari mana saja
+        selfish + cr * (distGoal > 16 ? 0.12 : 0.05);
       options.push([v + noise(), () => this.shoot(c, xg, pressure)]);
     }
 
@@ -2617,6 +2652,8 @@ export class Match {
       const d = Math.hypot(m.x - c.x, m.y - c.y);
       if (d < 4 || d > 52) continue;
       if (d > 32 && a.vis < 11 && !keeper) continue;
+      // v23 rekan di luar jangkauan pandang (dan belum terlihat saat scanning) tidak bisa dicari
+      if (!this.sees(c, m)) continue;
       const mfx = this.fx(side, m.x);
       const mfy = this.fy(side, m.y);
       const progress = mfx - fx;
@@ -2636,7 +2673,7 @@ export class Match {
       const prog = progress < 0 ? progress * (fx > 70 ? 0.6 : TUNE.back) : Math.min(progress, 28);
       // pengumpan kreatif (vision, flair) lebih berani dan lebih mencari rekan di posisi berbahaya
       const daring = Math.max(0.3, 1.25 - a.vis * 0.0125 - a.fla * 0.0075 - rk.create);
-      const danger = 0.6 + a.vis * 0.03;
+      const danger = (0.6 + a.vis * 0.03) * eye;
       let v =
         0.22 +
         (prog / TUNE.progW) * k.prog * cp +
@@ -2650,7 +2687,8 @@ export class Match {
         // (ruang luas di depan pembawa bola: lebih baik dibawa maju daripada dioper ke samping)
         (risk < 0.25 && open > 5 && !air ? (TUNE.keep * k.keep * (fx < 55 ? 1 : 0.3) + rk.safe) * (space > 12 && pressure === 0 ? 0.5 : 1) : 0) +
         // rekan yang pandai mengatur permainan lebih sering dicari
-        (m.p.a.vis + m.p.a.pas - 20) * 0.006;
+        (m.p.a.vis + m.p.a.pas - 20) * 0.006 +
+        team;
       if (m.p.slot === 'GK') v -= 0.5;
       if (cross) {
         const [lx, ly] = this.crossSpot(mfx, mfy);
@@ -2686,7 +2724,8 @@ export class Match {
       if (keeper || fx < 30 || isBack(m.p.slot) || m.p.slot === 'GK' || !runs || oppLine > 95) continue;
       if (this.isOffside(m, oppLine, fx)) continue;
       // pengumpan bervisi tinggi jauh lebih sering melihat celahnya
-      if (!this.rng.chance(clamp(0.06 + (a.vis - 6) * 0.05 + rk.create * 0.5, 0.03, 0.85))) continue;
+      // (v23: pemain kreatif dengan peran bebas jauh lebih sering mencoba killer ball)
+      if (!this.rng.chance(clamp(0.06 + (a.vis - 6) * 0.05 + rk.create * 0.5 + cr * 0.35, 0.03, 0.9))) continue;
       // v17: titik di ruang kosong yang paling jelas dimenangkan si pelari (adu cepat dengan bek & kiper)
       const spot = this.spaceSpot(c, m, oppLine, mfx, mfy);
       if (!spot) continue;
@@ -2694,11 +2733,12 @@ export class Match {
       const tx = this.wx(side, tfx);
       const ty = this.wy(side, tfy);
       const trisk = this.laneRisk(c, tx, ty, false, 4 + a.pas * 0.15, true);
-      const chip = trisk > 0.6 && (a.pas + a.tec) / 2 > 13;
+      const chip = trisk > (cr > 0.5 ? 0.4 : 0.6) && (a.pas + a.tec) / 2 > 13;
       const tv =
         0.15 + (a.vis - 10) * 0.035 + (a.pas - 10) * 0.02 + (a.dec - 10) * 0.01 + (a.fla - 10) * 0.01 +
         this.xgAt(tfx, tfy) * TUNE.xgPassW * 0.9 * (0.4 + 0.8 * win) + (m.run > 0 ? 0.1 : 0) + (k.prog - 1) * 0.2 + rk.create -
-        (chip ? 0.25 : trisk * 0.45) - (1 - win) * TUNE.spaceLose;
+        // v23 pemain kreatif berani mencoba umpan yang lebih berisiko
+        ((chip ? 0.25 : trisk * 0.45) + (1 - win) * TUNE.spaceLose) * (1 - 0.4 * cr) + cr * 0.15 + team;
       options.push([tv + noise(), () => this.passTo(c, m, chip, false, chip ? 0.3 : 0, false, [tfx, tfy])]);
     }
 
@@ -2714,14 +2754,16 @@ export class Match {
       // di sayap dekat garis gawang tidak ada ruang lagi: saatnya mengumpan silang
       const corner = fx > 84 && Math.abs(fy - 34) > 14 ? 0.12 : 0;
       const [cv, ctx, cty] = this.bestCarry(c, fx, fy);
-      const v = TUNE.carryBase + k.drib + rk.carry + flair + cv + Math.min(space, 15) * TUNE.carrySpace - pressure * 0.25 - corner;
+      const v =
+        TUNE.carryBase + k.drib + rk.carry + flair + cv + Math.min(space, 15) * TUNE.carrySpace - pressure * 0.25 - corner + selfish;
       options.push([v + noise(), () => this.dribble(c, ctx, cty, space)]);
       // melewati lawan yang menghadang (take-on): winger dengan dribbling, flair, bravery, technique
       if (front && space < 6 && fx > 30) {
         const o = front;
         const tv =
           TUNE.takeOn + k.drib + rk.takeOn + (a.dri - 10) * 0.035 + (a.fla - 10) * 0.03 + (a.bra - 10) * 0.012 + (a.tec - 10) * 0.01 +
-          (a.agi - 10) * 0.01 - (o.p.a.tck - 10) * 0.01 + (fx > 60 ? 0.12 : 0) + (fx > 80 ? 0.06 : 0) - (fx < 45 ? 0.15 : 0);
+          (a.agi - 10) * 0.01 - (o.p.a.tck - 10) * 0.01 + (fx > 60 ? 0.12 : 0) + (fx > 80 ? 0.06 : 0) - (fx < 45 ? 0.15 : 0) +
+          selfish;
         options.push([tv + noise(), () => this.takeOn(c, o)]);
       }
     }
@@ -2818,9 +2860,11 @@ export class Match {
     const weak = !setPiece && this.rng.chance(TUNE.weakUse * 0.8) ? 1 + (20 - a.wf) * (air ? 0.06 : 0.04) : 1;
     // v18: kiper melempar bola dari tangannya (umpan pendek dari kotak sendiri): Throwing menentukan akurasinya
     const thrown = c.p.slot === 'GK' && !setPiece && !air && this.inBox(side, c.x, c.y) && Math.hypot(m.x - c.x, m.y - c.y) < 40;
+    // v23 killer ball pemain kreatif: risiko meleset lebih besar, Consistency tinggi justru membuatnya lebih akurat
+    const creErr = spot ? 1 + this.creRisk(c, this.creative(c)) : 1;
     const err = thrown
       ? (21 - a.thr) * 0.006
-      : ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1) * weak;
+      : ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1) * weak * creErr;
     this.kick(c, tx, ty, air, err, lob, !!spot);
     const cross = intoBox || (air && this.fx(c.side, m.x) > 84);
     this.pass = { from: c, to: m, air, cross, tx, ty, setPiece };
@@ -3034,6 +3078,9 @@ export class Match {
     }
     p *= header ? TUNE.headK : 1;
     if (!header && !setPiece && dist > 18) p *= TUNE.longK;
+    // v23 Creativity (peran bebas): cara mencetak gol yang tidak biasa (chip, tembakan melengkung): high risk high
+    // reward, Consistency menentukan apakah berhasil (20 = jauh lebih sering masuk, rendah = lebih sering gagal)
+    if (!header && !setPiece) p *= 1 + this.creative(c) * (a.cons - 9) * 0.04;
     // fase bola mati: pertahanan sudah tersusun dan menjaga lawan satu per satu
     // v18: kiper yang komunikatif mengatur penjagaan bola mati (siapa menjaga siapa)
     if (!setPiece && this.t < this.spUntil && this.spSide === side) p *= TUNE.spK * (1 - this.gkCall((1 - side) as 0 | 1) * 0.2);
@@ -3780,6 +3827,9 @@ export class Match {
     taker.ty = r.y + ((34 - r.y) / dd) * back + (pen && r.runup === undefined ? (taker.p.a.wf < 10 ? 1.4 : -1.4) : 0);
     taker.sprint = !pen && Math.hypot(taker.x - r.x, taker.y - r.y) > 3;
     taker.think = 0.3;
+    // v23 pengambil bola mati menghadap lapangan dan sudah melihat sekeliling
+    taker.face = this.goalDir(taker);
+    taker.scan = this.t;
     if (pen && r.runup !== undefined) {
       // peluit sudah ditiup: penendang berlari ke bola, kiper bergoyang di garis menunggu
       r.runup += DT;
@@ -4156,7 +4206,8 @@ export class Match {
       const { out, sub } = q;
       if (sub.waiting) {
         // sudah melewati garis samping tempat ia keluar
-        const offPitch = !out.leaving || (out.ty < PITCH_H / 2 ? out.y < 0 : out.y > PITCH_H);
+        // (sudah benar-benar di luar: pemain yang masih berlari bisa terbawa sedikit masuk lagi)
+        const offPitch = !out.leaving || (out.ty < PITCH_H / 2 ? out.y < -0.5 : out.y > PITCH_H + 0.5);
         // bola sudah dimainkan lagi (wasit tidak bisa menunggu lebih lama): pengganti langsung masuk
         if (!offPitch && this.restart) continue;
         sub.waiting = false;
@@ -4896,7 +4947,11 @@ export class Match {
       if (b.run > 0) b.run -= DT;
       else if (
         this.poss === b.side && this.owner && b.p.slot !== 'GK' && b !== this.owner &&
-        this.rng.chance(b.p.a.otb * TUNE.runRate * b.rk.runs * (1 + 0.08 * (this.tk[b.side]?.mentality ?? 0)) * (this.counterPhase(b.side) ? 1.6 : 1))
+        // (v23: Teamwork tinggi lebih sering berlari untuk membantu pembawa bola)
+        this.rng.chance(
+          b.p.a.otb * TUNE.runRate * b.rk.runs * (1 + 0.08 * (this.tk[b.side]?.mentality ?? 0)) * (this.counterPhase(b.side) ? 1.6 : 1) *
+            (1 + (b.p.a.tea - 10) * TUNE.teamRun),
+        )
       ) {
         const mid = isCentralMid(b.p.slot) && !isHold(b.p.slot);
         const fwd = isST(b.p.slot) || isWing(b.p.slot) || isWideMid(b.p.slot) || isWB(b.p.slot);
@@ -4943,6 +4998,7 @@ export class Match {
       if (b.entering) b.sprint = true;
       this.move(b);
     }
+    this.turnAndScan();
     this.walkSubs();
 
     if (this.owner) {
@@ -5009,6 +5065,66 @@ export class Match {
     }
     ball.x = clamp(ball.x, 0.2, PITCH_W - 0.2);
     ball.y = clamp(ball.y, 0.2, PITCH_H - 0.2);
+  }
+
+  /** v23 arah ke tengah gawang lawan (radian, bingkai dunia) */
+  private goalDir(b: Body): number {
+    return Math.atan2(34 - b.y, this.wx(b.side, PITCH_W) - b.x);
+  }
+
+  /**
+   * v23 Vision = jangkauan pandang: pemain hanya melihat rekan di depan badannya (Vision 1 sekitar 120°, 10 sekitar
+   * 200°, 20 sekitar 290°). Rekan di luar pandangan hanya diketahui kalau baru saja scanning (Teamwork), atau
+   * sangat dekat (terdengar memanggil). Kiper selalu melihat lapangan.
+   */
+  private sees(c: Body, m: Body): boolean {
+    if (TUNE.fov <= 0 || c.p.slot === 'GK') return true;
+    const dx = m.x - c.x;
+    const dy = m.y - c.y;
+    if (dx * dx + dy * dy < 25 || this.t - c.scan < TUNE.scanMem) return true;
+    return Math.abs(angDiff(Math.atan2(dy, dx), c.face)) <= ((55 + c.p.a.vis * 4.5) * Math.PI) / 180;
+  }
+
+  /**
+   * v23 arah hadap badan: berlari = menghadap arah lari; diam / jogging = menghadap bola; pembawa bola yang pelan
+   * berbalik menghadap gawang lawan (Agility & Technique, lebih lambat kalau ditempel lawan). Lalu scanning:
+   * pemain ber-Teamwork tinggi lebih sering menoleh melihat posisi rekan.
+   */
+  private turnAndScan() {
+    const ball = this.ball;
+    for (const b of this.active()) {
+      const sp = Math.hypot(b.vx, b.vy);
+      const a = b.p.a;
+      const own = b === this.owner;
+      let want: number;
+      let rate: number;
+      if (own) {
+        want = sp > 1 ? Math.atan2(b.vy, b.vx) : this.goalDir(b);
+        const [, pd] = this.nearest(this.opponents(b.side), b.x, b.y);
+        rate = (2.5 + (a.agi + a.tec) * 0.1) * (pd < 2 ? 0.5 : 1);
+      } else {
+        want = sp > 4 ? Math.atan2(b.vy, b.vx) : Math.atan2(ball.y - b.y, ball.x - b.x);
+        rate = 7;
+      }
+      b.face += clamp(angDiff(want, b.face), -rate * DT, rate * DT);
+      if (TUNE.scan > 0 && b.p.slot !== 'GK' && this.rng.chance((0.15 + a.tea * 0.045) * TUNE.scan * DT)) b.scan = this.t;
+    }
+  }
+
+  /** v23 Creativity yang aktif (0..1): hanya dengan kebebasan (peran bebas, kebiasaan bergerak bebas, instruksi lebih ekspresif) */
+  private creative(c: Body): number {
+    if (TUNE.creK <= 0) return 0;
+    const tk = this.tk[c.side];
+    const free = clamp((c.rk.roam - 0.15) / 0.5 + (tk ? tk.creative * 0.25 : 0), 0, 1);
+    return ((free * Math.max(0, c.p.a.cre - 8)) / 12) * TUNE.creK;
+  }
+
+  /**
+   * v23 risiko percobaan kreatif: tambahan salah arah umpan (positif = lebih meleset). Consistency tinggi menurunkan
+   * risikonya, bahkan membuatnya lebih akurat dari biasa (high risk high reward)
+   */
+  private creRisk(c: Body, cr: number): number {
+    return cr * (0.55 - c.p.a.cons * 0.035);
   }
 
   /** v22 titik bola ditendang: dari bola yang sedang didribel (kalau sudah di depan kaki), bukan dari badan pemain */

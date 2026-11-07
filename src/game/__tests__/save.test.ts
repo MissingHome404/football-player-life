@@ -40,6 +40,20 @@ describe('file save', () => {
     expect(back.career.rel.partner).toBeNull();
   });
 
+  it('save lama (format 7) tanpa Creativity: atributnya diisi tetap (sama setiap kali dimuat)', () => {
+    const f = buildSaveFile('old7', world, career, summary);
+    const players = (f.world.players as { hidden: number[] }[]).map((p) => ({ ...p, hidden: p.hidden.slice(0, -1) }));
+    const old = JSON.parse(JSON.stringify({ ...f, format: 7, world: { ...f.world, players } }));
+    const a = readSaveFile(old);
+    const b = readSaveFile(JSON.parse(JSON.stringify(old)));
+    const cre = a.world.players.map((p) => p.hidden.Creativity);
+    expect(cre.every((v) => v >= 1 && v <= 20)).toBe(true);
+    expect(b.world.players.map((p) => p.hidden.Creativity)).toEqual(cre);
+    // nilainya sama dengan pemain yang dibuat generator
+    expect(cre).toEqual(world.players.map((p) => p.hidden.Creativity));
+    expect(new Set(cre).size).toBeGreaterThan(8);
+  });
+
   it('menolak file yang bukan save', () => {
     expect(() => readSaveFile({ hello: 1 })).toThrow(/bukan file save/);
     const f = buildSaveFile('x', world, career, summary);
