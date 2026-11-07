@@ -5,5 +5,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     testTimeout: 30_000,
+    // beri jeda event loop di antara tes (lihat file ini)
+    setupFiles: ['./src/game/__tests__/setup.ts'],
   },
 });
