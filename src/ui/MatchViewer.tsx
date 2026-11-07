@@ -867,7 +867,7 @@ function rowShift(row: readonly Spot[], j: number, depth: number): number {
   if (row.length < 5) return Math.max(-4, Math.min(4, -(sp.base[0] - depth) * 0.5));
   const levels = [...new Set(row.map((r) => r.base[0]))].sort((a, b) => a - b);
   if (levels.length < 2) return j % 2 ? 3 : -3;
-  return 6 - (12 * levels.indexOf(sp.base[0])) / (levels.length - 1);
+  return 5 - (10 * levels.indexOf(sp.base[0])) / (levels.length - 1);
 }
 
 /**
@@ -945,6 +945,15 @@ function TeamSheet({
   const out = match.bodies.filter((b) => b.side === side && (b.st.off !== undefined || b.st.red > 0) && !b.on);
   const cards = (b: Body) => (b.st.red > 0 ? 'red' : b.st.yellow > 0 ? 'yellow' : null);
   const spots = useMemo(() => sheetSpots(formation, shape.spots), [formation, shape.spots]);
+  // jaga-jaga: dua pemain di tempat yang sama (atau tempat di luar bentuk tim) tetap terlihat semua
+  const drawn = new Map<string, number>();
+  const place = (slot: Slot): [number, number] => {
+    const [x, y] = spots.get(slot) ?? [34, 58];
+    const key = `${Math.round(x)},${Math.round(y)}`;
+    const n = drawn.get(key) ?? 0;
+    drawn.set(key, n + 1);
+    return n ? [Math.min(62, x + 9 * n), y + 4] : [x, y];
+  };
   return (
     <section className={`mv-panel mv-sheet ${cls}`}>
       <h3>
@@ -959,13 +968,13 @@ function TeamSheet({
         <rect x="14" y="100" width="40" height="16" className="fm-line" fill="none" />
         <rect x="14" y="0" width="40" height="16" className="fm-line" fill="none" />
         {onPitch.map((b) => {
-          const [cx, cy] = spots.get(b.p.slot) ?? [34, 58];
+          const [cx, cy] = place(b.p.slot);
           const fill = b.p.slot === 'GK' ? keeper : color;
           const light = lum(fill) > 0.6;
           const r = rate(b, match.score);
           const card = cards(b);
           // pemain di tepi kanan papan: rating & kartu dipindah ke sisi kiri supaya tidak terpotong
-          const flip = cx > 59;
+          const flip = cx > 60;
           return (
             <g key={b.p.id} className={b.p.user ? 'mv-me' : ''}>
               <title>
@@ -974,17 +983,17 @@ function TeamSheet({
                 {match.captain(b.side) === b ? ' · kapten' : ''}
                 {b.frus > 0.6 ? ' · sedang frustrasi' : ''}
               </title>
-              {b.p.user && <circle cx={cx} cy={cy} r={5.6} className="mv-me-ring" />}
-              <circle cx={cx} cy={cy} r={4.2} fill={fill} stroke={light ? 'rgba(0,0,0,.5)' : 'rgba(255,255,255,.7)'} strokeWidth={0.5} opacity={b.hurt >= 0 ? 0.5 : 1} />
-              <text x={cx} y={cy + 1.5} className="mv-f-num" fill={light ? '#111' : '#fff'}>
+              {b.p.user && <circle cx={cx} cy={cy} r={4.3} className="mv-me-ring" />}
+              <circle cx={cx} cy={cy} r={3.2} fill={fill} stroke={light ? 'rgba(0,0,0,.5)' : 'rgba(255,255,255,.7)'} strokeWidth={0.45} opacity={b.hurt >= 0 ? 0.5 : 1} />
+              <text x={cx} y={cy + 1.2} className="mv-f-num" fill={light ? '#111' : '#fff'}>
                 {b.p.num}
               </text>
-              {card && <rect x={flip ? cx + 4 : cx - 6.4} y={cy - 5.2} width={2.4} height={3.4} rx={0.4} fill={card === 'red' ? '#e5484d' : '#f5c542'} />}
-              <rect x={flip ? cx - 8.8 : cx + 2.2} y={cy - 7.4} width={6.6} height={3.8} rx={1} className={`mv-f-rt ${r >= 7.5 ? 'hi' : r < 6 ? 'lo' : ''}`} />
-              <text x={flip ? cx - 5.5 : cx + 5.5} y={cy - 4.5} className="mv-f-rtt">
+              {card && <rect x={flip ? cx + 3.1 : cx - 5.1} y={cy - 4.1} width={2} height={2.8} rx={0.35} fill={card === 'red' ? '#e5484d' : '#f5c542'} />}
+              <rect x={flip ? cx - 7.3 : cx + 1.7} y={cy - 6.1} width={5.6} height={3.2} rx={0.9} className={`mv-f-rt ${r >= 7.5 ? 'hi' : r < 6 ? 'lo' : ''}`} />
+              <text x={flip ? cx - 4.5 : cx + 4.5} y={cy - 3.65} className="mv-f-rtt">
                 {r.toFixed(1)}
               </text>
-              <text x={Math.max(8, Math.min(60, cx))} y={cy + 8.4} className="mv-f-name">
+              <text x={Math.max(7, Math.min(61, cx))} y={cy + 6.6} className="mv-f-name">
                 {b.st.goals > 0 ? '⚽'.repeat(Math.min(3, b.st.goals)) + ' ' : ''}
                 {shortLabel(b.p.name)}
                 {b.st.assists > 0 ? ' ' + '🅰️'.repeat(Math.min(3, b.st.assists)) : ''}

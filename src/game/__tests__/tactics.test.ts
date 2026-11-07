@@ -1654,3 +1654,25 @@ describe('match engine versi 24: struktur bertahan, struktur serangan, positiona
     expect(distToLane(x, y)).toBeLessThan(distToLane(44, 26) * 0.7);
   });
 });
+
+describe('match engine versi 25: pergantian pemain', () => {
+  it('setelah pergantian & perubahan bentuk tim, tiap pemain di lapangan punya tempat sendiri', async () => {
+    let subs = 0;
+    for (let i = 0; i < 12; i++) {
+      const a = eng[i % eng.length];
+      const b = eng[(i * 7 + 3) % eng.length];
+      if (a.id === b.id) continue;
+      const m = new Match({ seed: `slot25-${i}`, home: side(a.id, clubTactic(a)), away: side(b.id, clubTactic(b)) });
+      while (!m.done) {
+        m.step();
+        for (const s of [0, 1] as const) {
+          const slots = m.bodies.filter((x) => x.side === s && x.on && !x.leaving).map((x) => x.p.slot);
+          expect(new Set(slots).size).toBe(slots.length);
+        }
+      }
+      subs += m.subs[0] + m.subs[1];
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect(subs).toBeGreaterThan(20);
+  }, 120_000);
+});

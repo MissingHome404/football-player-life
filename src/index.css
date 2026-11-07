@@ -734,14 +734,14 @@ input { font: inherit; }
 .mv-panel h3 { display: flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text); margin-bottom: 6px; }
 .mv-sheet-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mv-formation { width: 100%; max-width: 300px; display: block; margin: 0 auto; }
-.mv-f-num { font: 700 4.4px 'Barlow Condensed', system-ui, sans-serif; text-anchor: middle; }
-.mv-f-name { font: 600 3.4px 'Barlow', system-ui, sans-serif; fill: #fff; text-anchor: middle; paint-order: stroke; stroke: rgba(0, 0, 0, .65); stroke-width: .9px; }
+.mv-f-num { font: 700 3.5px 'Barlow Condensed', system-ui, sans-serif; text-anchor: middle; }
+.mv-f-name { font: 600 2.9px 'Barlow', system-ui, sans-serif; fill: #fff; text-anchor: middle; paint-order: stroke; stroke: rgba(0, 0, 0, .65); stroke-width: .75px; }
 .mv-me .mv-f-name { fill: var(--star); }
 .mv-f-rt { fill: #3a3f52; }
 .mv-f-rt.hi { fill: var(--accent-2); }
 .mv-f-rt.lo { fill: #a83a3a; }
-.mv-f-rtt { font: 700 3.1px 'Barlow', system-ui, sans-serif; fill: #fff; text-anchor: middle; }
-.mv-me-ring { fill: none; stroke: var(--star); stroke-width: 1.1; }
+.mv-f-rtt { font: 700 2.6px 'Barlow', system-ui, sans-serif; fill: #fff; text-anchor: middle; }
+.mv-me-ring { fill: none; stroke: var(--star); stroke-width: .9; }
 .mv-subs { line-height: 1.55; margin-top: 6px; }
 .mv-subs .me { color: var(--star); font-weight: 700; }
 .mv-ticker { margin-top: 8px; background: rgba(245, 197, 66, .14); border: 1px solid rgba(245, 197, 66, .5); color: var(--text); text-align: center; border-radius: 999px; padding: 7px 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

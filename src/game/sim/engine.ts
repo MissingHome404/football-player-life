@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 24;
+export const ENGINE_VERSION = 25;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -4469,8 +4469,10 @@ export class Match {
       sub.tx = sub.x;
       sub.ty = sub.y;
       sub.vx = sub.vy = 0;
-      this.takeSlot(sub, out);
+      // pengganti masuk daftar pemain dulu: kalau pelatih menyusun ulang tempat (takeSlot -> reshape),
+      // pengganti ikut dihitung sehingga tidak ada dua pemain di tempat yang sama
       this.bodies.push(sub);
+      this.takeSlot(sub, out);
       this.subbing.push({ out, sub });
       if (this.owner === out) this.owner = null;
       if (this.lastTouch === out) this.lastTouch = sub;
