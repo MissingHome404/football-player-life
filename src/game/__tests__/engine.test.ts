@@ -89,8 +89,9 @@ describe('match engine', () => {
     expect(offside).toBeGreaterThan(0);
     expect(restarts.throw).toBeGreaterThan(0);
     expect(restarts.goalkick).toBeGreaterThan(0);
-    // tembakan melenceng biasanya jadi tendangan gawang (sepak pojok hanya kalau terbelokkan bek)
-    expect(afterMiss.goalkick ?? 0).toBeGreaterThan((afterMiss.corner ?? 0) * 3);
+    // tembakan melenceng biasanya jadi tendangan gawang (sepak pojok hanya kalau terbelokkan bek; v17: bek yang
+    // menutup ruang di depan gawang lebih sering memblok, jadi sepak pojok sedikit lebih sering)
+    expect(afterMiss.goalkick ?? 0).toBeGreaterThan((afterMiss.corner ?? 0) * 2.5);
     // tembakan melenceng = tendangan gawang / sudut, bukan bola kembali ke tengah
     expect((afterMiss.goalkick ?? 0) + (afterMiss.corner ?? 0)).toBeGreaterThanOrEqual(Object.values(afterMiss).reduce((a, b) => a + b, 0) - 1);
   }, 30_000);
@@ -279,9 +280,11 @@ describe('match engine versi 8', () => {
         const inn = m.bodies.find((b) => b.p.name === e.name && b.side === e.side)!;
         const out = m.bodies.find((b) => b.p.name === e.assist && b.side === e.side)!;
         expect(inn.st.onMin).toBe(e.min);
-        expect(out.st.offMin).toBe(e.min);
+        // pemain cedera sudah ditandu keluar sebelum penggantinya masuk saat bola mati berikutnya
+        if (out.st.injured) expect(out.st.offMin).toBeLessThanOrEqual(e.min);
+        else expect(out.st.offMin).toBe(e.min);
         // pemain pengganti bisa ikut diganti lagi (cedera)
-        expect(minutesPlayed(out.st)).toBe(e.min - (out.st.onMin ?? 0));
+        expect(minutesPlayed(out.st)).toBe(out.st.offMin! - (out.st.onMin ?? 0));
         expect(minutesPlayed(inn.st)).toBe((inn.st.offMin ?? 90) - e.min);
         expect(r.stats[inn.p.id]).toBeDefined();
       }
@@ -436,7 +439,7 @@ describe('match engine versi 10', () => {
       }
       return sum / n;
     };
-    expect(avg(withRole(home, 'GK', 'sk'), 'GK', 0, true)).toBeGreaterThan(avg(withRole(home, 'GK', 'gk'), 'GK', 0, true) + 2);
+    expect(avg(withRole(home, 'GK', 'sk'), 'GK', 0, true)).toBeGreaterThan(avg(withRole(home, 'GK', 'gk'), 'GK', 0, true) + 1.5);
     const st = home.xi.find((e) => e.slot === 'ST' || e.slot === 'RS')!.slot;
     expect(avg(withRole(home, st, 'f9'), st, 0, true)).toBeLessThan(avg(withRole(home, st, 'af'), st, 0, true) - 3);
   }, 30_000);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { Match, pickXI, type ETeam } from '../sim/engine';
+import { Match, pickXI, topSpeed, type ETeam } from '../sim/engine';
 import { FORMATIONS } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
@@ -91,28 +91,31 @@ describe('taktik pelatih', () => {
   });
 
   it('tendangan gawang: jam berhenti dan kiper menunggu rekan siap', { timeout: 60_000 }, () => {
-    const m = new Match({ seed: 'gk-kick', home: side(eng[4].id), away: side(eng[5].id) });
-    const view = m as unknown as { restart: { kind: string } | null; t: number };
     let kicks = 0;
     let waited = 0;
-    let startT = -1;
-    let steps = 0;
-    while (!m.done) {
-      const r = view.restart;
-      if (r?.kind === 'goalkick') {
-        if (startT < 0) {
-          startT = view.t;
-          steps = 0;
+    // dua laga supaya cukup banyak tendangan gawang
+    for (const seed of ['gk-kick', 'gk-kick-2']) {
+      const m = new Match({ seed, home: side(eng[4].id), away: side(eng[5].id) });
+      const view = m as unknown as { restart: { kind: string } | null; t: number };
+      let startT = -1;
+      let steps = 0;
+      while (!m.done) {
+        const r = view.restart;
+        if (r?.kind === 'goalkick') {
+          if (startT < 0) {
+            startT = view.t;
+            steps = 0;
+          }
+          steps++;
+          // jam tidak berjalan selama tendangan gawang disiapkan
+          expect(view.t).toBe(startT);
+        } else if (startT >= 0) {
+          kicks++;
+          waited += steps;
+          startT = -1;
         }
-        steps++;
-        // jam tidak berjalan selama tendangan gawang disiapkan
-        expect(view.t).toBe(startT);
-      } else if (startT >= 0) {
-        kicks++;
-        waited += steps;
-        startT = -1;
+        m.step();
       }
-      m.step();
     }
     expect(kicks).toBeGreaterThan(2);
     // rata-rata menunggu minimal 1,5 detik permainan (15 langkah)
@@ -570,5 +573,134 @@ describe('match engine versi 16: peran tanpa bola, man marking, jebakan offside'
       return xs.reduce((s, x) => s + x, 0) / xs.length;
     };
     expect(run('outlet') - run('track')).toBeGreaterThan(6);
+  });
+});
+
+describe('match engine versi 17: kontrol ruang (pitch control)', () => {
+  type B = Match['bodies'][number];
+  type Priv = {
+    arrive(b: B, x: number, y: number, react: number): number;
+    updateControl(): void;
+    laneRisk(c: B, tx: number, ty: number, air: boolean, vEnd: number, skipGk: boolean): number;
+    spaceSpot(c: B, m: B, oppLine: number, mfx: number, mfy: number): [number, number, number] | null;
+    runLane(b: B): number;
+    depth: [number, number];
+    restart: unknown;
+    dead: unknown;
+  };
+  /** laga yang sudah berjalan, lalu dibekukan: semua pemain berdiri diam di posisi yang kita atur */
+  const frozen = (seed: string) => {
+    const m = new Match({ seed, home: side(eng[6].id), away: side(eng[7].id) });
+    for (let i = 0; i < 50; i++) m.step();
+    const pv = m as unknown as Priv;
+    pv.restart = null;
+    pv.dead = null;
+    for (const b of m.bodies) b.vx = b.vy = 0;
+    const team = m.bodies.filter((b) => b.on && b.side === 0);
+    const opps = m.bodies.filter((b) => b.on && b.side === 1);
+    // tempatkan pemain (bingkai tim tuan rumah)
+    const put = (b: B, fx: number, fy: number) => {
+      b.x = m.fx(0, fx);
+      b.y = m.fy(0, fy);
+    };
+    return { m, pv, team, opps, put };
+  };
+
+  it('rentang kecepatan lari realistis; pemain cepat lebih dulu sampai; tiap pemain menguasai ruang di sekitarnya', () => {
+    expect(topSpeed(5)).toBeGreaterThan(8);
+    expect(topSpeed(20)).toBeLessThan(10.5);
+    expect(topSpeed(20)).toBeGreaterThan(topSpeed(5) + 1.5);
+    const { m, pv, team } = frozen('pc');
+    const b = team.find((x) => x.p.slot !== 'GK')!;
+    const as = (v: number): B => ({ ...b, p: { ...b.p, a: { ...b.p.a, pace: v, acc: v } } });
+    for (const d of [5, 30]) expect(pv.arrive(as(20), b.x + d, b.y, 0.2)).toBeLessThan(pv.arrive(as(5), b.x + d, b.y, 0.2) - 0.15);
+    pv.updateControl();
+    const grid = m.pitchControl();
+    expect(grid.home.length).toBe(grid.nx * grid.ny);
+    for (const v of grid.home) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+    let own = 0;
+    let n = 0;
+    for (const p of m.bodies) {
+      if (!p.on || p.p.slot === 'GK') continue;
+      n++;
+      if (m.ctrl(p.side, p.x, p.y) > 0.5) own++;
+    }
+    expect(own / n).toBeGreaterThan(0.7);
+  });
+
+  it('risiko jalur umpan berbasis waktu: lawan di jalur berbahaya, umpan panjang lebih mudah dipotong', () => {
+    const { m, pv, team, opps, put } = frozen('lane');
+    const c = team.find((x) => x.p.slot !== 'GK')!;
+    put(c, 30, 34);
+    // semua lawan di belakang pengumpan, kecuali satu
+    opps.forEach((o, i) => put(o, 5, 3 + i * 6));
+    const o = opps.find((x) => x.p.slot !== 'GK')!;
+    // (posisi lawan & tujuan umpan di bingkai tim tuan rumah)
+    const risk = (ox: number, oy: number, tx: number) => {
+      put(o, ox, oy);
+      return pv.laneRisk(c, m.fx(0, tx), m.fy(0, 34), false, 10, true);
+    };
+    expect(risk(40, 34, 50)).toBeGreaterThanOrEqual(1);
+    expect(risk(40, 50, 50)).toBe(0);
+    // lawan 3 m dari jalur: aman untuk umpan pendek, berbahaya untuk umpan panjang yang melewatinya lebih lambat
+    const short = risk(38, 37, 42);
+    const long = risk(58, 37, 62);
+    expect(long).toBeGreaterThan(short + 0.2);
+  });
+
+  it('umpan ke ruang & garis pertahanan: pelari cepat menang adu cepat, garis lawan mundur menghadapinya', () => {
+    const { m, pv, team, opps, put } = frozen('space');
+    const passer = team.find((x) => x.p.slot !== 'GK' && !/ST|RS|LS/.test(x.p.slot))!;
+    const runner = team.find((x) => /ST|RS|LS/.test(x.p.slot))!;
+    passer.p.a.vis = 20;
+    put(passer, 50, 34);
+    for (const b of team) if (b !== passer && b !== runner) put(b, 20, 3 + team.indexOf(b) * 5);
+    put(runner, 70, 30);
+    const defs = opps.filter((o) => o.p.slot !== 'GK');
+    defs.forEach((o, i) => put(o, i < 4 ? 72 : 40, i < 4 ? 18 + i * 10 : 60));
+    put(opps.find((o) => o.p.slot === 'GK')!, 102, 34);
+    const win = (v: number) => {
+      runner.p.a.pace = v;
+      runner.p.a.acc = v;
+      let s = 0;
+      for (let i = 0; i < 20; i++) s += pv.spaceSpot(passer, runner, 72, 70, 30)![2];
+      return s / 20;
+    };
+    expect(win(20)).toBeGreaterThan(win(5) + 0.15);
+    // garis pertahanan tim tamu (bertahan) menghadapi penyerang cepat vs lambat; bola cukup jauh di depan garis
+    put(passer, 58, 34);
+    const depth = (v: number) => {
+      runner.p.a.pace = v;
+      runner.p.a.acc = v;
+      m.owner = passer;
+      m.poss = 0;
+      m.ball.x = passer.x;
+      m.ball.y = passer.y;
+      pv.depth[1] = 0;
+      for (let i = 0; i < 8; i++) pv.updateControl();
+      return pv.depth[1];
+    };
+    expect(depth(20)).toBeGreaterThan(depth(5) + 0.5);
+  });
+
+  it('lari ke ruang: penyerang memilih celah yang tidak dijaga', () => {
+    const { m, pv, team, opps, put } = frozen('gap');
+    const runner = team.find((x) => /ST|RS|LS/.test(x.p.slot))!;
+    runner.p.a.otb = 20;
+    for (const b of team) if (b !== runner && b.p.slot !== 'GK') put(b, 40, 3 + team.indexOf(b) * 5);
+    put(runner, 70, 34);
+    const defs = opps.filter((o) => o.p.slot !== 'GK');
+    // bek lawan menumpuk di sisi kiri (y kecil); sisi kanan kosong
+    defs.forEach((o, i) => put(o, i < 4 ? 73 : 50, i < 4 ? 14 + i * 5 : 8));
+    put(opps.find((o) => o.p.slot === 'GK')!, 102, 34);
+    m.owner = team.find((x) => x.p.slot !== 'GK' && x !== runner)!;
+    m.poss = 0;
+    pv.updateControl();
+    let right = 0;
+    for (let i = 0; i < 10; i++) if (pv.runLane(runner) > 36) right++;
+    expect(right).toBeGreaterThanOrEqual(8);
   });
 });

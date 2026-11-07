@@ -360,10 +360,14 @@ function Live({
   const [hud, setHud] = useState({ min: "1'", half: 1, score: [0, 0] as [number, number], events: 0, rs: null as string | null });
   const [banner, setBanner] = useState<string | null>(null);
   const [tab, setTab] = useState<'home' | 'away' | 'stats' | 'events'>(mySide ? 'away' : 'home');
+  // kontrol ruang (v17): warnai tiap petak dengan warna tim yang lebih dulu sampai di sana
+  const [space, setSpace] = useState(false);
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
+  const spaceRef = useRef(space);
   speedRef.current = speed;
   pausedRef.current = paused;
+  spaceRef.current = space;
   const endRef = useRef(onEnd);
   endRef.current = onEnd;
   const namesRef = useRef(names);
@@ -440,6 +444,25 @@ function Live({
         const [bx, by] = P(x0 + PITCH_W / 12, PITCH_H);
         ctx.fillStyle = GRASS;
         ctx.fillRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
+      }
+      if (spaceRef.current) {
+        // kontrol ruang: makin pekat, makin jelas tim itu lebih dulu sampai di petak ini
+        const { nx, ny, home } = match.pitchControl();
+        const w = PITCH_W / nx;
+        const h = PITCH_H / ny;
+        for (let j = 0; j < ny; j++) {
+          for (let i = 0; i < nx; i++) {
+            const c = home[j * nx + i];
+            const k = Math.abs(c - 0.5) * 2;
+            if (k < 0.1) continue;
+            const [ax, ay] = P(i * w, j * h);
+            const [bx, by] = P((i + 1) * w, (j + 1) * h);
+            ctx.globalAlpha = 0.42 * k;
+            ctx.fillStyle = colors[c > 0.5 ? 0 : 1];
+            ctx.fillRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
+          }
+        }
+        ctx.globalAlpha = 1;
       }
       ctx.strokeStyle = 'rgba(255,255,255,.75)';
       ctx.lineWidth = Math.max(1, s * 0.18);
@@ -742,6 +765,14 @@ function Live({
               </button>
             ))}
           </div>
+          <button
+            className={`chip ${space ? 'sel' : ''}`}
+            aria-pressed={space}
+            onClick={() => setSpace((v) => !v)}
+            title="Kontrol ruang: tiap petak diberi warna tim yang lebih dulu bisa sampai di sana"
+          >
+            Ruang
+          </button>
           <button className="ghost" onClick={onSkip}>
             Lewati ke akhir
           </button>
