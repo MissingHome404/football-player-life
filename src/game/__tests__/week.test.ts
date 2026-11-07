@@ -25,13 +25,26 @@ function run(world: World, career: Career, weeks: number) {
   return { world, career };
 }
 
+/**
+ * Sama seperti run, tapi memberi jeda ke event loop tiap beberapa minggu. Tes panjang yang memblokir
+ * worker terlalu lama membuat vitest gagal dengan "Timeout calling onTaskUpdate" saat mesin CI sibuk,
+ * walaupun semua tesnya lulus.
+ */
+async function runAsync(world: World, career: Career, weeks: number) {
+  for (let i = 0; i < weeks; i++) {
+    if (i % 4 === 0) await new Promise((r) => setTimeout(r, 0));
+    ({ world, career } = run(world, career, 1));
+  }
+  return { world, career };
+}
+
 const me = (w: World) => w.players.find((p) => p.isUser)!;
 
 describe('minggu demi minggu', () => {
-  it('hasilnya sama persis untuk save yang sama (deterministik)', () => {
+  it('hasilnya sama persis untuk save yang sama (deterministik)', async () => {
     const a = start('DET');
-    const r1 = run(a.world, a.career, 30);
-    const r2 = run(a.world, a.career, 30);
+    const r1 = await runAsync(a.world, a.career, 30);
+    const r2 = await runAsync(a.world, a.career, 30);
     expect(r2.career).toEqual(r1.career);
     expect(me(r2.world)).toEqual(me(r1.world));
     expect(r2.world.seasons).toEqual(r1.world.seasons);
@@ -44,12 +57,12 @@ describe('minggu demi minggu', () => {
     expect(JSON.stringify({ c: a.career, p: me(a.world) })).toBe(before);
   });
 
-  it('2 tahun: CA tidak melewati PA, semua nilai tetap di batasnya', () => {
+  it('2 tahun: CA tidak melewati PA, semua nilai tetap di batasnya', async () => {
     for (const seed of ['L1', 'L2']) {
       const a = start(seed, seed === 'L2' ? 'ENG' : 'IDN');
       a.career.plan.intensity = 'berat';
       a.career.plan.focus = 'peran';
-      const { world, career } = run(a.world, a.career, 104);
+      const { world, career } = await runAsync(a.world, a.career, 104);
       const p = me(world);
       expect(career.week).toBe(104);
       expect(p.ca).toBeLessThanOrEqual(p.pa);
@@ -82,8 +95,8 @@ describe('minggu demi minggu', () => {
     }
   }, 120_000);
 
-  it('latihan berat membuat pemain berkembang lebih cepat daripada ringan', () => {
-    const grow = (intensity: Intensity) => {
+  it('latihan berat membuat pemain berkembang lebih cepat daripada ringan', async () => {
+    const grow = async (intensity: Intensity) => {
       let total = 0;
       for (const seed of ['G1', 'G2', 'G3', 'G4', 'G5']) {
         const a = start(seed);
@@ -92,12 +105,12 @@ describe('minggu demi minggu', () => {
         // tanpa cedera supaya adil
         const p = me(a.world);
         p.hidden['Injury Proneness'] = 1;
-        const r = run(a.world, a.career, 26);
+        const r = await runAsync(a.world, a.career, 26);
         total += me(r.world).ca - p.ca;
       }
       return total;
     };
-    expect(grow('berat')).toBeGreaterThan(grow('ringan'));
+    expect(await grow('berat')).toBeGreaterThan(await grow('ringan'));
   }, 60_000);
 
   it('tidak bisa lanjut minggu sebelum pesan dijawab', () => {
