@@ -97,9 +97,13 @@ function eventText(e: MatchEvent, names: [string, string]): string | null {
     case 'sub':
       return `🔁 ${e.name} masuk menggantikan ${e.assist} (${team})`;
     case 'yellow':
+      if (e.dive) return `🟨 Kartu kuning untuk diving: ${e.name} (${team})`;
+      if (e.dissent) return `🟨 Kartu kuning karena protes: ${e.name} (${team})`;
       return `🟨 Kartu kuning: ${e.name} (${team})`;
-    case 'red':
-      return e.second ? `🟨🟥 Kartu kuning kedua, ${e.name} diusir! (${team})` : `🟥 Kartu merah langsung: ${e.name} (${team})`;
+    case 'red': {
+      const why = e.dive ? ' karena diving' : e.dissent ? ' karena protes' : '';
+      return e.second ? `🟨🟥 Kartu kuning kedua${why}, ${e.name} diusir! (${team})` : `🟥 Kartu merah langsung: ${e.name} (${team})`;
+    }
     case 'injury':
       return `🚑 ${e.name} cedera dan harus ditarik keluar (${team})`;
     case 'half':
@@ -558,6 +562,13 @@ function Live({
           ctx.fillRect(cx - k * 0.12, cy - k * 0.38, k * 0.24, k * 0.76);
           ctx.fillRect(cx - k * 0.38, cy - k * 0.12, k * 0.76, k * 0.24);
         }
+        // pemain yang sedang frustrasi (dilanggar terus, peluang gagal, timnya tertinggal): titik merah kecil
+        if (!hurt && b.on && b.frus > 0.6) {
+          ctx.fillStyle = '#ff5a36';
+          ctx.beginPath();
+          ctx.arc(x - r * 0.95, y - r * 0.95, r * 0.34, 0, Math.PI * 2);
+          ctx.fill();
+        }
         if (b.p.user) user = [x, y, b.p.name];
       }
       // papan pergantian ofisial keempat: nomor merah keluar, nomor hijau masuk
@@ -866,6 +877,8 @@ function TeamSheet({
               <title>
                 {b.p.name} · {SLOT_LABEL[b.p.slot] ?? b.p.slot}
                 {b.p.role ? ` · ${ROLES[b.p.role]?.name ?? b.p.role}` : ''} · rating {r.toFixed(1)}
+                {match.captain(b.side) === b ? ' · kapten' : ''}
+                {b.frus > 0.6 ? ' · sedang frustrasi' : ''}
               </title>
               {b.p.user && <circle cx={cx} cy={cy} r={5.6} className="mv-me-ring" />}
               <circle cx={cx} cy={cy} r={4.2} fill={fill} stroke={light ? 'rgba(0,0,0,.5)' : 'rgba(255,255,255,.7)'} strokeWidth={0.5} opacity={b.hurt >= 0 ? 0.5 : 1} />

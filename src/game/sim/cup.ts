@@ -12,6 +12,7 @@ import { clubStrengths, roundDate, seasonForm, simScore, squadOf } from './seaso
 import { addStats, clubSide, engineGame, selection } from './match';
 import type { EngineInput } from './engine';
 import { afterGame, serveBan } from './discipline';
+import { stageStakes } from './stakes';
 
 /** Nama piala domestik; bisa diganti lewat editor nama (world.compNames[`cup:<liga>`]) */
 export const cupName = (league: League, world?: Pick<World, 'compNames'>) =>
@@ -203,6 +204,8 @@ export function playClubGame(o: {
   comp: Competition;
   season: string;
   stage: string;
+  /** tingkat tekanan laga 0..1 (lihat stakes.ts) */
+  stakes?: number;
   /** skor simulasi cepat (sudut pandang klubmu), dipakai kalau kamu tidak bermain */
   quick: [number, number];
   /** bonus peluang dipilih (rotasi pelatih) */
@@ -232,6 +235,7 @@ export function playClubGame(o: {
       neutral: o.neutral,
       seed: `${career.characterSeed}:${o.date}:${club.id}:${o.tag}`,
       feats: true,
+      stakes: o.stakes,
     });
     score = g.score;
     perf = { ...g.perf, ...g.extra };
@@ -289,6 +293,7 @@ function userTie(
     comp: 'Piala',
     season: cup.season,
     stage: `${cup.name} · ${round.name}`,
+    stakes: stageStakes(round.name, 0.45),
     quick: home ? tie.score! : [tie.score![1], tie.score![0]],
     bonus: early ? 5 : 0,
     rng,

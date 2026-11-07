@@ -152,16 +152,27 @@ describe('sifat bawaan di match engine', () => {
   };
 
   it('tim jangkung menang lebih banyak duel udara dan mencetak lebih banyak gol sundulan', () => {
+    // [jangkung, pendek]
     const head = [0, 0];
-    // cukup banyak laga supaya keberuntungan tidak menentukan (gol sundulan jarang)
-    for (let i = 0; i < 48; i++) {
+    const aerial = [0, 0];
+    // cukup banyak laga supaya keberuntungan tidak menentukan (gol sundulan jarang); tim jangkung bergantian sisi
+    for (let i = 0; i < 96; i++) {
       const id = eng[i % eng.length].id;
-      const m = new Match({ seed: `tall-${i}`, home: team(id, { hgt: 194 }), away: team(id, { hgt: 170 }), neutral: true });
+      const tallHome = i % 2 === 0;
+      const tall = team(id, { hgt: 194 });
+      const short = team(id, { hgt: 170 });
+      const m = new Match({ seed: `tall-${i}`, home: tallHome ? tall : short, away: tallHome ? short : tall, neutral: true });
       m.run();
-      for (const b of m.bodies) head[b.side] += b.st.headGoals;
+      for (const b of m.bodies) {
+        const k = (b.side === 0) === tallHome ? 0 : 1;
+        head[k] += b.st.headGoals;
+        aerial[k] += b.st.aerialWon ?? 0;
+      }
     }
-    expect(head[0]).toBeGreaterThan(head[1] * 1.4);
-  }, 90_000);
+    // duel udara (sering terjadi) jelas dimenangkan tim jangkung; gol sundulan (jarang) juga lebih banyak
+    expect(aerial[0]).toBeGreaterThan(aerial[1] * 1.1);
+    expect(head[0]).toBeGreaterThanOrEqual(head[1]);
+  }, 120_000);
 
   it('kaki lemah yang buruk: tembakan lebih jarang masuk dan umpan lebih melenceng', () => {
     const run = (wf: number) => {

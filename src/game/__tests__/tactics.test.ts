@@ -8,6 +8,7 @@ import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tac
 import { PLAY_TRAITS, playTraits } from '../sim/traits';
 import { famStart, intensityDrain, learnTactic, tacticFam, understandWeek } from '../sim/understanding';
 import type { Career } from '../types';
+import { LEAGUE_STAKES, leagueStakes, stageStakes } from '../sim/stakes';
 
 const w = generateWorld({ seed: 'TACT', activeLeagues: ['ENG1', 'IDN1'] });
 const eng = w.clubs.filter((c) => c.leagueId === 'ENG1');
@@ -269,4 +270,94 @@ describe('match engine versi 13', () => {
     expect(p20 / p10).toBeGreaterThan(1.3);
     expect(p5 / p10).toBeLessThan(0.85);
   });
+});
+
+describe('match engine versi 14: kepribadian & mental', () => {
+  type Mind = { mind(): void; frustrate(b: unknown, n: number): void; foul(d: unknown, c: unknown): void };
+  const withAll = (t: ETeam, k: keyof ETeam['xi'][number]['a'], v: number): ETeam => ({
+    ...t,
+    xi: t.xi.map((p) => ({ ...p, a: { ...p.a, [k]: v } })),
+    bench: t.bench?.map((p) => ({ ...p, a: { ...p.a, [k]: v } })),
+  });
+
+  it('tingkat tekanan laga dari nama babak, derby, dan akhir musim', () => {
+    expect(stageStakes('Piala Liga · Final', 0.45)).toBe(1);
+    expect(stageStakes('Semifinal · leg 2', 0.55)).toBe(0.85);
+    expect(stageStakes('Perempat final', 0.45)).toBe(0.75);
+    expect(stageStakes('16 besar', 0.45)).toBe(0.65);
+    expect(stageStakes('Grup B · matchday 2', 0.55)).toBe(0.55);
+    expect(stageStakes('Laga internasional', 0.5)).toBeLessThanOrEqual(0.25);
+    expect(leagueStakes({ round: 3, rounds: 38, derby: false })).toBe(LEAGUE_STAKES);
+    expect(leagueStakes({ round: 36, rounds: 38, derby: true })).toBeCloseTo(0.65);
+    expect(leagueStakes({ round: 36, rounds: 38, derby: true, youth: true })).toBe(0.2);
+  });
+
+  it('di final pemain gugup (Pressure & Important Matches rendah) kehilangan ketenangan, pemain bermental baja tidak', () => {
+    const run = (v: number) => {
+      const home = withAll(withAll(side(eng[0].id), 'pre', v), 'imp', v);
+      const m = new Match({ seed: 'nerve', home, away: side(eng[1].id), stakes: 1 });
+      return m.bodies.filter((b) => b.on && b.side === 0).map((b) => b.p.a.cmp - b.base.cmp);
+    };
+    const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+    expect(avg(run(3))).toBeLessThan(-1);
+    expect(avg(run(18))).toBeGreaterThan(0.5);
+    // laga liga biasa: efeknya jauh lebih kecil
+    const league = new Match({ seed: 'nerve', home: withAll(withAll(side(eng[0].id), 'pre', 3), 'imp', 3), away: side(eng[1].id) });
+    const l = avg(league.bodies.filter((b) => b.on && b.side === 0).map((b) => b.p.a.cmp - b.base.cmp));
+    expect(l).toBeGreaterThan(avg(run(3)));
+  });
+
+  it('Temperament rendah cepat frustrasi; frustrasi menaikkan agresi dan menurunkan ketenangan', () => {
+    const m = new Match({ seed: 'tem', home: side(eng[0].id), away: side(eng[1].id) });
+    const v = m as unknown as Mind;
+    const [hot, calm] = m.bodies.filter((b) => b.on && b.side === 0 && b.p.slot !== 'GK');
+    hot.p.a.tem = 3;
+    calm.p.a.tem = 18;
+    for (const b of [hot, calm]) v.frustrate(b, 0.3);
+    expect(hot.frus).toBeGreaterThan(calm.frus * 2);
+    v.mind();
+    expect(hot.p.a.agg).toBeGreaterThan(hot.base.agg + 2);
+    expect(hot.p.a.cmp).toBeLessThan(hot.base.cmp - 0.5);
+    // dilanggar membuat frustrasi
+    const before = calm.frus;
+    v.foul(m.bodies.find((b) => b.on && b.side === 1 && b.p.slot !== 'GK'), calm);
+    expect(calm.frus).toBeGreaterThan(before);
+  });
+
+  it('Consistency menentukan naik turunnya performa harian', () => {
+    const spread = (cons: number) => {
+      let s = 0;
+      let n = 0;
+      for (let i = 0; i < 40; i++) {
+        const home = withAll(side(eng[2].id), 'cons', cons);
+        const m = new Match({ seed: `cons-${i}`, home, away: side(eng[3].id) });
+        // simpangan tiap pemain dari rata-rata timnya (tanpa performa tim & keunggulan kandang)
+        const d = m.bodies.filter((x) => x.on && x.side === 0).map((b) => b.base.pas - home.xi.find((p) => p.id === b.p.id)!.a.pas);
+        const mean = d.reduce((t, x) => t + x, 0) / d.length;
+        for (const x of d) {
+          s += Math.abs(x - mean);
+          n++;
+        }
+      }
+      return s / n;
+    };
+    expect(spread(3)).toBeGreaterThan(spread(18) * 2.5);
+  });
+
+  it('Dirtiness menambah pelanggaran, Sportsmanship rendah membuat pemain diving', () => {
+    let clean = 0;
+    let dirty = 0;
+    let dives = 0;
+    for (let i = 0; i < 12; i++) {
+      const a = new Match({ seed: `dirt-${i}`, home: withAll(side(eng[4].id), 'dirt', 2), away: side(eng[5].id) });
+      a.run();
+      clean += a.fouls[0];
+      const b = new Match({ seed: `dirt-${i}`, home: withAll(withAll(side(eng[4].id), 'dirt', 18), 'spo', 1), away: side(eng[5].id) });
+      b.run();
+      dirty += b.fouls[0];
+      dives += b.dives;
+    }
+    expect(dirty).toBeGreaterThan(clean * 1.25);
+    expect(dives).toBeGreaterThan(0);
+  }, 30000);
 });

@@ -14,6 +14,7 @@ import { assignXI, clubFormation, type FormationId } from './formation';
 import { clubTactic, tacticIntensity, tacticK, type Tactic } from './tactics';
 import { playTraits } from './traits';
 import { clubKey, tacticFam } from './understanding';
+import { leagueStakes } from './stakes';
 
 type Group = 'GK' | 'DEF' | 'MID' | 'ATT';
 const GROUP: Record<Position, Group> = {
@@ -182,6 +183,8 @@ export function engineGame(o: {
   feats?: boolean;
   /** lapangan netral (turnamen): tanpa keunggulan kandang */
   neutral?: boolean;
+  /** tingkat tekanan laga 0..1 (lihat stakes.ts) */
+  stakes?: number;
 }): { score: [number, number]; perf: Perf; sim: EngineInput; extra: Partial<MatchRecord>; result: EngineResult } {
   const { p, career, status, rng, home } = o;
   const fit = clamp(0.75 + career.fitness / 400, 0.75, 1);
@@ -237,6 +240,7 @@ export function engineGame(o: {
   };
   const sim: EngineInput = { seed: o.seed, home: home ? ourTeam : oppTeam, away: home ? oppTeam : ourTeam };
   if (o.neutral) sim.neutral = true;
+  if (o.stakes !== undefined) sim.stakes = o.stakes;
   const r = playEngine(sim);
   const us = home ? 0 : 1;
   const score: [number, number] = [r.score[us], r.score[1 - us]];
@@ -384,6 +388,12 @@ export function userMatch(
       home,
       seed: `${career.characterSeed}:${date}:${club.id}`,
       feats: comp === 'Liga',
+      stakes: leagueStakes({
+        round: fixture?.round ?? 0,
+        rounds: fixture ? week.seasons[fixture.leagueId].rounds.length : 0,
+        derby: !!club.city && club.city === oppClub.city,
+        youth: comp === 'U19',
+      }),
     });
     ({ score, perf, sim, extra } = g);
     if (fixture) engine = { ...fixture, result: g.result, input: g.sim };

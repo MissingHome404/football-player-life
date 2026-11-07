@@ -111,7 +111,8 @@ describe('match engine', () => {
         if (e.kind !== 'red') continue;
         red++;
         // pemain yang diusir keluar lapangan dan tidak kembali
-        const b = m.bodies.find((q) => q.p.name === e.name && q.side === e.side)!;
+        // (nama pendek bisa kembar dalam satu tim: cari yang memang dikartu merah)
+        const b = m.bodies.find((q) => q.p.name === e.name && q.side === e.side && q.st.red > 0)!;
         expect(b.on).toBe(false);
         expect(b.st.off).toBeCloseTo(e.t, 5);
         expect(r.ratings[b.p.id]).toBeLessThanOrEqual(6);

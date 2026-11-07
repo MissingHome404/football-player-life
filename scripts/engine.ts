@@ -27,7 +27,9 @@ const team = (id: string): ETeam => {
 let played = 0;
 const kinds: number[][] = [];
 let goals = 0, homeW = 0, awayW = 0, draws = 0, shots = 0, onT = 0, ms = 0, poss = 0, passes = 0, passOk = 0, tackles = 0;
-let fouls = 0, yellow = 0, red = 0, corners = 0, spGoals = 0;
+let fouls = 0, yellow = 0, red = 0, corners = 0, spGoals = 0, dives = 0;
+// STAKES=1: semua laga dianggap final (uji atribut Pressure & Important Matches)
+const STAKES = process.env.STAKES ? Number(process.env.STAKES) : undefined;
 const ratings: number[] = [];
 const strongWins: number[] = [];
 const evK: Record<string, number> = {};
@@ -43,7 +45,7 @@ for (let i = 0; i < N; i++) {
   played++;
   const t0 = performance.now();
   const ta = team(a.id), tb = team(b.id);
-  const m = new Match({ seed: 'c' + i, home: ta, away: tb });
+  const m = new Match({ seed: 'c' + i, home: ta, away: tb, ...(STAKES !== undefined ? { stakes: STAKES } : {}) });
   const r = m.run();
   ms += performance.now() - t0;
   for (const e of r.events) evK[e.kind] = (evK[e.kind] ?? 0) + 1;
@@ -51,7 +53,7 @@ for (let i = 0; i < N; i++) {
   if (r.score[0] > r.score[1]) homeW++; else if (r.score[0] === r.score[1]) draws++; else awayW++;
   shots += r.shots[0] + r.shots[1]; onT += r.onTarget[0] + r.onTarget[1];
   poss += Math.abs(r.possession[0] - 50);
-  fouls += m.fouls[0] + m.fouls[1]; corners += m.corners[0] + m.corners[1]; spGoals += m.setPieceGoals;
+  fouls += m.fouls[0] + m.fouls[1]; corners += m.corners[0] + m.corners[1]; spGoals += m.setPieceGoals; dives += m.dives;
   (styleP[a.playingStyle] ??= []).push(r.possession[0]);
   (styleP[b.playingStyle] ??= []).push(r.possession[1]);
   // poin per laga dikoreksi kekuatan: poin - harapan dari selisih reputasi
@@ -76,7 +78,7 @@ const n = played;
 const pc = (v: number) => (v / n * 100).toFixed(0) + '%';
 ratings.sort((x, y) => x - y);
 console.log(`n=${n} goals/match ${(goals / n).toFixed(2)} H/D/A ${pc(homeW)}/${pc(draws)}/${pc(awayW)} shots ${(shots / n).toFixed(1)} onT ${(onT / n).toFixed(1)} passAcc ${(passOk / passes * 100).toFixed(0)}% passes/team ${(passes / n / 2).toFixed(0)} tackles/match ${(tackles / n).toFixed(0)} |poss-50| ${(poss / n).toFixed(1)} strongerWins ${(strongWins.reduce((s, v) => s + v, 0) / strongWins.length * 100).toFixed(0)}% (${strongWins.length}) rating p10/50/90 ${ratings[Math.floor(ratings.length * 0.1)]}/${ratings[Math.floor(ratings.length / 2)]}/${ratings[Math.floor(ratings.length * 0.9)]} ms/match ${(ms / n).toFixed(1)}`);
-console.log(`fouls ${(fouls / n).toFixed(1)} yellow ${(yellow / n).toFixed(2)} red ${(red / n).toFixed(2)} corners ${(corners / n).toFixed(1)} set-piece goals ${(spGoals / goals * 100).toFixed(0)}%`);
+console.log(`fouls ${(fouls / n).toFixed(1)} yellow ${(yellow / n).toFixed(2)} red ${(red / n).toFixed(2)} corners ${(corners / n).toFixed(1)} set-piece goals ${(spGoals / goals * 100).toFixed(0)}% dives ${(dives / n).toFixed(2)} penalties ${((evK.penalty ?? 0) / n).toFixed(2)}`);
 const tot = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
 const pct = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => k + ':' + (v / tot(o) * 100).toFixed(0)).join(' ');
 let lg = 0, sg = 0, hg = 0; for (const r of kinds) { lg += r[0]; sg += r[1]; hg += r[2]; } console.log(`goal kinds: long ${(lg / goals * 100).toFixed(0)}% set ${(sg / goals * 100).toFixed(0)}% head ${(hg / goals * 100).toFixed(0)}%`);

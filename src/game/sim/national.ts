@@ -29,6 +29,7 @@ import { addStats, engineGame, groupOf, recentForm, type GameSide } from './matc
 import { afterGame, serveBan } from './discipline';
 import { nationStyle, type EngineInput } from './engine';
 import type { NatPlayed } from './awards';
+import { stageStakes } from './stakes';
 
 export const SQUAD_SIZE = 23;
 export const SQUAD_GK = 3;
@@ -450,6 +451,8 @@ export function nationalWeek(
       neutral,
       seed: `${career.characterSeed}:${f.date}:${country}:${team}`,
       feats: team === 'senior',
+      // turnamen besar (fase grup pun) bertekanan tinggi; laga U-20 lebih ringan
+      stakes: Math.max(0.1, stageStakes(stage, knockout || neutral ? 0.7 : 0.5) - (team === 'u20' ? 0.15 : 0)),
     });
     const rec: MatchRecord = {
       date: f.date,

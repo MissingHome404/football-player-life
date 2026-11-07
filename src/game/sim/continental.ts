@@ -9,6 +9,7 @@ import { addDays } from '../date';
 import { COUNTRY_BY_ID } from '../data/countries';
 import { clubStrengths, makeFixtures, seasonForm, simScore } from './season';
 import { playClubGame, recordClubGame, shootout, type CupGame } from './cup';
+import { stageStakes } from './stakes';
 
 export type Confed = 'UEFA' | 'AFC';
 
@@ -332,6 +333,7 @@ export function continentalWeek(
           comp: 'Kontinental',
           season: comp.season,
           stage: `${comp.name} · ${stage}`,
+          stakes: stageStakes(stage, 0.55),
           quick: home ? score : [score[1], score[0]],
           bonus: 0,
           rng,

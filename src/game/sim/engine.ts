@@ -44,7 +44,7 @@ import { playTraits, traitK } from './traits';
 import { aiFamiliarity, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 13;
+export const ENGINE_VERSION = 14;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -61,7 +61,7 @@ const BOX_Y = 20.16;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 4.9, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 4.65, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -112,10 +112,10 @@ export const TUNE = {
   backLine: 27,
   /** keunggulan kandang (poin atribut mental & teknik) */
   home: 1.1,
-  /** performa harian: simpangan tim & pemain (poin atribut) */
-  formTeam: 0.3, formPlayer: 0.3,
+  /** performa harian: simpangan tim & pemain (poin atribut; simpangan pemain dikali faktor Consistency) */
+  formTeam: 0.3, formPlayer: 0.5,
   /** peluang kartu kuning per pelanggaran */
-  card: 0.4,
+  card: 0.36,
   /** mentalitas: selisih kualitas tim (poin atribut) -> -1..1, dan kekuatan efeknya */
   rel: 0.4,
   mental: 1,
@@ -126,7 +126,22 @@ export const TUNE = {
   height: 0.12,
   /** kekuatan efek skor (unggul bertahan, tertinggal menyerang) di akhir laga */
   gameState: 1,
+  /**
+   * v14 tekanan laga: poin atribut per (tingkat tekanan × selisih Pressure/Important Matches dari rata-rata),
+   * untuk pemain gugup (di bawah rata-rata) dan pemain bermental baja (di atas rata-rata)
+   */
+  nerve: 0.45, calm: 0.2,
+  /** frustrasi: pengali kenaikan, dan tambahan Aggression saat frustrasi penuh */
+  frus: 1.5, frusAgg: 10,
+  /** peluang diving per keputusan saat dijaga ketat di sekitar kotak penalti, per poin Sportsmanship di bawah 9 */
+  dive: 0.03,
+  /** peluang pelanggaran taktis (menjatuhkan lawan yang lolos) per poin Dirtiness di atas 10 */
+  tactical: 0.04,
 };
+/** atribut yang berubah selama laga menurut keadaan mental (tekanan, frustrasi, tekad, kelelahan) */
+const MIND_KEYS = ['cmp', 'dec', 'fin', 'pas', 'tec', 'ft', 'lon', 'pen', 'fk', 'agg', 'wor', 'con'] as const;
+type MindKey = (typeof MIND_KEYS)[number];
+const mindOf = (a: EAttrs) => Object.fromEntries(MIND_KEYS.map((k) => [k, a[k]])) as Record<MindKey, number>;
 
 /** Pengali keputusan menurut gaya main tim */
 interface StyleK {
@@ -205,6 +220,12 @@ export interface EAttrs {
   ref: number; han: number; ono: number; aer: number; cmd: number; kic: number; rus: number;
   /** natural fitness: pulih lebih cepat, tidak cepat lelah */
   nf: number;
+  /**
+   * Kepribadian & atribut tersembunyi (v14): pressure & important matches (tampil di laga besar),
+   * consistency (naik turunnya performa harian), temperament (mudah frustrasi), determination (pantang menyerah),
+   * leadership (kapten menenangkan rekan), dirtiness (pelanggaran sengaja), sportsmanship (tidak diving)
+   */
+  pre: number; imp: number; cons: number; tem: number; det: number; lea: number; dirt: number; spo: number;
 }
 
 export interface EP {
@@ -248,6 +269,11 @@ export interface EngineInput {
   away: ETeam;
   /** lapangan netral (turnamen): tanpa keunggulan kandang */
   neutral?: boolean;
+  /**
+   * Tingkat tekanan laga 0..1 (v14): laga liga biasa 0.35, final 1. Pemain dengan Pressure & Important
+   * Matches tinggi tampil lebih tenang di laga besar, yang rendah gugup.
+   */
+  stakes?: number;
 }
 
 /** Risiko cedera dari Injury Proneness (sama dengan rumus cedera mingguan) */
@@ -274,6 +300,9 @@ export function engineAttrs(p: Player): EAttrs {
     aer: keeper ? g['Aerial Reach'] : 3, cmd: keeper ? g['Command of Area'] : 3, kic: keeper ? g.Kicking : 3,
     rus: keeper ? g['Rushing Out (Tendency)'] : 3,
     nf: ph['Natural Fitness'],
+    pre: p.personality.Pressure, imp: p.hidden['Important Matches'], cons: p.hidden.Consistency,
+    tem: p.personality.Temperament, det: m.Determination, lea: m.Leadership, dirt: p.hidden.Dirtiness,
+    spo: p.personality.Sportsmanship,
   };
 }
 
@@ -289,6 +318,8 @@ function fullAttrs(a: Partial<EAttrs>): EAttrs {
     con: d(a.con), agg: d(a.agg), fla: d(a.fla), bra: d(a.bra), inj: d(a.inj, 1), hgt: d(a.hgt, 180), wf: d(a.wf, 12), gk,
     ref: d(a.ref, gk), han: d(a.han, gk), ono: d(a.ono, gk), aer: d(a.aer, gk), cmd: d(a.cmd, gk), kic: d(a.kic, 10),
     rus: d(a.rus, 10), nf: d(a.nf, 10),
+    pre: d(a.pre, 11), imp: d(a.imp), cons: d(a.cons), tem: d(a.tem, 11), det: d(a.det), lea: d(a.lea), dirt: d(a.dirt, 8),
+    spo: d(a.spo, 11),
   };
 }
 
@@ -409,6 +440,8 @@ export interface PStats {
   /** menit jam pertandingan saat masuk / keluar (tanpa menit tambahan) */
   onMin?: number;
   offMin?: number;
+  /** duel udara yang dimenangkan (saat lawan ikut melompat) */
+  aerialWon?: number;
 }
 
 export type EventKind =
@@ -425,6 +458,10 @@ export interface MatchEvent {
   og?: boolean;
   /** kartu merah karena kartu kuning kedua */
   second?: boolean;
+  /** kartu karena diving (pura-pura dilanggar) */
+  dive?: boolean;
+  /** kartu karena protes keras kepada wasit */
+  dissent?: boolean;
   /** menit tambahan (injury time): 45+2 = min 45, plus 2. Untuk event 'added': jumlah menit tambahan */
   plus?: number;
 }
@@ -465,6 +502,10 @@ export interface Body {
   waiting?: boolean;
   /** pemain pengganti sedang berlari dari pinggir lapangan ke posisinya (bola mati menunggu) */
   entering?: boolean;
+  /** frustrasi 0..1 (dilanggar, direbut, kebobolan, peluang gagal); Temperament rendah = cepat naik */
+  frus: number;
+  /** atribut mental & teknik setelah performa harian, sebelum efek tekanan, frustrasi, dan kelelahan */
+  base: Record<MindKey, number>;
 }
 
 export interface Ball {
@@ -665,14 +706,17 @@ export class Match {
       }
       const tf = form.normal(0, TUNE.formTeam) + (side === 0 && !input.neutral ? TUNE.home : 0);
       for (const b of list) {
-        const d = tf + form.normal(0, TUNE.formPlayer);
         const a = b.p.a;
+        // Consistency: pemain konsisten hampir selalu tampil sesuai kemampuannya, yang tidak konsisten naik turun
+        const d = tf + form.normal(0, TUNE.formPlayer * clamp(2.6 - a.cons * 0.12, 0.2, 2.5));
         for (const key of FORM_KEYS) a[key] = clamp(a[key] + d, 1, 21);
         if (b.p.slot === 'GK') for (const key of GK_KEYS) a[key] = clamp(a[key] + d, 1, 21);
+        b.base = mindOf(a);
       }
     });
     this.refresh();
     this.mentality();
+    this.mind();
     this.kickoff(0);
   }
 
@@ -713,6 +757,67 @@ export class Match {
     }
   }
 
+  /** seberapa kuat kapten menenangkan rekan (0..0.5, dari Leadership) */
+  private capK: [number, number] = [0, 0];
+  /** jumlah aksi diving dalam laga */
+  dives = 0;
+
+  /** Kapten di lapangan: pemain dengan Leadership tertinggi */
+  captain(side: 0 | 1): Body | undefined {
+    let best: Body | undefined;
+    for (const b of this.onPitch[side]) if (!best || b.p.a.lea > best.p.a.lea) best = b;
+    return best;
+  }
+
+  /**
+   * Keadaan mental tiap pemain, dihitung ulang tiap menit:
+   * - tekanan laga (laga besar, skor ketat di menit akhir): Pressure & Important Matches rendah = gugup
+   *   (Composure, Decisions, Finishing, Penalty Taking turun), tinggi = makin tenang. Kapten menenangkan rekan.
+   * - frustrasi (Temperament): Aggression naik, Composure & Decisions turun
+   * - Determination: tertinggal di babak kedua, pemain pantang menyerah bekerja lebih keras
+   * - Concentration turun saat lelah (pemain dengan konsentrasi tinggi tetap fokus)
+   */
+  private mind() {
+    const min = this.clock().min;
+    const close = Math.abs(this.score[0] - this.score[1]) <= 1 ? clamp((min - 70) / 20, 0, 1) * 0.25 : 0;
+    const P = (this.input.stakes ?? 0.35) + close;
+    const late = clamp((min - 45) / 45, 0, 1);
+    for (const side of [0, 1] as const) {
+      const cap = this.captain(side);
+      this.capK[side] = cap ? clamp((cap.p.a.lea - 10) * 0.05, 0, 0.5) : 0;
+      const trail = Math.max(0, this.score[1 - side] - this.score[side]);
+      for (const b of this.onPitch[side]) {
+        const a = b.p.a;
+        const m = b.base;
+        const cool = (a.pre + a.imp) / 2 - 10.5;
+        let nerve = clamp(P * cool * (cool < 0 ? TUNE.nerve : TUNE.calm), -4, 2);
+        if (nerve < 0 && b !== cap) nerve *= 1 - this.capK[side];
+        // frustrasi mereda pelan (Temperament tinggi = cepat tenang); tertinggal jauh membuat panas
+        b.frus = clamp(b.frus - (0.006 + a.tem * 0.0012) + (trail >= 2 ? 0.006 * trail * this.temK(b) : 0), 0, 1);
+        const f = b.frus;
+        a.cmp = clamp(m.cmp + nerve - f * 3, 1, 21);
+        a.dec = clamp(m.dec + nerve * 0.8 - f * 2, 1, 21);
+        a.fin = clamp(m.fin + nerve * 0.7, 1, 21);
+        a.pen = clamp(m.pen + nerve, 1, 21);
+        a.fk = clamp(m.fk + nerve * 0.5, 1, 21);
+        for (const k of ['pas', 'tec', 'ft', 'lon'] as const) a[k] = clamp(m[k] + nerve * 0.4, 1, 21);
+        a.agg = clamp(m.agg + f * TUNE.frusAgg, 1, 21);
+        a.wor = clamp(m.wor + (trail > 0 ? (a.det - 10) * 0.3 * late : 0), 1, 21);
+        a.con = clamp(m.con - (1 - b.energy) * (20 - m.con) * 0.5, 1, 21);
+      }
+    }
+  }
+
+  /** kepekaan frustrasi dari Temperament (1 = 1.44, 10 = 0.85, 20 = 0.2) */
+  private temK(b: Body) {
+    return clamp(1.5 - b.p.a.tem * 0.065, 0.2, 1.45);
+  }
+
+  /** frustrasi bertambah (dilanggar, direbut, kebobolan, peluang gagal); kapten meredamnya */
+  private frustrate(b: Body, amount: number) {
+    b.frus = clamp(b.frus + amount * TUNE.frus * this.temK(b) * (1 - this.capK[b.side] * 0.5), 0, 1);
+  }
+
   private makeBody(p: EP, side: 0 | 1, on: boolean): Body {
     const st: PStats = {
       passes: 0, passesOk: 0, keyPasses: 0, shots: 0, onTarget: 0, goals: 0, assists: 0, tackles: 0,
@@ -725,7 +830,7 @@ export class Match {
     const qual = (a.pas + a.tec + a.ft + a.cmp + a.dec + a.vis + a.ant + a.pos + a.otb + a.tck) / 10;
     return {
       p: ep, rk: playStyle(ep.role, ep.duty, traitK(ep.traits), ep.fam ?? 1), rx: 0, ry: 0, side, x: 52.5, y: 34, vx: 0, vy: 0, tx: 52.5, ty: 34, on, st, cool: 0, run: 0,
-      think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1,
+      think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1, frus: 0, base: mindOf(a),
     };
   }
 
@@ -1025,7 +1130,8 @@ export class Match {
         // pemain yang belum paham taktik lebih lambat membaca posisinya dan lebih sering salah tempat
         const fam = b.p.fam ?? 1;
         const famErr = 1.45 - 0.5 * fam;
-        b.think = 0.15 + (20 - a.ant) * 0.018 + this.rng.float(0, 0.12) + (1 - fam) * 0.12;
+        // konsentrasi rendah (apalagi saat lelah di akhir laga): lebih lambat membaca ulang situasi
+        b.think = 0.15 + (20 - a.ant) * 0.018 + this.rng.float(0, 0.12) + (1 - fam) * 0.12 + Math.max(0, 13 - a.con) * 0.008;
         // kesalahan posisi pribadi bergerak pelan
         b.ox = clamp(b.ox * 0.85 + this.rng.normal(0, 0.9), -3, 3);
         b.oy = clamp(b.oy * 0.85 + this.rng.normal(0, 0.9), -3, 3);
@@ -1584,8 +1690,16 @@ export class Match {
     const fx = this.fx(side, c.x);
     const fy = this.fy(side, c.y);
     const opps = this.opponents(side);
-    const [, pd] = this.nearest(opps, c.x, c.y);
+    const [near, pd] = this.nearest(opps, c.x, c.y);
     const pressure = pd < 2 ? 1 : pd < 4 ? 0.5 : 0;
+    // diving: penyerang dengan Sportsmanship rendah menjatuhkan diri saat dijaga ketat di sekitar kotak penalti
+    if (
+      near && a.spo < 9 && pd < 1.8 && near.p.slot !== 'GK' && fx > PITCH_W - BOX_X - 6 && Math.abs(fy - 34) < BOX_Y + 4 &&
+      this.rng.chance((9 - a.spo) * TUNE.dive)
+    ) {
+      this.simulate(c, near);
+      return;
+    }
     const tk = this.tk[side];
     // pemahaman taktik & kebebasan kreatif: pemain yang belum paham ragu-ragu, tim ekspresif lebih spontan
     const noise = () => this.rng.normal(0, 0.04 + (20 - a.dec) * 0.012 + (1 - (c.p.a && (c.p.fam ?? 1))) * 0.03 + (tk?.creative ?? 0) * 0.01);
@@ -1618,7 +1732,8 @@ export class Match {
       const xg = this.xgAt(fx, fy);
       const v =
         this.shotProb(c, fx, fy, pressure) * TUNE.shootV * k.shoot * (1 + rk.shoot) -
-        (distGoal > 22 ? 0.14 - a.lon * 0.009 - rk.long : 0) +
+        // pemain yang frustrasi lebih nekat menembak dari jauh
+        (distGoal > 22 ? 0.14 - a.lon * 0.009 - rk.long - c.frus * 0.1 : 0) +
         (distGoal < 20 ? 0.12 : 0) +
         // bebas tanpa penjaga: langsung tembak hanya dari posisi bagus (bukan dari sudut sempit / jauh)
         (pd > 3 && xg > TUNE.openXg ? TUNE.openShot : 0);
@@ -2060,6 +2175,8 @@ export class Match {
     const onTarget = clamp(Math.max(p + 0.12, TUNE.onT + skill * foot * 0.017 - dist * 0.004 - pressure * 0.08), 0, 0.95);
     const r = this.rng.next();
     const outcome: Shot['outcome'] = forced ? forced.outcome : blocker ? 'miss' : r < p ? 'goal' : r < onTarget ? 'save' : 'miss';
+    // peluang emas gagal membuat penembak frustrasi
+    if (outcome !== 'goal' && xg > 0.25) this.frustrate(c, 0.12);
 
     // titik sasaran di mulut gawang & tinggi bola saat melewati garis
     const gy = gk ? this.fy(side, gk.y) : 34;
@@ -2273,6 +2390,8 @@ export class Match {
     const gk = this.keeper(opp);
     this.score[side]++;
     if (gk) gk.st.conceded++;
+    for (const b of this.onPitch[opp]) this.frustrate(b, 0.15);
+    for (const b of this.onPitch[side]) b.frus = Math.max(0, b.frus - 0.2);
     if (s?.sp && s.by.side === side) this.setPieceGoals++;
     // pencetak gol untuk selebrasi (gol bunuh diri: tanpa selebrasi pencetak)
     const scorer = s && s.by.side === side ? s.by : this.lastTouch?.side === side ? this.lastTouch : null;
@@ -2352,6 +2471,7 @@ export class Match {
           best = o;
           duel = true;
         }
+        best.st.aerialWon = (best.st.aerialWon ?? 0) + 1;
         break;
       }
     }
@@ -2792,30 +2912,68 @@ export class Match {
         d.st.tackles++;
         c.st.lost++;
         c.cool = 0.8;
+        this.frustrate(c, 0.07);
         if (this.rng.chance(0.45 + da.tec * 0.01)) this.gain(d);
         else this.deflect(d, 6);
         this.knock(c, 1);
         return;
       }
-      // pemain yang sudah kena kartu kuning lebih berhati-hati
+      // pemain yang sudah kena kartu kuning lebih berhati-hati; pemain "kotor" (Dirtiness) lebih sering melanggar
       const foul =
-        TUNE.foul * (0.6 + da.agg / 25) * (1.3 - da.tck / 40) * (d.st.yellow ? 0.6 : 1) * (1 + 0.35 * d.rk.tackle + 0.2 * (this.tk[d.side]?.tackling ?? 0));
+        TUNE.foul * (0.6 + da.agg / 25) * (1.3 - da.tck / 40) * (d.st.yellow ? 0.6 : 1) * (1 + 0.35 * d.rk.tackle + 0.2 * (this.tk[d.side]?.tackling ?? 0)) *
+        (0.7 + da.dirt * 0.0375);
       if (this.rng.chance(foul)) {
         this.foul(d, c);
         // pelanggaran keras (agresif) lebih sering mencederai
         this.knock(c, 2 + (da.agg - 10) * 0.1);
         return;
       }
+      const afx = this.fx(c.side, c.x);
+      // pelanggaran taktis: pemain "kotor" menjatuhkan lawan yang lolos saat serangan balik
+      if (
+        da.dirt > 10 && afx > 40 && afx < PITCH_W - BOX_X - 3 && (c.run > 0 || this.t - this.wonAt[c.side] < 6) &&
+        this.rng.chance((da.dirt - 10) * TUNE.tactical)
+      ) {
+        this.foul(d, c, true);
+        return;
+      }
       // dilewati: pembela butuh waktu untuk berbalik
       c.st.dribbles += dist < 1.2 ? 1 : 0;
+      if (dist < 1.2) this.frustrate(d, 0.04);
       d.cool = 1.0 + (20 - da.agi) * 0.03;
     }
   }
 
-  /** Pelanggaran: tendangan bebas / penalti, dan mungkin kartu */
-  private foul(d: Body, c: Body) {
+  /**
+   * Diving: penyerang menjatuhkan diri. Wasit bisa tertipu (pelanggaran; di kotak penalti jarang),
+   * menghukumnya dengan kartu kuning, atau membiarkan permainan berjalan.
+   */
+  private simulate(c: Body, d: Body) {
+    this.dives++;
+    const fooled = this.inBox(d.side, c.x, c.y) ? 0.12 : 0.3;
+    const r = this.rng.next();
+    if (r < fooled) {
+      this.foul(d, c);
+      return;
+    }
+    if (r < fooled + 0.3) {
+      this.toDead('free', d.side, c.x, c.y, 1.6);
+      this.book(c, 'yellow', true);
+      return;
+    }
+    // dibiarkan: penyerang terjatuh dan kehilangan bola
+    c.cool = 1.3;
+    c.vx *= 0.2;
+    c.vy *= 0.2;
+    c.st.lost++;
+    if (this.owner === c) this.owner = null;
+  }
+
+  /** Pelanggaran: tendangan bebas / penalti, dan mungkin kartu. tactical = sengaja menghentikan serangan balik */
+  private foul(d: Body, c: Body, tactical = false) {
     d.st.fouls++;
     this.fouls[d.side]++;
+    this.frustrate(c, 0.2);
     const att = c.side;
     const fx = this.fx(att, c.x);
     const fy = this.fy(att, c.y);
@@ -2830,12 +2988,26 @@ export class Match {
     const a = d.p.a;
     let card: 'yellow' | 'red' | null = null;
     if (clear && !box && this.rng.chance(0.2)) card = 'red';
-    else if (this.rng.chance(0.0015 + Math.max(0, a.agg - 12) * 0.001)) card = 'red';
-    else if (this.rng.chance((TUNE.card * (0.6 + a.agg / 25) * (1.25 - a.cmp / 40) + (clear ? 0.45 : fx > 60 && c.run > 0 ? 0.2 : 0)) * (d.st.yellow ? 0.6 : 1))) {
+    else if (this.rng.chance(0.0015 + Math.max(0, d.base.agg - 12) * 0.001)) card = 'red';
+    // frustrasi memuncak pada pemain bertemperamen buruk: tindakan kasar, kartu merah langsung
+    else if (d.frus > 0.75 && a.tem < 9 && this.rng.chance((d.frus - 0.75) * (9 - a.tem) * 0.03)) card = 'red';
+    else if (
+      this.rng.chance(
+        (TUNE.card * (0.6 + a.agg / 25) * (1.25 - a.cmp / 40) * (0.85 + a.dirt * 0.019) * (1.3 - a.tem * 0.03) +
+          (clear ? 0.45 : tactical ? 0.35 : fx > 60 && c.run > 0 ? 0.2 : 0)) *
+          (d.st.yellow ? 0.6 : 1),
+      )
+    ) {
       card = 'yellow';
     }
+    // protes: pemain yang sedang frustrasi memprotes keputusan wasit dan bisa kena kartu kuning
+    let dissent = false;
+    if (!card && d.frus > 0.45 && a.tem < 12 && this.rng.chance((d.frus - 0.45) * (12 - a.tem) * 0.04)) {
+      card = 'yellow';
+      dissent = true;
+    }
     this.toDead('free', att, c.x, c.y, card ? 1.6 : 0.8);
-    if (card) this.book(d, card);
+    if (card) this.book(d, card, false, dissent);
   }
 
   /** Benturan bisa membuat pemain cedera: pemain rawan cedera dan yang kelelahan lebih sering */
@@ -3017,11 +3189,13 @@ export class Match {
   }
 
 
-  private book(b: Body, card: 'yellow' | 'red') {
+  private book(b: Body, card: 'yellow' | 'red', dive = false, dissent = false) {
     if (card === 'yellow') {
       b.st.yellow++;
       if (b.st.yellow < 2) {
         this.log('yellow', b.side, b.p.name);
+        if (dive) this.events[this.events.length - 1].dive = true;
+        if (dissent) this.events[this.events.length - 1].dissent = true;
         return;
       }
     }
@@ -3031,6 +3205,8 @@ export class Match {
     const e: MatchEvent = { t: this.t, min: c.min, kind: 'red', side: b.side, name: b.p.name };
     if (c.plus) e.plus = c.plus;
     if (card === 'yellow') e.second = true;
+    if (dive) e.dive = true;
+    if (dissent) e.dissent = true;
     this.events.push(e);
     b.on = false;
     b.st.off = this.t;
@@ -3099,6 +3275,7 @@ export class Match {
     if (this.t >= this.nextMental) {
       this.nextMental = this.t + HALF / 45;
       this.mentality();
+      this.mind();
     }
 
     // pergantian pemain kita: diputuskan pada menitnya, dilakukan saat bola mati berikutnya
