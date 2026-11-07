@@ -44,7 +44,7 @@ import { playTraits, traitK } from './traits';
 import { aiFamiliarity, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 17;
+export const ENGINE_VERSION = 18;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -71,7 +71,7 @@ const PC_R = 30;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 4.6, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 6.8, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -93,7 +93,7 @@ export const TUNE = {
   /** pengali peluang umpan silang terblok bek yang menempel (sumber sepak pojok terbesar) */
   crossBlock: 1,
   /** peluang gol dalam fase bola mati (setelah sepak pojok / umpan bola mati): pertahanan sudah tersusun */
-  spK: 0.55,
+  spK: 0.45,
   /** striker kiri dari duet penyerang turun menjemput bola */
   drop: 0,
   /** peluang cedera per benturan (tekel, dilanggar) untuk pemain dengan risiko rata-rata */
@@ -111,7 +111,7 @@ export const TUNE = {
   /** seberapa banyak kiper yang menutup sudut mengurangi peluang gol */
   gkCover: 0.35,
   /** peluang gol jenuh: tembakan dari dekat tidak pernah pasti masuk (batas atas pMax) */
-  pMax: 0.7,
+  pMax: 0.73,
   /** seberapa besar atribut penyelesaian (Finishing / Long Shots / Heading / Free Kick) mengubah peluang gol, per poin dari 10 */
   finK: 0.05,
   /** bobot peluang gol saat memilih menembak / membawa bola mendekat */
@@ -157,6 +157,13 @@ export const TUNE = {
    * ke ruang yang kalah adu cepat
    */
   pcSigma: 0.4, laneT: 0.45, depthK: 1, depthMax: 8, coverK: 0.5, spaceLose: 0.5,
+  /**
+   * v18 kiper & bola mati: kehati-hatian bek di kotak sendiri (pengali pelanggaran), peluang tepisan keluar
+   * lapangan (sepak pojok), seberapa jauh kiper mau keluar menyambut bola atas (Command of Area)
+   */
+  boxFoul: 0.5, parryOut: 0.45, claimK: 0.012,
+  /** v18 pergantian pemain menunggu bola mati paling lama sekian detik permainan */
+  subWait: 12,
   /** v17 selisih kecepatan puncak (Pace) dan percepatan (Acceleration) antar-pemain (1 = v16); 0.6: Pace 5 = 8,3 m/s, Pace 20 = 10,2 m/s */
   paceK: 0.6, accK: 0.6,
 };
@@ -240,6 +247,11 @@ export interface EAttrs {
   /** rata-rata atribut kiper (3 untuk pemain lapangan) */
   gk: number;
   ref: number; han: number; ono: number; aer: number; cmd: number; kic: number; rus: number;
+  /**
+   * v18 kiper: communication (mengatur lini belakang & bola mati), eccentricity (keluar sarang tak terduga),
+   * punching (kecenderungan meninju bola atas), throwing (lemparan cepat & akurat)
+   */
+  com: number; ecc: number; pun: number; thr: number;
   /** natural fitness: pulih lebih cepat, tidak cepat lelah */
   nf: number;
   /**
@@ -323,6 +335,8 @@ export function engineAttrs(p: Player): EAttrs {
     ref: keeper ? g.Reflexes : 3, han: keeper ? g.Handling : 3, ono: keeper ? g['One on Ones'] : 3,
     aer: keeper ? g['Aerial Reach'] : 3, cmd: keeper ? g['Command of Area'] : 3, kic: keeper ? g.Kicking : 3,
     rus: keeper ? g['Rushing Out (Tendency)'] : 3,
+    com: keeper ? g.Communication : 3, ecc: keeper ? g.Eccentricity : 3, pun: keeper ? g['Punching (Tendency)'] : 3,
+    thr: keeper ? g.Throwing : 3,
     nf: ph['Natural Fitness'],
     pre: p.personality.Pressure, imp: p.hidden['Important Matches'], cons: p.hidden.Consistency,
     tem: p.personality.Temperament, det: m.Determination, lea: m.Leadership, dirt: p.hidden.Dirtiness,
@@ -341,7 +355,8 @@ function fullAttrs(a: Partial<EAttrs>): EAttrs {
     cmp: d(a.cmp), dec: d(a.dec), pos: d(a.pos), ant: d(a.ant), otb: d(a.otb), wor: d(a.wor), tea: d(a.tea),
     con: d(a.con), agg: d(a.agg), fla: d(a.fla), bra: d(a.bra), inj: d(a.inj, 1), hgt: d(a.hgt, 180), wf: d(a.wf, 12), gk,
     ref: d(a.ref, gk), han: d(a.han, gk), ono: d(a.ono, gk), aer: d(a.aer, gk), cmd: d(a.cmd, gk), kic: d(a.kic, 10),
-    rus: d(a.rus, 10), nf: d(a.nf, 10),
+    rus: d(a.rus, 10), nf: d(a.nf, 10), com: d(a.com, gk), ecc: d(a.ecc, gk > 3 ? 8 : 3), pun: d(a.pun, gk > 3 ? 10 : 3),
+    thr: d(a.thr, gk > 3 ? 10 : 3),
     pre: d(a.pre, 11), imp: d(a.imp), cons: d(a.cons), tem: d(a.tem, 11), det: d(a.det), lea: d(a.lea), dirt: d(a.dirt, 8),
     spo: d(a.spo, 11),
   };
@@ -589,7 +604,15 @@ interface Restart {
   setup?: number;
   /** penalti: penendang sudah mengambil ancang-ancang dan mulai berlari ke bola */
   runup?: number;
+  /**
+   * v18 variasi sepak pojok: pendek ke bek sayap, bola atas ke tiang dekat / tiang jauh, bola mendatar ke tepi
+   * kotak, atau bola atas ke pemain terkuat di udara
+   */
+  routine?: CornerRoutine;
 }
+
+type CornerRoutine = 'short' | 'near' | 'far' | 'edge' | 'mix';
+const CORNER_ROUTINES: [CornerRoutine, number][] = [['short', 0.12], ['near', 0.25], ['far', 0.2], ['edge', 0.08], ['mix', 0.35]];
 
 /** Lama selebrasi gol (detik permainan, jam berhenti); 2,5 detik terakhir pemain mulai kembali ke posisi */
 const CELEBRATE = 9;
@@ -667,7 +690,7 @@ export class Match {
   /** selebrasi gol: tim yang mencetak dan pencetaknya (null = gol bunuh diri) */
   private celeb: { side: 0 | 1; scorer: Body | null } | null = null;
   /** pergantian yang menunggu bola mati: keluar, masuk */
-  private pendingSubs: { out: Body; sub: Body }[] = [];
+  private pendingSubs: { out: Body; sub: Body; at: number }[] = [];
   /** pergantian yang sedang berlangsung: yang keluar berjalan ke garis, pengganti menunggu lalu masuk */
   subbing: { out: Body; sub: Body }[] = [];
   /** jumlah pemain pengganti yang masih berjalan ke posisinya */
@@ -836,7 +859,8 @@ export class Match {
     for (const side of [0, 1] as const) {
       const back = this.onPitch[side].filter((b) => isDef(b.p.slot));
       const org = back.length ? back.reduce((s, b) => s + (b.p.a.tea + b.p.a.pos + b.p.a.con) / 3, 0) / back.length : 10;
-      this.lineErr[side] = clamp(1.6 - org * 0.06, 0.5, 1.3);
+      // v18: kiper yang komunikatif mengatur lini belakangnya (aba-aba posisi)
+      this.lineErr[side] = clamp(1.6 - org * 0.06 - this.gkCall(side) * 0.15, 0.4, 1.4);
       const cap = this.captain(side);
       this.capK[side] = cap ? clamp((cap.p.a.lea - 10) * 0.05, 0, 0.5) : 0;
       const trail = Math.max(0, this.score[1 - side] - this.score[side]);
@@ -1714,6 +1738,12 @@ export class Match {
    * Lini belakang maju bersama; bek dengan teamwork, konsentrasi & antisipasi rendah bisa terlambat
    * (dan malah membuat pelari lawan onside).
    */
+  /** v18 komunikasi kiper: -1..1 (Communication 1 = -0,9, 10 = 0, 20 = 1) */
+  private gkCall(side: 0 | 1): number {
+    const gk = this.keeper(side);
+    return gk ? clamp((gk.p.a.com - 10) / 10, -1, 1) : -0.5;
+  }
+
   private offsideTrap(side: 0 | 1, line: number, team: Body[], opps: Body[]): boolean {
     if (this.t < this.trapUntil[side]) return true;
     const o = this.owner;
@@ -1726,11 +1756,13 @@ export class Match {
     this.trapUntil[side] = this.t + TUNE.trapTime;
     this.trapNext[side] = this.t + 6;
     this.traps[side]++;
+    // v18: kiper yang komunikatif meneriakkan aba-aba "maju!", bek lebih jarang terlambat
+    const call = this.gkCall(side);
     for (const d of team) {
       if (!isDef(d.p.slot)) continue;
       this.trapLate.delete(d);
       const a = d.p.a;
-      if (this.rng.chance(clamp(0.3 - ((a.tea + a.con + a.ant) / 3 - 10) * 0.025, 0.04, 0.5))) this.trapLate.add(d);
+      if (this.rng.chance(clamp(0.3 - ((a.tea + a.con + a.ant) / 3 - 10) * 0.025 - call * 0.1, 0.03, 0.5))) this.trapLate.add(d);
       else d.think = 0;
     }
     return true;
@@ -1815,7 +1847,18 @@ export class Match {
       const want = clamp(line - (sk ? 11 : 14), depth, maxD);
       depth += (want - depth) * far;
     }
-    return [(bfx / dist) * depth, 34 + ((bfy - 34) / dist) * depth];
+    // v18: berdiri di garis bagi sudut antara bola dan kedua tiang (bukan garis ke tengah gawang): saat bola
+    // di sisi lapangan, kiper bergeser ke tiang dekat tanpa membuka tiang jauh (bergerak di busur depan gawang)
+    const u1x = -bfx;
+    const u1y = 34 - GOAL_HALF - bfy;
+    const u2y = 34 + GOAL_HALF - bfy;
+    const l1 = Math.hypot(u1x, u1y) || 1;
+    const l2 = Math.hypot(u1x, u2y) || 1;
+    const bx = u1x / l1 + u1x / l2;
+    const by = u1y / l1 + u2y / l2;
+    const gy = bx < -1e-6 ? clamp(bfy + (-bfx / bx) * by, 34 - GOAL_HALF, 34 + GOAL_HALF) : 34;
+    const dl = Math.hypot(bfx, bfy - gy) || 1;
+    return [(bfx / dl) * depth, gy + ((bfy - gy) / dl) * depth];
   }
 
   /** Peran aktif tiap langkah: pembawa bola ditekan, bola lepas dikejar, penerima umpan menjemput */
@@ -1921,13 +1964,17 @@ export class Match {
       const dline = this.defLine(side, this.poss === side);
       for (const b of this.mates(side)) {
         let hands = b.p.slot === 'GK';
+        let r: [number, number, number] | null = null;
         if (hands && !this.inBox(side, p10.x, p10.y)) {
+          // v18: bola (umpan silang) yang baru bisa diraih di dalam kotak: kiper boleh menyambutnya di sana
+          const rh = this.reachPoint(b, true);
+          if (rh[2] < 99 && this.inBox(side, rh[0], rh[1])) r = rh;
           // sweeper keeper keluar dari kotak hanya untuk bola terobosan di depan kotaknya (bukan ke sayap)
-          if (b.p.role !== 'sk' || this.fx(side, p10.x) > 30 || Math.abs(this.fy(side, p10.y) - 34) > 20 || p10.z > 1.5) continue;
-          hands = false;
+          else if (b.p.role !== 'sk' || this.fx(side, p10.x) > 30 || Math.abs(this.fy(side, p10.y) - 34) > 20 || p10.z > 1.5) continue;
+          else hands = false;
         }
         if (pass && b === pass.from && pass.from.side === side) continue;
-        const r = this.reachPoint(b, hands);
+        r ??= this.reachPoint(b, hands);
         // penerima umpan selalu menjemput bola; bek tidak mengejar bola jauh di depan garisnya
         let tt = pass && b === pass.to ? r[2] - 0.5 : r[2];
         if ((isDef(b.p.slot) || b.p.role === 'hb') && this.fx(side, r[0]) > dline + 18 && b !== pass?.to) tt += 1.2;
@@ -1938,13 +1985,18 @@ export class Match {
     for (const side of [0, 1] as const) {
       let pick = field[side];
       const gk = keep[side];
-      if (gk && (!pick || gk.tt < pick.tt)) {
+      // v18 bola atas ke kotak: "bola kiper!" - kiper didahulukan dari rekannya kalau bisa meraihnya;
+      // Command of Area membuatnya berani keluar menyambut bola, kiper eksentrik tidak terduga
+      const ga = gk?.b.p.a;
+      const air = !!gk && (p10.z > 1.5 || !!pass?.cross) && this.inBox(side, gk.r[0], gk.r[1]);
+      const claim = ga && air ? (ga.cmd - 10) * TUNE.claimK + (ga.hgt - 188) * 0.006 + (ga.ecc > 10 ? (ga.ecc - 10) * 0.03 * this.rng.float(-0.5, 1) : 0) : 0;
+      if (gk && ga && (!pick || gk.tt < pick.tt + (air ? 0.3 + claim * 2 : 0))) {
         // kiper hanya meninggalkan gawang kalau yakin sampai lebih dulu dari lawan; bola dekat gawang selalu diambil
         const other = (1 - side) as 0 | 1;
         const opp = Math.min(field[other]?.tt ?? Infinity, keep[other]?.tt ?? Infinity);
         const dGoal = Math.hypot(this.fx(side, gk.r[0]), this.fy(side, gk.r[1]) - 34);
         const out = !this.inBox(side, gk.r[0], gk.r[1]);
-        const margin = dGoal < 6.5 ? -0.4 : 0.15 + (out ? 0.2 : 0) - (gk.b.p.a.rus - 10) * 0.01 - (gk.b.p.a.dec - 10) * 0.01;
+        const margin = dGoal < 6.5 ? -0.4 : (air ? -0.25 : 0.15) + (out ? 0.2 : 0) - (ga.rus - 10) * 0.01 - (ga.dec - 10) * 0.01 - claim;
         if (gk.tt + margin < opp) pick = gk;
       }
       if (pick) {
@@ -2060,6 +2112,15 @@ export class Match {
       b.ty = this.wy(att, y);
       b.sprint = Math.hypot(b.x - b.tx, b.y - b.ty) > 5;
       up.push(b);
+    }
+    // v18 sepak pojok pendek: bek sayap / wing back di sisi bola datang mendekat ke pengambil
+    if (corner && this.restart?.routine === 'short') {
+      const fb = this.mates(att).find((b) => !taken.has(b) && (isFB(b.p.slot) || isWB(b.p.slot)) && Math.sign(this.baseOf(b)[1] - 34) === near);
+      if (fb) {
+        fb.tx = this.wx(att, PITCH_W - 7);
+        fb.ty = this.wy(att, 34 + near * 27);
+        fb.sprint = Math.hypot(fb.x - fb.tx, fb.y - fb.ty) > 5;
+      }
     }
     // bertahan: tiga pemain menjaga zona, sisanya menempel penyerang di sisi gawang
     const defs = this.mates(def).filter((b) => b.p.slot !== 'GK');
@@ -2290,7 +2351,8 @@ export class Match {
       if (keeper) {
         // instruksi pelatih (bagi bola ke bek tengah / tendang jauh) ditambah gaya kiper sendiri
         const short = (c.p.role === 'sk' ? 1 : 0) + (tk ? (tk.gkShort ? 1 : -0.5) : 0);
-        if (isDef(m.p.slot) && open > 8) v += 0.15 + 0.2 * Math.max(0, short);
+        // (v18: kiper yang pandai melempar lebih sering memulai serangan dengan lemparan pendek)
+        if (isDef(m.p.slot) && open > 8) v += 0.15 + 0.2 * Math.max(0, short) + (d < 40 ? (a.thr - 10) * 0.012 : 0);
         else if (d > 35) v += (a.kic - 10) * 0.02 + 0.2 - 0.15 * Math.max(0, short);
       }
       // rekan berdiri offside: pengumpan dengan visi & keputusan bagus tidak memberi bola
@@ -2427,7 +2489,11 @@ export class Match {
     // ditekan dari dekat: pemain yang tenang (composure) tetap mengumpan dengan akurat
     // kaki lemah membuat umpan (terutama umpan jauh dan umpan silang) kurang akurat
     const weak = !setPiece && this.rng.chance(TUNE.weakUse * 0.8) ? 1 + (20 - a.wf) * (air ? 0.06 : 0.04) : 1;
-    const err = ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1) * weak;
+    // v18: kiper melempar bola dari tangannya (umpan pendek dari kotak sendiri): Throwing menentukan akurasinya
+    const thrown = c.p.slot === 'GK' && !setPiece && !air && this.inBox(side, c.x, c.y) && Math.hypot(m.x - c.x, m.y - c.y) < 40;
+    const err = thrown
+      ? (21 - a.thr) * 0.006
+      : ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1) * weak;
     // offside dinilai saat bola dimainkan
     const offside: Body[] = [];
     if (!setPiece) {
@@ -2647,7 +2713,8 @@ export class Match {
     p *= header ? TUNE.headK : 1;
     if (!header && !setPiece && dist > 18) p *= TUNE.longK;
     // fase bola mati: pertahanan sudah tersusun dan menjaga lawan satu per satu
-    if (!setPiece && this.t < this.spUntil && this.spSide === side) p *= TUNE.spK;
+    // v18: kiper yang komunikatif mengatur penjagaan bola mati (siapa menjaga siapa)
+    if (!setPiece && this.t < this.spUntil && this.spSide === side) p *= TUNE.spK * (1 - this.gkCall((1 - side) as 0 | 1) * 0.2);
     // penalti & tendangan bebas langsung: peluangnya sudah berupa persentase nyata (tanpa pengali tembakan)
     // peluang jenuh (dari dekat pun tidak pasti gol); kiper yang menutup sudut mengurangi peluang
     p = setPiece ? clamp(p, 0.004, 0.85) : clamp(this.sat(p * TUNE.shotK, skill) * (header ? 1 : 1 - this.gkCoverAt(side, fx, fy, a)), 0.004, 0.85);
@@ -2841,7 +2908,19 @@ export class Match {
     gk.cool = 1.6; // kiper masih terjatuh setelah menepis (~0,6 detik tidak bisa meraih bola)
     const side = gk.side;
     const away = -this.dir((1 - side) as 0 | 1); // arah keluar dari gawang
-    if (this.rng.chance(Math.min(0.92, 0.68 * Math.sqrt(TUNE.cornerK)))) {
+    // v18: tepisan keluar lapangan (sepak pojok), ke samping yang aman, atau muntah ke depan gawang (bahaya);
+    // Handling & Reflexes membuat bola jarang muntah ke depan
+    const ga = gk.p.a;
+    const kind = this.parryKind(ga);
+    if (kind === 'wide') {
+      // ditepis ke samping, menjauh dari mulut gawang
+      const sy = ball.y >= 34 ? 1 : -1;
+      ball.vx = away * this.rng.float(2, 5);
+      ball.vy = sy * this.rng.float(7, 11);
+      ball.vz = this.rng.float(0.3, 2);
+      return;
+    }
+    if (kind === 'out') {
       // ditepis melewati tiang: bola keluar garis gawang di luar tiang -> sepak pojok
       const sy = ball.y >= 34 ? 1 : -1;
       const cy = 34 + sy * (GOAL_HALF + this.rng.float(1, 3));
@@ -2855,11 +2934,19 @@ export class Match {
       ball.vy = ((tgy - ball.y) / d) * v;
       ball.vz = this.rng.float(0.3, 1.2);
     } else {
-      // ditepis ke depan: bola muntah
+      // ditepis ke depan: bola muntah di depan gawang
       ball.vx = away * this.rng.float(4, 9);
-      ball.vy = this.rng.normal(0, 6);
+      ball.vy = this.rng.normal(0, 4);
       ball.vz = this.rng.float(0.5, 3);
     }
+  }
+
+  /** v18 arah tepisan kiper: keluar lapangan, ke samping (aman), atau muntah ke depan gawang (bahaya) */
+  parryKind(a: EAttrs): 'out' | 'wide' | 'danger' {
+    const r = this.rng.next();
+    if (r < TUNE.parryOut) return 'out';
+    const danger = clamp(0.5 - (a.han - 10) * 0.025 - (a.ref - 10) * 0.012, 0.15, 0.8);
+    return r < TUNE.parryOut + (1 - TUNE.parryOut) * danger ? 'danger' : 'wide';
   }
 
   private goal(side: 0 | 1) {
@@ -2936,6 +3023,24 @@ export class Match {
       if (pass && sp < 0.5) this.pass = null;
       return;
     }
+    // v18: kiper ikut menyambut bola atas di kotaknya (tangan menjangkau lebih tinggi dari kepala penyerang)
+    if (ball.z > 1.3 && best.p.slot !== 'GK' && pass && pass.from.side === best.side) {
+      const gk = this.keeper((1 - best.side) as 0 | 1);
+      if (gk && gk.cool <= 1 && gk.side !== nt && this.inBox(gk.side, gk.x, gk.y)) {
+        const ga = gk.p.a;
+        const reach = 1.5 + ga.aer * 0.02 + (ga.hgt - 188) * 0.008;
+        // penyerang yang jangkung & jago melompat masih bisa mendahului tangan kiper
+        const ba = best.p.a;
+        const jump = (ba.hea + ba.jmp) / 2 + (ba.hgt - 180) * 0.15 - 10;
+        if (
+          segDist(px, py, ball.x, ball.y, gk.x, gk.y) < reach + 0.4 &&
+          this.rng.chance(clamp(0.5 + (ga.cmd + ga.aer - 20) * 0.015 - jump * 0.04, 0.15, 0.85))
+        ) {
+          this.highBall(gk);
+          return;
+        }
+      }
+    }
     // duel udara: lawan di dekatnya ikut melompat, yang lebih kuat di udara menang
     let duel = false;
     if (ball.z > 1.3 && best.p.slot !== 'GK') {
@@ -2954,6 +3059,23 @@ export class Match {
         break;
       }
     }
+    // v18: penyerang yang kuat di udara (dan jangkung) kadang mendahului kiper yang keluar menyambut bola
+    if (ball.z > 1.3 && best.p.slot === 'GK' && pass && pass.from.side !== best.side && this.inBox(best.side, best.x, best.y)) {
+      const ga = best.p.a;
+      const keepAir = ga.aer + ga.cmd * 0.5 + (ga.hgt - 188) * TUNE.height;
+      for (const o of this.opponents(best.side)) {
+        if (o.cool > 0.5 || o.side === nt) continue;
+        if (segDist(px, py, ball.x, ball.y, o.x, o.y) > 1.4) continue;
+        if (ball.z > 1.3 + (o.p.a.hea + o.p.a.jmp) * 0.025 + (o.p.a.hgt - 180) * 0.01) continue;
+        const oa = o.p.a;
+        const att = oa.hea + oa.jmp * 0.7 + oa.bra * 0.25 + (oa.hgt - 180) * TUNE.height;
+        if (this.rng.chance(clamp(0.15 + (att - keepAir) * 0.03, 0.04, 0.5))) {
+          best = o;
+          best.st.aerialWon = (best.st.aerialWon ?? 0) + 1;
+        }
+        break;
+      }
+    }
     const a = best.p.a;
     const side = best.side;
     const high = ball.z > 1.3;
@@ -2967,6 +3089,11 @@ export class Match {
       return;
     }
 
+    // v18: kiper menyambut bola atas lawan di kotaknya: menangkap atau meninju
+    if (pass && side !== pass.from.side && hands && high) {
+      this.highBall(best);
+      return;
+    }
     if (pass && side !== pass.from.side) {
       // memotong umpan
       const p = hands
@@ -3024,6 +3151,54 @@ export class Match {
     } else {
       this.deflect(best, 4);
     }
+  }
+
+  /**
+   * v18 kiper menyambut bola atas (umpan silang, sepak pojok): menangkap (Handling, Aerial Reach) atau meninju
+   * (Punching; lebih sering kalau kotak penuh pemain). Gagal = bola lepas di depan gawang. Kiper eksentrik
+   * kadang salah membaca bola dan tidak menyentuhnya sama sekali.
+   */
+  private highBall(gk: Body) {
+    let crowd = 0;
+    for (const o of this.opponents(gk.side)) if (Math.hypot(o.x - gk.x, o.y - gk.y) < 2.5) crowd++;
+    const res = this.highBallResult(gk.p.a, crowd);
+    const ball = this.ball;
+    if (res === 'miss') {
+      gk.cool = 0.8;
+      return;
+    }
+    this.pass = null;
+    if (res === 'spill') {
+      this.deflect(gk, 3);
+      return;
+    }
+    gk.st.interceptions++;
+    gk.st.aerialWon = (gk.st.aerialWon ?? 0) + 1;
+    if (res === 'catch') {
+      this.gain(gk);
+      gk.cool = 1.2;
+      return;
+    }
+    // tinju menjauh dari gawang, condong ke sisi tempat bola datang
+    const out = -this.dir((1 - gk.side) as 0 | 1);
+    const sy = Math.sign(ball.y - 34) || 1;
+    const ang = this.rng.float(0.15, 0.7) * sy;
+    const v = this.rng.float(13, 18);
+    this.owner = null;
+    this.lastTouch = gk;
+    ball.vx = out * Math.cos(ang) * v;
+    ball.vy = Math.sin(ang) * v;
+    ball.vz = this.rng.float(3.5, 6);
+    gk.cool = 0.8;
+  }
+
+  /** v18 hasil kiper menyambut bola atas, dengan `crowd` lawan di dekatnya */
+  highBallResult(a: EAttrs, crowd: number): 'catch' | 'spill' | 'punch' | 'miss' {
+    if (this.rng.chance(Math.max(0, a.ecc - 8) * 0.008)) return 'miss';
+    if (this.rng.chance(clamp((a.pun / 20) * 0.6 + crowd * 0.12, 0.05, 0.9))) {
+      return this.rng.chance(clamp(0.72 + (a.aer - 10) * 0.015 - crowd * 0.04, 0.4, 0.95)) ? 'punch' : 'spill';
+    }
+    return this.rng.chance(clamp(0.74 + (a.han - 10) * 0.02 + (a.aer - 10) * 0.01 - crowd * 0.07, 0.35, 0.96)) ? 'catch' : 'spill';
   }
 
   /** Sundulan menjauh dari gawang sendiri */
@@ -3219,7 +3394,11 @@ export class Match {
     // kiper menaruh bola dan menunggu rekan menyebar sebelum tendangan gawang
     const wait = k === 'throw' ? 0.3 : k === 'penalty' ? 2 : k === 'goalkick' ? 1.5 : k === 'corner' || cross ? 1.2 : 0.8;
     this.restart = { side, x, y, wait, kind: k, direct, cross };
-    if (k === 'corner') this.corners[side]++;
+    if (k === 'corner') {
+      this.corners[side]++;
+      let r = this.rng.next();
+      this.restart.routine = CORNER_ROUTINES.find(([, w]) => (r -= w) < 0)?.[0] ?? 'mix';
+    }
   }
 
   private best(list: Body[], f: (a: EAttrs) => number): Body | null {
@@ -3314,7 +3493,40 @@ export class Match {
       // umpan silang ke kotak: pemain dengan sundulan dan fisik bagus paling sering dicari
       this.spUntil = this.t + 6;
       this.spSide = r.side;
-      const box = team.filter((b) => b !== taker && b.p.slot !== 'GK' && this.fx(r.side, b.x) > 84);
+      const near = Math.sign(this.fy(r.side, r.y) - 34) || 1;
+      const closest = (fx: number, fy: number, list: Body[]) => {
+        const x = this.wx(r.side, fx);
+        const y = this.wy(r.side, fy);
+        let best: Body | null = null;
+        for (const b of list) if (!best || Math.hypot(b.x - x, b.y - y) < Math.hypot(best.x - x, best.y - y)) best = b;
+        return best;
+      };
+      const others = team.filter((b) => b !== taker && b.p.slot !== 'GK');
+      const routine = r.routine ?? 'mix';
+      if (routine === 'short') {
+        // pendek: bola mendatar ke rekan terdekat, lalu dia mencari sudut umpan silang yang lain
+        const mate = closest(PITCH_W - 7, 34 + near * 27, others);
+        if (mate && Math.hypot(mate.x - taker.x, mate.y - taker.y) < 16) {
+          this.passTo(taker, mate, false, true);
+          return;
+        }
+      } else if (routine === 'edge') {
+        // mendatar ke tepi kotak: ditembak dari jauh atau dimainkan ulang
+        const mate = closest(88, 34 + near * 6, others);
+        if (mate && this.fx(r.side, mate.x) > 80) {
+          this.passTo(taker, mate, false, true);
+          return;
+        }
+      }
+      const box = others.filter((b) => this.fx(r.side, b.x) > 84);
+      if (routine === 'near' || routine === 'far') {
+        // ke tiang dekat (disundul langsung / diteruskan) atau tiang jauh
+        const target = routine === 'near' ? closest(95, 34 + near * 3, box) : closest(95.5, 34 - near * 6.5, box);
+        if (target) {
+          this.passTo(taker, target, true, true, routine === 'near' ? -0.3 : 0);
+          return;
+        }
+      }
       let total = 0;
       const w = box.map((b) => {
         const v = Math.max(1, b.p.a.hea + b.p.a.jmp / 2 + b.p.a.str / 2 + (b.p.a.hgt - 180) * TUNE.height) ** 2;
@@ -3398,9 +3610,11 @@ export class Match {
         return;
       }
       // pemain yang sudah kena kartu kuning lebih berhati-hati; pemain "kotor" (Dirtiness) lebih sering melanggar
+      // v18: di kotak penalti sendiri bek menahan diri (tetap berdiri, tidak menjegal); Tackling & Decisions
+      const care = this.inBox(d.side, c.x, c.y) ? clamp(TUNE.boxFoul * (1.5 - (da.tck + da.dec) / 40), 0.08, 1) : 1;
       const foul =
         TUNE.foul * (0.6 + da.agg / 25) * (1.3 - da.tck / 40) * (d.st.yellow ? 0.6 : 1) * (1 + 0.35 * d.rk.tackle + 0.2 * (this.tk[d.side]?.tackling ?? 0)) *
-        (0.7 + da.dirt * 0.0375);
+        (0.7 + da.dirt * 0.0375) * care;
       if (this.rng.chance(foul)) {
         this.foul(d, c);
         // pelanggaran keras (agresif) lebih sering mencederai
@@ -3516,7 +3730,7 @@ export class Match {
   /** Pergantian pemain: diputuskan sekarang, dilakukan saat bola mati berikutnya */
   private substitute(out: Body, sub: Body) {
     this.subs[out.side]++;
-    this.pendingSubs.push({ out, sub });
+    this.pendingSubs.push({ out, sub, at: this.t });
     if (this.restart) this.runSubs();
   }
 
@@ -3769,7 +3983,8 @@ export class Match {
       sub.p.num = out.p.num;
       this.substitute(out, sub);
     }
-    if (this.restart && this.pendingSubs.length) this.runSubs();
+    // v18: bola lama tidak mati (jarang ada pelanggaran / bola keluar): pergantian tetap dilakukan
+    if (this.pendingSubs.length && (this.restart || this.t - this.pendingSubs[0].at > TUNE.subWait)) this.runSubs();
     this.replaceHurt();
 
     this.coachSubs();

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { Match, pickXI, topSpeed, type ETeam } from '../sim/engine';
+import { Match, engineAttrs, pickXI, topSpeed, type ETeam } from '../sim/engine';
 import { FORMATIONS } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
@@ -266,7 +266,8 @@ describe('match engine versi 13', () => {
     const st = m.bodies.find((b) => b.on && b.side === 0 && b.p.slot !== 'GK')!;
     const at = (fin: number) => {
       st.p.a.fin = fin;
-      return v.shotProb(st, 94, 30, 0.3);
+      // (v18: peluang sedang di kotak penalti; peluang yang sangat bagus sudah mendekati batas atas)
+      return v.shotProb(st, 90, 28, 0.3);
     };
     const p5 = at(5);
     const p10 = at(10);
@@ -702,5 +703,144 @@ describe('match engine versi 17: kontrol ruang (pitch control)', () => {
     let right = 0;
     for (let i = 0; i < 10; i++) if (pv.runLane(runner) > 36) right++;
     expect(right).toBeGreaterThanOrEqual(8);
+  });
+});
+
+describe('match engine versi 18: kiper & bola mati', () => {
+  type B = Match['bodies'][number];
+  type Priv = {
+    setRestart(d: { kind: 'corner'; side: 0 | 1; x: number; y: number; t: number }): void;
+    offsideTrap(side: 0 | 1, line: number, team: B[], opps: B[]): boolean;
+    restart: { routine?: string } | null;
+    dead: unknown;
+    trapUntil: [number, number];
+    trapNext: [number, number];
+    trapLate: Set<B>;
+  };
+  const make = (seed: string) => {
+    const m = new Match({ seed, home: side(eng[8].id), away: side(eng[9].id) });
+    for (let i = 0; i < 50; i++) m.step();
+    const pv = m as unknown as Priv;
+    pv.restart = null;
+    pv.dead = null;
+    for (const b of m.bodies) b.vx = b.vy = 0;
+    const team = m.bodies.filter((b) => b.on && b.side === 0);
+    const opps = m.bodies.filter((b) => b.on && b.side === 1);
+    const put = (b: B, fx: number, fy: number) => {
+      b.x = m.fx(0, fx);
+      b.y = m.fy(0, fy);
+    };
+    return { m, pv, team, opps, put };
+  };
+
+  it('atribut kiper baru dibaca dari data pemain; pemain lapangan tidak punya atribut kiper', () => {
+    const squad = squadOf(w, eng[0].id);
+    const gk = squad.find((p) => p.mainPosition === 'GK')!;
+    const a = engineAttrs(gk);
+    const g = gk.goalkeeping;
+    expect([a.com, a.ecc, a.pun, a.thr]).toEqual([g.Communication, g.Eccentricity, g['Punching (Tendency)'], g.Throwing]);
+    const st = engineAttrs(squad.find((p) => p.mainPosition !== 'GK')!);
+    expect([st.com, st.ecc, st.pun, st.thr]).toEqual([3, 3, 3, 3]);
+  });
+
+  it('tepisan: kiper dengan Handling bagus lebih jarang memuntahkan bola ke depan gawang', () => {
+    const { m } = make('parry');
+    const gk = m.bodies.find((b) => b.p.slot === 'GK')!;
+    const danger = (han: number) => {
+      const a = { ...gk.p.a, han, ref: han };
+      let n = 0;
+      for (let i = 0; i < 3000; i++) if (m.parryKind(a) === 'danger') n++;
+      return n / 3000;
+    };
+    expect(danger(5)).toBeGreaterThan(danger(20) * 2);
+  });
+
+  it('bola atas: kiper suka meninju lebih sering meninju, kiper eksentrik kadang salah membaca bola', () => {
+    const { m } = make('high');
+    const base = m.bodies.find((b) => b.p.slot === 'GK')!.p.a;
+    const count = (a: Partial<typeof base>, crowd: number) => {
+      const out = { catch: 0, spill: 0, punch: 0, miss: 0 };
+      for (let i = 0; i < 3000; i++) out[m.highBallResult({ ...base, ecc: 3, ...a }, crowd)]++;
+      return out;
+    };
+    const catcher = count({ pun: 3 }, 0);
+    const puncher = count({ pun: 20 }, 0);
+    expect(puncher.punch).toBeGreaterThan(catcher.punch * 2);
+    expect(catcher.catch).toBeGreaterThan(puncher.catch);
+    // kotak penuh pemain lawan: lebih sering meninju
+    expect(count({ pun: 10 }, 3).punch).toBeGreaterThan(count({ pun: 10 }, 0).punch * 1.3);
+    expect(catcher.miss).toBe(0);
+    expect(count({ ecc: 20 }, 0).miss).toBeGreaterThan(150);
+    // Handling bagus: bola tangkapan lebih jarang lepas
+    expect(count({ pun: 1, han: 20 }, 1).spill).toBeLessThan(count({ pun: 1, han: 5 }, 1).spill * 0.6);
+  });
+
+  it('posisi kiper: berdiri di garis bagi sudut antara bola dan kedua tiang', () => {
+    const { m } = make('gkspot');
+    const gk = m.bodies.find((b) => b.side === 0 && b.p.slot === 'GK')!;
+    for (const [bx, by] of [
+      [12, 8],
+      [25, 20],
+      [30, 34],
+      [16, 55],
+    ]) {
+      m.ball.x = m.fx(0, bx);
+      m.ball.y = m.fy(0, by);
+      m.ball.vx = m.ball.vy = 0;
+      const [x, y] = m.gkSpot(gk, 30);
+      // arah satuan dari bola ke titik (tx, ty)
+      const unit = (tx: number, ty: number) => {
+        const l = Math.hypot(tx - bx, ty - by);
+        return [(tx - bx) / l, (ty - by) / l];
+      };
+      const [p1x, p1y] = unit(0, 34 - 3.66);
+      const [p2x, p2y] = unit(0, 34 + 3.66);
+      const [kx, ky] = unit(x, y);
+      // garis bagi = jumlah kedua arah satuan; kiper harus searah dengannya (hasil kali silang ~0)
+      const bl = Math.hypot(p1x + p2x, p1y + p2y);
+      expect(Math.abs(((p1x + p2x) / bl) * ky - ((p1y + p2y) / bl) * kx)).toBeLessThan(0.02);
+      expect(Math.abs(y - 34)).toBeLessThan(3.66);
+      // bola di sisi lapangan: kiper bergeser ke tiang dekat
+      if (by !== 34) expect(Math.sign(y - 34)).toBe(Math.sign(by - 34));
+    }
+  });
+
+  it('sepak pojok memakai variasi rutinitas: pendek, tiang dekat, tiang jauh, ke tepi kotak, campuran', () => {
+    const { m, pv } = make('corner');
+    const n: Record<string, number> = {};
+    for (let i = 0; i < 2000; i++) {
+      pv.setRestart({ kind: 'corner', side: 0, x: m.fx(0, 105), y: 1, t: m.t });
+      const r = pv.restart!.routine!;
+      n[r] = (n[r] ?? 0) + 1;
+    }
+    expect(Object.keys(n).sort()).toEqual(['edge', 'far', 'mix', 'near', 'short']);
+    expect(n.short / 2000).toBeGreaterThan(0.08);
+    expect(n.short / 2000).toBeLessThan(0.17);
+    expect(n.mix).toBeGreaterThan(n.edge);
+  });
+
+  it('kiper yang komunikatif: lini belakang lebih jarang terlambat saat jebakan offside', () => {
+    const { m, pv, team, opps, put } = make('trap');
+    const keeper = team.find((b) => b.p.slot === 'GK')!;
+    const owner = opps.find((b) => b.p.slot !== 'GK' && !/ST|RS|LS/.test(b.p.slot))!;
+    const runner = opps.find((b) => /ST|RS|LS/.test(b.p.slot))!;
+    const late = (com: number) => {
+      keeper.p.a.com = com;
+      let n = 0;
+      for (let i = 0; i < 400; i++) {
+        team.forEach((b, j) => put(b, b === keeper ? 3 : 30, 5 + j * 5));
+        opps.forEach((b, j) => put(b, 80, 2 + j * 6));
+        put(owner, 55, 34);
+        put(runner, 31, 40);
+        m.owner = owner;
+        m.poss = 1;
+        pv.trapUntil[0] = -1;
+        pv.trapNext[0] = 0;
+        expect(pv.offsideTrap(0, 30, team, opps)).toBe(true);
+        n += pv.trapLate.size;
+      }
+      return n;
+    };
+    expect(late(1)).toBeGreaterThan(late(20) * 1.3);
   });
 });
