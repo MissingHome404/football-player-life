@@ -1042,3 +1042,119 @@ describe('match engine versi 20: perpanjangan waktu & adu penalti', () => {
     expect(bad).toBeGreaterThan(0.45);
   });
 });
+
+describe('match engine versi 21: penyerang menahan garis & tendangan gawang', () => {
+  type B = { p: { slot: string; id: string; a: Record<string, number> }; x: number; y: number; tx: number; run: number };
+  type P = {
+    restart: { kind: string; side: 0 | 1 } | null;
+    poss: 0 | 1;
+    owner: unknown;
+    t: number;
+    done: boolean;
+    dead: unknown;
+    mates(s: 0 | 1): B[];
+    fx(s: 0 | 1, x: number): number;
+    offsideLine(s: 0 | 1): number;
+  };
+  const ST = ['ST', 'RS', 'LS'];
+  const MID = ['CM', 'RDM', 'LDM', 'RCM', 'LCM', 'AM'];
+  /** jalankan laga, panggil cb tepat saat tendangan gawang diambil */
+  const atGoalKicks = (m: Match, cb: (v: P, kicker: 0 | 1) => void) => {
+    const v = m as unknown as P;
+    while (!v.done) {
+      const pre = v.restart?.kind === 'goalkick' ? v.restart.side : null;
+      m.step();
+      if (pre !== null && !v.restart) cb(v, pre);
+    }
+  };
+  const mean = (a: number[]) => a.reduce((p, q) => p + q, 0) / a.length;
+
+  it('tendangan gawang sendiri: tim menyebar, penyerang di garis lawan di depan semua gelandang', () => {
+    let n = 0;
+    let wideCB = 0;
+    let stAhead = 0;
+    for (let i = 0; i < 3; i++) {
+      const h = { ...clubTactic(eng[i]), gkShort: true };
+      const aw = { ...clubTactic(eng[i + 5]), gkShort: true };
+      atGoalKicks(new Match({ seed: `gk21-${i}`, home: side(eng[i].id, h), away: side(eng[i + 5].id, aw) }), (v, k) => {
+        const team = v.mates(k);
+        const st = team.filter((b) => ST.includes(b.p.slot)).map((b) => v.fx(k, b.x));
+        const mids = team.filter((b) => MID.includes(b.p.slot)).map((b) => v.fx(k, b.x));
+        if (!st.length || !mids.length) return;
+        n++;
+        if (Math.min(...st) > Math.max(...mids)) stAhead++;
+        // umpan pendek: bek tengah berdiri lebar di sudut kotak penalti
+        const cbs = team.filter((b) => b.p.slot === 'RCB' || b.p.slot === 'LCB');
+        if (cbs.length === 2 && cbs.every((b) => Math.abs(b.y - 34) > 10 && v.fx(k, b.x) < 18)) wideCB++;
+      });
+    }
+    expect(n).toBeGreaterThan(10);
+    expect(stAhead / n).toBeGreaterThan(0.8);
+    expect(wideCB / n).toBeGreaterThan(0.6);
+  });
+
+  it('tendangan gawang lawan: penyerang tidak mundur sejajar gelandang, makin tinggi saat garis mulai menekan tinggi', () => {
+    const height = (engage: number) => {
+      const t = { ...clubTactic(eng[1]), engage, press: engage };
+      const st: number[] = [];
+      const gap: number[] = [];
+      for (let i = 0; i < 2; i++) {
+        atGoalKicks(new Match({ seed: `gko21-${i}`, home: side(eng[1].id, t), away: side(eng[6].id, clubTactic(eng[6])) }), (v, k) => {
+          if (k !== 1) return;
+          const team = v.mates(0);
+          const s = team.filter((b) => ST.includes(b.p.slot)).map((b) => v.fx(0, b.x));
+          const mids = team.filter((b) => MID.includes(b.p.slot)).map((b) => v.fx(0, b.x));
+          if (!s.length || !mids.length) return;
+          st.push(Math.max(...s));
+          gap.push(Math.max(...s) - Math.max(...mids));
+        });
+      }
+      return { st: mean(st), gap: mean(gap) };
+    };
+    const hi = height(2);
+    const lo = height(-2);
+    expect(hi.st).toBeGreaterThan(lo.st + 10);
+    expect(hi.st).toBeGreaterThan(80);
+    expect(lo.gap).toBeGreaterThan(5);
+  });
+
+  it('Advanced Forward menahan garis bek lawan saat membangun serangan; Off the Ball 20 lebih rapat ke garis', () => {
+    const gapFor = (otb: number) => {
+      const gaps: number[] = [];
+      const tgts: number[] = [];
+      for (const seed of ['pin21a', 'pin21b', 'pin21c']) {
+        const home = side(eng[2].id, clubTactic(eng[2]));
+        const st = home.xi.find((p) => ST.includes(p.slot))!;
+        st.role = 'af';
+        st.duty = 'At';
+        st.a.otb = otb;
+        st.a.ant = otb;
+        const m = new Match({ seed, home, away: side(eng[4].id, clubTactic(eng[4])) });
+        const v = m as unknown as P;
+        let poss = -1;
+        let since = 0;
+        while (!v.done) {
+          m.step();
+          if (v.poss !== poss) {
+            poss = v.poss;
+            since = v.t;
+          }
+          // penguasaan bola yang sudah tenang (bukan transisi), bola di separuh lapangan sendiri
+          if (v.poss !== 0 || !v.owner || v.restart || v.dead || v.t - since < 4) continue;
+          const b = v.mates(0).find((q) => q.p.id === st.id);
+          if (!b || b.run > 0 || !ST.includes(b.p.slot) || v.fx(0, (v.owner as { x: number }).x) > 50) continue;
+          gaps.push(v.offsideLine(0) - v.fx(0, b.x));
+          tgts.push(v.offsideLine(0) - v.fx(0, b.tx));
+        }
+      }
+      return { gap: mean(gaps), tgt: mean(tgts) };
+    };
+    const good = gapFor(20);
+    const poor = gapFor(5);
+    // dulu striker menunggu rata-rata 11 m di belakang garis bek lawan saat timnya membangun serangan
+    expect(Math.abs(good.gap)).toBeLessThan(3);
+    expect(good.tgt).toBeLessThan(2.5);
+    expect(poor.tgt).toBeGreaterThan(good.tgt + 1);
+  });
+
+});
