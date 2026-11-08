@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { Match, TUNE, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
+import { Match, TUNE, duelP, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
 import { FORMATIONS } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
@@ -423,12 +423,16 @@ describe('match engine versi 15: tugas per peran', () => {
   it('libero maju ke lini tengah saat timnya menguasai bola', () => {
     const t = makeTactic('lib-test', 'Possession', '3-5-2');
     const home = withRoles(side(eng[2].id, t), (s) => (s === 'CB' ? { role: 'lib', duty: 'Su' } : s === 'RCB' || s === 'LCB' ? { role: 'cd', duty: 'De' } : null));
-    const m = new Match({ seed: 'lib', home, away: side(eng[3].id) });
-    const at = depth(m, true);
     const lib = home.xi.find((p) => p.slot === 'CB')!;
     const others = home.xi.filter((p) => p.slot === 'RCB' || p.slot === 'LCB');
     expect(others).toHaveLength(2);
-    for (const o of others) expect(at(lib.id) - at(o.id)).toBeGreaterThan(5);
+    // (v26: rata-rata 3 laga; satu laga saja terlalu bergantung pada jalannya laga)
+    const gap = [0, 0];
+    for (const seed of ['lib', 'lib2', 'lib3']) {
+      const at = depth(new Match({ seed, home, away: side(eng[3].id) }), true);
+      others.forEach((o, i) => (gap[i] += (at(lib.id) - at(o.id)) / 3));
+    }
+    for (const g of gap) expect(g).toBeGreaterThan(5);
   });
 
   it('segundo volante menyusul ke depan saat serangan sampai di sepertiga akhir, gelandang bertahan biasa tidak', () => {
@@ -1427,7 +1431,7 @@ describe('match engine versi 23: Vision, Teamwork, Creativity', () => {
     expect(v.sees(c, mate)).toBe(true);
   });
 
-  it('Teamwork tinggi lebih sering mengoper; Teamwork rendah egois (lebih banyak dribel & tembakan)', () => {
+  it('Teamwork rendah egois (lebih banyak take-on & tembakan); v26: Teamwork tinggi bukan asal mengoper', () => {
     const stats = (tea: number) => {
       let passes = 0;
       let selfish = 0;
@@ -1445,9 +1449,10 @@ describe('match engine versi 23: Vision, Teamwork, Creativity', () => {
     };
     const lo = stats(5);
     const hi = stats(20);
-    // 200 laga: oper 76 vs 83, tembakan + take-on 11,4 vs 8,7 per laga
-    expect(hi.passes).toBeGreaterThan(lo.passes * 1.04);
-    expect(lo.selfish).toBeGreaterThan(hi.selfish * 1.12);
+    // v26: Teamwork tinggi memberi bola ke rekan yang posisinya lebih baik (lihat tes versi 26), jumlah operan
+    // tidak harus lebih banyak; tim egois tetap lebih banyak tembakan + take-on (80 laga: 13,3 vs 11,4 per laga)
+    expect(hi.passes).toBeGreaterThan(lo.passes * 0.9);
+    expect(lo.selfish).toBeGreaterThan(hi.selfish * 1.08);
   });
 
   it('Creativity hanya aktif dengan peran bebas; pemain kreatif lebih sering mencoba killer ball', () => {
@@ -1796,5 +1801,279 @@ describe('match engine versi 25: bola di kaki saat berbelok, gaya per kecerdasan
     const smart = style(1);
     expect(weak.solo).toBeGreaterThan(smart.solo * 1.3);
     expect(smart.passes).toBeGreaterThan(weak.passes);
+  });
+});
+
+describe('match engine versi 26: weighted RNG yang masuk akal & AI yang lebih pintar', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    face: number;
+    cool: number;
+    energy: number;
+    scan: number;
+    st: { tackles: number; fouls: number };
+  };
+  type R = {
+    done: boolean;
+    t: number;
+    restart: unknown;
+    dead: unknown;
+    owner: B | null;
+    poss: 0 | 1;
+    ball: { x: number; y: number; z: number; vx: number; vy: number; vz: number };
+    bodies: B[];
+    lapses: [number, number];
+    iq: [number, number];
+    gotAt: number;
+    mates(s: 0 | 1): B[];
+    tackles(): void;
+    deflect(b: B, speed: number): void;
+    decide(c: B): void;
+    pass: { to: B } | null;
+    aiTrigger(b: B, o: B): number;
+    aiShowWide(b: B, o: B): number;
+    passTo(c: B, m: B, air: boolean, setPiece: boolean): void;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 7].id, clubTactic(eng[i + 7])) });
+  /** semua pemain dipindah jauh dari tempat uji (pojok lapangan) */
+  const clear = (v: R) => {
+    for (const b of v.bodies) {
+      b.x = b.side ? 102 : 3;
+      b.y = 66;
+      b.vx = b.vy = 0;
+    }
+  };
+
+  it('duel dari selisih kemampuan: sama kuat = peluang dasar, unggul jauh = berat sebelah tapi tidak pernah pasti', () => {
+    expect(duelP(0, 0.13, 0.6)).toBeCloseTo(0.13, 5);
+    expect(duelP(4, 0.13, 0.6)).toBeGreaterThan(0.2);
+    expect(duelP(-4, 0.13, 0.6)).toBeLessThan(0.08);
+    expect(duelP(40, 0.13, 0.6)).toBeLessThan(0.6);
+    expect(duelP(-40, 0.13, 0.6)).toBeGreaterThan(0);
+    for (let d = -10; d < 10; d++) expect(duelP(d + 1, 0.5, 1)).toBeGreaterThan(duelP(d, 0.5, 1));
+  });
+
+  it('tekel: bek bagus vs dribbler buruk sering merebut, kebalikannya jarang; dari belakang lebih sulit & lebih sering pelanggaran', () => {
+    let fouls = 0;
+    const tackle = (tck: number, dri: number, behind: boolean, n = 300) => {
+      let won = 0;
+      fouls = 0;
+      for (let i = 0; i < n; i++) {
+        const m = new Match({ seed: `tk26-${i}`, ...teams(0) });
+        const v = m as unknown as R;
+        clear(v);
+        v.restart = null;
+        v.dead = null;
+        const c = v.mates(0).find((b) => b.p.slot !== 'GK')!;
+        const d = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+        Object.assign(c.p.a, { dri: dri, agi: dri, tec: dri, str: 10, cmp: 10 });
+        Object.assign(d.p.a, { tck: tck, ant: tck, agi: 10, str: 10, agg: 1, dirt: 1 });
+        c.x = 50;
+        c.y = 34;
+        c.face = 0;
+        d.x = behind ? 49 : 51;
+        d.y = 34;
+        d.cool = 0;
+        v.owner = c;
+        v.ball.x = 50.4;
+        v.ball.y = 34;
+        const before = d.st.tackles;
+        const fb = d.st.fouls;
+        v.tackles();
+        if (d.st.tackles > before) won++;
+        if (d.st.fouls > fb) fouls++;
+      }
+      return won / n;
+    };
+    const good = tackle(18, 6, false);
+    const frontFouls = fouls;
+    const poor = tackle(6, 18, false);
+    const back = tackle(18, 6, true);
+    expect(fouls).toBeGreaterThan(frontFouls * 1.2);
+    expect(good).toBeGreaterThan(0.25);
+    expect(poor).toBeLessThan(0.08);
+    expect(good).toBeGreaterThan(back + 0.08);
+  });
+
+  it('pantulan bola menjauhi badan yang menyentuhnya (masih ada faktor untung)', () => {
+    const m = new Match({ seed: 'bounce26', ...teams(1) });
+    const v = m as unknown as R;
+    const b = v.mates(1).find((x) => x.p.slot !== 'GK')!;
+    let cos = 0;
+    let back = 0;
+    for (let i = 0; i < 300; i++) {
+      b.x = 50;
+      b.y = 34;
+      v.ball.x = 50.6;
+      v.ball.y = 34;
+      v.ball.vx = v.ball.vy = 0;
+      v.deflect(b, 6);
+      const s = Math.hypot(v.ball.vx, v.ball.vy);
+      cos += v.ball.vx / s;
+      if (v.ball.vx < 0) back++;
+    }
+    expect(cos / 300).toBeGreaterThan(0.45);
+    // tetap ada pantulan ke arah lain (keberuntungan)
+    expect(back).toBeGreaterThan(5);
+  });
+
+  it('hilang konsentrasi: bek & gelandang ber-Concentration rendah sering lengah, yang tinggi tidak pernah', () => {
+    const lapses = (con: number) => {
+      const t = teams(2);
+      for (const p of [...t.home.xi, ...t.away.xi, ...(t.home.bench ?? []), ...(t.away.bench ?? [])]) p.a.con = con;
+      const m = new Match({ seed: 'lapse26', ...t });
+      const v = m as unknown as R;
+      while (!v.done) m.step();
+      return v.lapses[0] + v.lapses[1];
+    };
+    expect(lapses(4)).toBeGreaterThan(20);
+    expect(lapses(20)).toBe(0);
+  });
+
+  it('pemicu pressing: lawan membelakangi di garis samping memicu penekan yang cerdas; giring pembawa bola ke sayap', () => {
+    const m = new Match({ seed: 'trig26', ...teams(3) });
+    const v = m as unknown as R;
+    clear(v);
+    v.iq = [0.8, 0.8];
+    const o = v.mates(0).find((b) => b.p.slot !== 'GK')!;
+    const d = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+    d.p.a.ant = d.p.a.dec = d.p.a.pos = 16;
+    v.owner = o;
+    v.gotAt = -9;
+    const dir0 = m.dir(0);
+    // pembawa bola tim 0 di dekat garis samping atas, menghadap gawangnya sendiri
+    o.x = 50;
+    o.y = dir0 > 0 ? 3 : 65;
+    o.face = dir0 > 0 ? Math.PI : 0;
+    d.x = 56;
+    d.y = o.y;
+    const on = v.aiTrigger(d, o);
+    expect(on).toBeGreaterThanOrEqual(0.5);
+    // menghadap ke depan di tengah lapangan: tidak ada pemicu
+    o.y = 34;
+    o.face = dir0 > 0 ? 0 : Math.PI;
+    d.y = 34;
+    expect(v.aiTrigger(d, o)).toBe(0);
+    // penekan cerdas datang dari sisi dalam (ke arah tengah lapangan)
+    o.y = 10;
+    expect(Math.sign(v.aiShowWide(d, o))).toBe(1);
+    o.y = 58;
+    expect(Math.sign(v.aiShowWide(d, o))).toBe(-1);
+    d.p.a.ant = d.p.a.dec = d.p.a.pos = 5;
+    o.y = 3;
+    o.face = dir0 > 0 ? Math.PI : 0;
+    expect(v.aiTrigger(d, o)).toBe(0);
+  });
+
+  it('kebijakan hasil latihan: pemain cerdas lebih sering memilih umpan maju, pemain kurang cerdas tetap seperti dulu', () => {
+    const forward = (brain: number, train: number) => {
+      const keep = TUNE.train;
+      TUNE.train = train;
+      const m = new Match({ seed: 'train26', ...teams(6) });
+      const v = m as unknown as R;
+      clear(v);
+      v.restart = null;
+      v.dead = null;
+      v.iq = [0.9, 0.9];
+      const [c, safe, fwd] = v.mates(0).filter((b) => b.p.slot !== 'GK');
+      const opp = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+      Object.assign(c.p.a, { dec: brain, vis: brain, ant: brain, cmp: 12, pas: 14, tec: 14 });
+      const W = (x: number) => (m.dir(0) > 0 ? x : 105 - x);
+      let n = 0;
+      for (let i = 0; i < 200; i++) {
+        c.x = W(40);
+        c.y = 34;
+        c.face = m.dir(0) > 0 ? 0 : Math.PI;
+        c.scan = v.t;
+        safe.x = W(37);
+        safe.y = 24;
+        fwd.x = W(60);
+        fwd.y = 40;
+        // umpan maju ada risikonya: lawan berdiri dekat penerima & jalurnya
+        opp.x = W(56);
+        opp.y = 38;
+        for (const b of [c, safe, fwd, opp]) b.vx = b.vy = 0;
+        v.owner = c;
+        v.ball.x = c.x;
+        v.ball.y = c.y;
+        v.ball.vx = v.ball.vy = 0;
+        v.decide(c);
+        if (v.pass?.to === fwd) n++;
+      }
+      TUNE.train = keep;
+      return n;
+    };
+    expect(forward(18, 1)).toBeGreaterThan(forward(18, 0) + 10);
+    expect(forward(5, 1)).toBe(forward(5, 0));
+  });
+
+  it('Teamwork: pemain ber-Teamwork tinggi memberi bola ke rekan yang posisinya jauh lebih baik, yang egois menembak sendiri', () => {
+    const give = (tea: number) => {
+      const m = new Match({ seed: 'tea26', ...teams(7) });
+      const v = m as unknown as R;
+      clear(v);
+      v.restart = null;
+      v.dead = null;
+      const [c, mate] = v.mates(0).filter((b) => b.p.slot !== 'GK');
+      const opp = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+      Object.assign(c.p.a, { tea, dec: 12, vis: 12, ant: 12, cmp: 12, pas: 13, tec: 13, fin: 12, lon: 12, spo: 15 });
+      const W = (x: number) => (m.dir(0) > 0 ? x : 105 - x);
+      let n = 0;
+      for (let i = 0; i < 300; i++) {
+        c.x = W(88);
+        c.y = 24;
+        c.face = Math.atan2(34 - c.y, W(105) - c.x);
+        c.scan = v.t;
+        mate.x = W(95);
+        mate.y = 38;
+        opp.x = W(89);
+        opp.y = 26;
+        for (const b of [c, mate, opp]) b.vx = b.vy = 0;
+        v.owner = c;
+        v.ball.x = c.x;
+        v.ball.y = c.y;
+        v.ball.vx = v.ball.vy = 0;
+        v.decide(c);
+        if (v.pass?.to === mate) n++;
+      }
+      return n;
+    };
+    // rekan bebas di depan gawang: Teamwork 20 hampir selalu memberi, Teamwork 5 memaksakan aksinya sendiri
+    expect(give(20)).toBeGreaterThan(give(5) + 100);
+  });
+
+  it('arah badan: umpan ke belakang badan tanpa berbalik lebih meleset, apalagi dengan Technique rendah', () => {
+    const spread = (behind: boolean, tec: number) => {
+      const m = new Match({ seed: 'body26', ...teams(5) });
+      const v = m as unknown as R;
+      clear(v);
+      const [c, r] = v.mates(0).filter((b) => b.p.slot !== 'GK');
+      c.p.a.pas = 12;
+      c.p.a.tec = tec;
+      c.energy = 1;
+      let err = 0;
+      for (let i = 0; i < 300; i++) {
+        c.x = 50;
+        c.y = 34;
+        r.x = 70;
+        r.y = 34;
+        r.vx = r.vy = 0;
+        c.face = behind ? Math.PI : 0;
+        v.owner = null;
+        v.passTo(c, r, false, false);
+        err += Math.abs(Math.atan2(v.ball.vy, v.ball.vx));
+      }
+      return err / 300;
+    };
+    const front = spread(false, 10);
+    const back = spread(true, 10);
+    const backGood = spread(true, 20);
+    expect(back).toBeGreaterThan(front * 1.3);
+    expect(backGood).toBeLessThan(back);
   });
 });
