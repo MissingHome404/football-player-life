@@ -92,6 +92,8 @@ describe('piala domestik', () => {
     let watched = 0;
     for (let i = 0; i < 45 && !world.cups?.ENG1?.winner; i++) {
       for (const m of pendingChoices(career)) ({ world, career } = resolveChoice(world, career, m.id, 0));
+      // (cedera dari benturan di laga tetap bisa terjadi; tes ini tentang laga piala, jadi pemain kita langsung pulih)
+      if (career.injury) career = { ...career, injury: null };
       const r = advanceWeek(world, career);
       ({ world, career } = r);
       const games = career.matches.filter((m) => m.comp === 'Piala' && !cupGames.some((g) => g.date === m.date));

@@ -139,9 +139,12 @@ describe('kompetisi benua', () => {
     const games: MatchRecord[] = [];
     let watched = 0;
     let sawNext = false;
+    let sawQualified = false;
     for (let i = 0; i < 48 && !world.continental?.EU1?.winner; i++) {
       for (const m of pendingChoices(career)) ({ world, career } = resolveChoice(world, career, m.id, 0));
       ({ world, career } = advanceWeek(world, career));
+      // (kotak masuk dibatasi; pesan lama bisa tergeser pesan baru di akhir musim)
+      if (career.inbox.some((m) => m.title === 'Lolos ke Liga Mahkota Eropa')) sawQualified = true;
       const fresh = career.matches.filter((m) => m.comp === 'Kontinental' && !games.some((g) => g.date === m.date));
       games.push(...fresh);
       if (fresh.some((g) => g.date === career.lastSim?.date)) watched++;
@@ -162,7 +165,7 @@ describe('kompetisi benua', () => {
     const played = games.filter((g) => g.minutes > 0);
     const row = career.stats.find((s) => s.comp === 'Kontinental');
     expect(row?.apps ?? 0).toBe(played.length);
-    expect(career.inbox.some((m) => m.title === 'Lolos ke Liga Mahkota Eropa')).toBe(true);
+    expect(sawQualified).toBe(true);
     const c = world.continental!.EU1;
     if (c.winner === clubId && played.length) expect(career.trophies?.some((t) => t.id === `cont-${c.id}`)).toBe(true);
   }, 180_000);

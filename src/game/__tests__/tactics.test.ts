@@ -1332,10 +1332,14 @@ describe('match engine versi 22: gerak tenang, tendangan bebas, offside IFAB, dr
     const m = new Match({ seed: 'touch22', ...teams(1) });
     const v = m as unknown as R;
     const leads: number[] = [];
+    let prev: unknown = null;
     while (!v.done) {
       m.step();
       const o = v.owner;
-      if (!o || v.restart || v.dead || Math.hypot(o.vx, o.vy) < 4) continue;
+      // (langkah pertama setelah merebut / menerima bola: bola belum di kaki pemilik barunya)
+      const fresh = o !== prev;
+      prev = o;
+      if (!o || fresh || v.restart || v.dead || Math.hypot(o.vx, o.vy) < 4) continue;
       leads.push(Math.hypot(v.ball.x - o.x, v.ball.y - o.y));
     }
     const mean = leads.reduce((p, q) => p + q, 0) / leads.length;
@@ -1515,6 +1519,8 @@ describe('match engine versi 24: struktur bertahan, struktur serangan, positiona
     ty: number;
     run: number;
     on: boolean;
+    vx: number;
+    vy: number;
   };
   type R = {
     t: number;
@@ -1531,38 +1537,57 @@ describe('match engine versi 24: struktur bertahan, struktur serangan, positiona
     laneBlock(b: B, s: 0 | 1, x: number, y: number): [number, number];
     laneOpen(ax: number, ay: number, bx: number, by: number, opps: B[]): boolean;
   };
-  const DEF = ['RB', 'LB', 'RCB', 'LCB', 'CB'];
   const MID = ['CM', 'RCM', 'LCM', 'RDM', 'LDM', 'RM', 'LM'];
-  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length);
   const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 6].id, clubTactic(eng[i + 6])) });
 
-  it('blok rapat: lini belakang menyusul lini tengah yang menekan, jarak antar lini lebih pendek', () => {
-    const gap = (on: boolean) => {
-      const keep = { squeeze: TUNE.squeeze, stepUp: TUNE.stepUp };
-      if (!on) Object.assign(TUNE, { squeeze: 0, stepUp: 0 });
-      const gaps: number[] = [];
-      for (let i = 0; i < 4; i++) {
-        const m = new Match({ seed: `blk24-${i}`, ...teams(i) });
-        const v = m as unknown as R;
-        while (!v.done) {
-          m.step();
-          const o = v.owner;
-          if (!o || v.restart || v.dead || Math.round(v.t * 10) % 5) continue;
-          const d = (1 - o.side) as 0 | 1;
-          // lawan membangun serangan dari belakang: tim kita menekan di depan
-          if (m.fx(d, o.x) < 68 || o.p.slot === 'GK') continue;
-          const team = v.mates(d);
-          gaps.push(mean(team.filter((b) => MID.includes(b.p.slot)).map((b) => m.fx(d, b.x))) - mean(team.filter((b) => DEF.includes(b.p.slot)).map((b) => m.fx(d, b.x))));
-        }
-      }
-      Object.assign(TUNE, keep);
-      return mean(gaps);
+  it('blok rapat: lini belakang menyusul lini tengah yang menekan; penyerang yang diam di belakang garis tidak diikuti mundur', () => {
+    const m = new Match({ seed: 'blk24', ...teams(0) });
+    const v = m as unknown as R & {
+      ball: { x: number; y: number };
+      defLine(s: 0 | 1, inPoss: boolean, raw?: boolean): number;
+      markAdjust(b: B, s: 0 | 1, line: number, x: number, y: number): [number, number, boolean];
     };
-    const tight = gap(true);
-    const loose = gap(false);
-    // (TACT: 17,6 -> 16,0 m; liga CAL saat lawan membangun dari sepertiga awal: 21,7 -> 17,8 m)
-    expect(tight).toBeLessThan(loose - 1);
-    expect(tight).toBeLessThan(17);
+    for (let i = 0; i < 20; i++) m.step();
+    const W = (fx: number) => (m.dir(0) > 0 ? fx : 105 - fx);
+    // lawan membangun serangan dari belakang (bola di x 85 bingkai kita), gelandang kita menekan di x 62
+    const opp = v.mates(1).filter((b) => b.p.slot !== 'GK');
+    const carrier = opp[0];
+    carrier.x = W(85);
+    carrier.y = 34;
+    v.owner = carrier;
+    v.poss = 1;
+    v.ball.x = carrier.x;
+    v.ball.y = carrier.y;
+    for (const b of v.mates(0)) if (MID.includes(b.p.slot) || b.p.slot === 'AM') b.x = W(62);
+    const line = (squeeze: number) => {
+      const keep = TUNE.squeeze;
+      TUNE.squeeze = squeeze;
+      const l = v.defLine(0, false, true);
+      TUNE.squeeze = keep;
+      return l;
+    };
+    const tight = line(TUNE.squeeze);
+    expect(tight).toBeGreaterThan(line(0) + 4);
+    expect(62 - tight).toBeLessThan(23);
+    // penyerang lawan berdiri diam 4 m di belakang garis, pembawa bola ditekan: bek tidak ikut mundur
+    const cb = v.mates(0).find((b) => /^(RCB|LCB|CB)$/.test(b.p.slot))!;
+    const st = opp[1];
+    st.x = W(tight - 4);
+    st.y = 34;
+    st.vx = st.vy = 0;
+    st.run = 0;
+    opp[2].x = W(83);
+    opp[2].y = 34;
+    const press = v.mates(0).find((b) => MID.includes(b.p.slot))!;
+    press.x = W(82);
+    press.y = 34;
+    const keep = TUNE.stepUp;
+    const [hold] = v.markAdjust(cb, 0, tight, tight, 34);
+    TUNE.stepUp = 0;
+    const [chase] = v.markAdjust(cb, 0, tight, tight, 34);
+    TUNE.stepUp = keep;
+    expect(hold).toBeCloseTo(tight, 5);
+    expect(chase).toBeLessThan(tight - 4);
   });
 
   it('struktur serangan melawan blok: pemberi lebar di garis samping, dua pemain di half-space di antara lini, bek tengah di belakang lini pertama lawan', () => {
@@ -1675,4 +1700,101 @@ describe('match engine versi 25: pergantian pemain', () => {
     }
     expect(subs).toBeGreaterThan(20);
   }, 120_000);
+});
+
+describe('match engine versi 25: bola di kaki saat berbelok, gaya per kecerdasan tim', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    st: { passes: number; takeOns: number; dribbles: number };
+  };
+  type R = {
+    done: boolean;
+    owner: B | null;
+    restart: unknown;
+    dead: unknown;
+    ball: { x: number; y: number };
+    iq: [number, number];
+    bodies: B[];
+    mates(s: 0 | 1): B[];
+    carry(o: B, sp: number, fdx: number, fdy: number): void;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 7].id, clubTactic(eng[i + 7])) });
+
+  it('pembawa bola yang berlari tidak pernah meninggalkan bola di belakang badannya', () => {
+    const m = new Match({ seed: 'ball25', ...teams(0) });
+    const v = m as unknown as R;
+    let prev: unknown = null;
+    let frames = 0;
+    let behind = 0;
+    while (!v.done) {
+      m.step();
+      const o = v.owner;
+      const fresh = o !== prev;
+      prev = o;
+      if (!o || fresh || v.restart || v.dead || o.p.slot === 'GK') continue;
+      const sp = Math.hypot(o.vx, o.vy);
+      if (sp < 2) continue;
+      frames++;
+      if (((v.ball.x - o.x) * o.vx + (v.ball.y - o.y) * o.vy) / sp < 0) behind++;
+    }
+    expect(frames).toBeGreaterThan(100);
+    // dulu 13,5% langkah lari dengan bola: bola di belakang pemain (sampai 2 m)
+    expect(behind).toBe(0);
+  });
+
+  it('berbelok dengan bola: bola ditarik ke arah baru dan larinya melambat; pemain lincah kehilangan lebih sedikit kecepatan', () => {
+    const turn = (skill: number) => {
+      const m = new Match({ seed: 'turn25', ...teams(1) });
+      const v = m as unknown as R;
+      const o = v.mates(0).find((b) => b.p.slot !== 'GK')!;
+      o.p.a.agi = o.p.a.dri = o.p.a.tec = skill;
+      o.x = 50;
+      o.y = 34;
+      // berlari ke kanan, bola tertinggal 1,2 m di kiri belakang (baru berbalik arah)
+      o.vx = 7;
+      o.vy = 0;
+      v.ball.x = 49;
+      v.ball.y = 33.4;
+      v.carry(o, 7, 1, 0);
+      return { speed: Math.hypot(o.vx, o.vy), ahead: v.ball.x - o.x };
+    };
+    const good = turn(20);
+    const poor = turn(4);
+    expect(good.ahead).toBeGreaterThan(0);
+    expect(poor.ahead).toBeGreaterThan(0);
+    expect(good.speed).toBeLessThan(7);
+    expect(good.speed).toBeGreaterThan(poor.speed + 0.8);
+  });
+
+  it('kecerdasan bermain tim dari atribut: tim kurang cerdas lebih banyak dribel & take-on, tim cerdas lebih banyak mengoper', () => {
+    const m0 = new Match({ seed: 'iq25', ...teams(2) });
+    const v0 = m0 as unknown as R;
+    expect(v0.iq[0]).toBeGreaterThan(0.5);
+    const style = (iq: 0 | 1) => {
+      const keep = { iqLo: TUNE.iqLo, iqHi: TUNE.iqHi };
+      Object.assign(TUNE, iq ? { iqLo: -100, iqHi: -99 } : { iqLo: 100, iqHi: 101 });
+      let solo = 0;
+      let passes = 0;
+      for (let i = 0; i < 4; i++) {
+        const m = new Match({ seed: `iq25-${i}`, ...teams(i) });
+        const v = m as unknown as R;
+        while (!v.done) m.step();
+        for (const b of v.bodies) {
+          solo += b.st.takeOns + b.st.dribbles;
+          passes += b.st.passes;
+        }
+      }
+      Object.assign(TUNE, keep);
+      return { solo, passes };
+    };
+    const weak = style(0);
+    const smart = style(1);
+    expect(weak.solo).toBeGreaterThan(smart.solo * 1.3);
+    expect(smart.passes).toBeGreaterThan(weak.passes);
+  });
 });

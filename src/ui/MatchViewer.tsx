@@ -14,6 +14,7 @@ import {
   NET_DEPTH,
   PITCH_H,
   PITCH_W,
+  fovHalf,
   minutesPlayed,
   possessionPct,
   rate,
@@ -341,7 +342,15 @@ function Lineup({
 interface Snap {
   x: number;
   y: number;
+  /** arah hadap badan (radian) */
+  face: number;
 }
+
+/** selisih sudut terpendek a - b (radian) */
+const turnOf = (a: number, b: number) => {
+  const d = (a - b) % (Math.PI * 2);
+  return d > Math.PI ? d - Math.PI * 2 : d < -Math.PI ? d + Math.PI * 2 : d;
+};
 
 function Live({
   match,
@@ -371,6 +380,10 @@ function Live({
   const [tab, setTab] = useState<'home' | 'away' | 'stats' | 'events'>(mySide ? 'away' : 'home');
   // kontrol ruang (v17): warnai tiap petak dengan warna tim yang lebih dulu sampai di sana
   const [space, setSpace] = useState(false);
+  // v25 sudut pandang tiap pemain (Vision): kerucut tipis ke arah hadapnya
+  const [sight, setSight] = useState(false);
+  const sightRef = useRef(sight);
+  sightRef.current = sight;
   const speedRef = useRef(speed);
   const pausedRef = useRef(paused);
   const spaceRef = useRef(space);
@@ -431,7 +444,7 @@ function Live({
     }
 
     function snapshot() {
-      for (const b of match.bodies) prev.set(b, { x: b.x, y: b.y });
+      for (const b of match.bodies) prev.set(b, { x: b.x, y: b.y, face: b.face });
       prevBall.x = match.ball.x;
       prevBall.y = match.ball.y;
       prevBall.z = match.ball.z;
@@ -573,8 +586,34 @@ function Live({
         // pemain yang diganti masih digambar saat berjalan keluar lapangan; pengganti menunggu di pinggir lapangan
         if (!b.on && !b.leaving && !b.waiting) continue;
         const p0 = prev.get(b) ?? b;
-        const [x, y] = P(p0.x + (b.x - p0.x) * alpha, p0.y + (b.y - p0.y) * alpha);
+        const wx = p0.x + (b.x - p0.x) * alpha;
+        const wy = p0.y + (b.y - p0.y) * alpha;
+        const [x, y] = P(wx, wy);
         const fill = b.p.slot === 'GK' ? keepers[b.side] : colors[b.side];
+        // v25 arah hadap (dihaluskan antar langkah); saat scanning pemain menoleh sebentar ke belakang bahunya
+        const face = p0.face + turnOf(b.face, p0.face) * alpha;
+        const scanning = b.on && match.t - b.scan < 0.35 && b.p.slot !== 'GK';
+        const look = scanning ? face + (b.p.num % 2 ? 2.2 : -2.2) : face;
+        // arah di layar (lapangan bisa diputar tegak di layar sempit)
+        const dirOf = (ang: number): [number, number] => {
+          const [ex, ey] = P(wx + Math.cos(ang), wy + Math.sin(ang));
+          const l = Math.hypot(ex - x, ey - y) || 1;
+          return [(ex - x) / l, (ey - y) / l];
+        };
+        if (sightRef.current && b.on && b.hurt < 0) {
+          // kerucut pandang: setengah sudut dari Vision, kiper melihat seluruh lapangan
+          const [fx, fy] = dirOf(face);
+          const mid = Math.atan2(fy, fx);
+          const half = b.p.slot === 'GK' ? Math.PI : fovHalf(b.p.a.vis);
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.arc(x, y, s * 9, mid - half, mid + half);
+          ctx.closePath();
+          ctx.fillStyle = fill;
+          ctx.globalAlpha = 0.07;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
         // pemain cedera terkapar: digambar pudar dengan tanda palang merah
         const hurt = b.hurt >= 0;
         ctx.globalAlpha = hurt ? 0.55 : b.leaving ? 0.7 : b.waiting ? 0.9 : 1;
@@ -587,6 +626,20 @@ function Live({
         ctx.stroke();
         ctx.fillStyle = lum(fill) > 0.6 ? '#111' : '#fff';
         ctx.fillText(String(b.p.num), x, y + 0.5);
+        // v25 mata: dua titik putih di tepi lingkaran ke arah pandangan pemain
+        if (b.hurt < 0) {
+          const er = Math.max(1.5, r * 0.26);
+          for (const side of [-0.45, 0.45]) {
+            const [dx, dy] = dirOf(look + side);
+            ctx.beginPath();
+            ctx.arc(x + dx * r * 0.95, y + dy * r * 0.95, er, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            ctx.lineWidth = Math.max(0.8, er * 0.45);
+            ctx.strokeStyle = 'rgba(0,0,0,.7)';
+            ctx.stroke();
+          }
+        }
         ctx.globalAlpha = 1;
         if (hurt) {
           const k = r * 0.9;
@@ -781,6 +834,14 @@ function Live({
             title="Kontrol ruang: tiap petak diberi warna tim yang lebih dulu bisa sampai di sana"
           >
             Ruang
+          </button>
+          <button
+            className={`chip ${sight ? 'sel' : ''}`}
+            aria-pressed={sight}
+            onClick={() => setSight((v) => !v)}
+            title="Sudut pandang: makin tinggi Vision makin lebar; rekan di luar pandangan hanya terlihat setelah pemain menoleh (scanning)"
+          >
+            Pandangan
           </button>
           <button className="ghost" onClick={onSkip}>
             Lewati ke akhir
