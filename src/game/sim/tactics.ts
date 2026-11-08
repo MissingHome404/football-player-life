@@ -358,7 +358,9 @@ export function tacticInstructions(t: Tactic): { possession: string[]; transitio
     lv(t.engage, 'Mulai menekan sangat dalam', 'Mulai menekan lebih dalam', 'Mulai menekan lebih tinggi', 'Mulai menekan sangat tinggi'),
     lv(t.press, 'Pressing sangat jarang', 'Pressing lebih jarang', 'Pressing lebih sering', 'Pressing jauh lebih sering'),
     t.tackling > 0 ? 'Tekel lebih keras' : t.tackling < 0 ? 'Jangan terburu-buru menekel' : null,
-    t.marking === 'man' ? 'Man marking (tiap pemain menempel satu lawan)' : null,
+    t.marking === 'man'
+      ? 'Man marking (tiap pemain menempel satu lawan ke mana pun; yang tidak punya lawan jagaan ikut mengepung bola)'
+      : 'Zonal marking (tiap pemain menjaga daerahnya; yang daerahnya kosong ikut mengepung pembawa bola)',
     t.trap ? 'Jebakan offside' : null,
   ].filter((x): x is string => !!x);
   return { possession, transition, defence };

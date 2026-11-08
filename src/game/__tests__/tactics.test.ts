@@ -4,7 +4,7 @@ import { squadOf } from '../sim/season';
 import { Match, TUNE, duelP, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
 import { FORMATIONS, isCB, isCentralMid, isST, isWideMid, isWing } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
-import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
+import { ROLE_DUTIES, clubTactic, makeTactic, tacticInstructions, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
 import { PLAY_TRAITS, playTraits } from '../sim/traits';
 import { famStart, intensityDrain, learnTactic, tacticFam, understandWeek } from '../sim/understanding';
 import type { Career } from '../types';
@@ -1336,7 +1336,8 @@ describe('match engine versi 22: gerak tenang, tendangan bebas, offside IFAB, dr
     };
     const before = still(0);
     const after = still(1);
-    expect(after).toBeGreaterThan(before + 0.1);
+    // (v31: pemain yang membantu mengepung & gelandang jembatan lebih sering bergerak, jadi diukur relatif)
+    expect(after).toBeGreaterThan(before * 1.3);
   });
 
   it('dribel dengan sentuhan: bola didorong ke depan lalu dikejar; dribbler hebat menjaga bola lebih dekat', () => {
@@ -2761,5 +2762,202 @@ describe('match engine versi 30: bola lepas, foul & cedera, tugas tiap posisi', 
     expect(hard.gap).toBeLessThan(2.5);
     expect(hard.sprint).toBe(true);
     expect(run(4).gap).toBeGreaterThan(5);
+  });
+});
+
+describe('match engine versi 31: dribel rapat, bantuan menekan, marking, umpan datar & fisik bola', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    tx: number;
+    ty: number;
+    on: boolean;
+    cool: number;
+    run: number;
+    think: number;
+    sprint: boolean;
+    st: { lost: number; interceptions: number };
+  };
+  type R = {
+    t: number;
+    done: boolean;
+    restart: unknown;
+    dead: unknown;
+    owner: B | null;
+    pass: unknown;
+    touchV: number;
+    touchDx: number;
+    touchDy: number;
+    ball: { x: number; y: number; z: number; vx: number; vy: number };
+    bodies: B[];
+    fouls: [number, number];
+    pressers: B[];
+    marks: Map<B, B>;
+    tk: [{ marking?: string; press: number } | null, unknown];
+    step(): void;
+    mates(s: 0 | 1): B[];
+    fx(s: 0 | 1, x: number): number;
+    carry(o: B, sp: number, fdx: number, fdy: number): void;
+    aiRoles(s: 0 | 1): void;
+    receive(px: number, py: number): void;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 5].id, clubTactic(eng[i + 5])) });
+  const open = (seed: string, i: number) => {
+    const v = new Match({ seed, ...teams(i) }) as unknown as R;
+    v.restart = null;
+    v.dead = null;
+    v.t = 30;
+    for (const b of v.bodies) {
+      b.x = b.side ? 100 : 5;
+      b.y = b.side ? 66 : 2;
+      b.vx = b.vy = 0;
+      b.run = 0;
+      b.cool = 0;
+    }
+    return v;
+  };
+  const field = (v: R, s: 0 | 1) => v.mates(s).filter((b) => b.p.slot !== 'GK' && b.on);
+
+  it('penggiring jago (Dribbling, Agility, First Touch 20) jauh lebih jarang diserobot saat bola sedikit lepas dari kakinya', () => {
+    const steals = (k: number) => {
+      let n = 0;
+      for (let i = 0; i < 300; i++) {
+        const v = open(`steal31-${i}`, 0);
+        const c = field(v, 0)[3];
+        const d = field(v, 1)[3];
+        Object.assign(c.p.a, { dri: k, agi: k, ft: k });
+        Object.assign(d.p.a, { tck: 12, ant: 12, agi: 12 });
+        c.x = 50;
+        c.y = 34;
+        v.owner = c;
+        v.touchV = 1;
+        v.touchDx = 1;
+        v.touchDy = 0;
+        v.ball.x = 51.4;
+        v.ball.y = 34;
+        d.x = 51.9;
+        d.y = 34.5;
+        v.carry(c, 6, 1, 0);
+        if (v.owner !== c) n++;
+      }
+      return n;
+    };
+    const good = steals(20);
+    const poor = steals(5);
+    expect(poor).toBeGreaterThan(150);
+    expect(good).toBeLessThan(poor * 0.4);
+  });
+
+  it('kontrol rapat: penggiring jago menyentuh bola lebih pendek, apalagi saat ditempel lawan', () => {
+    const push = (k: number, pressed: boolean) => {
+      const v = open('touch31', 1);
+      const c = field(v, 0)[3];
+      Object.assign(c.p.a, { dri: k, tec: k, ft: k });
+      c.x = 50;
+      c.y = 34;
+      v.owner = c;
+      v.touchV = 0;
+      v.ball.x = 50.3;
+      v.ball.y = 34;
+      if (pressed) {
+        const d = field(v, 1)[3];
+        d.x = 53;
+        d.y = 35;
+      }
+      v.carry(c, 6, 1, 0);
+      return v.touchV - 6;
+    };
+    expect(push(20, false)).toBeLessThan(push(5, false) * 0.6);
+    expect(push(20, true)).toBeLessThan(push(20, false) * 0.6);
+    expect(push(5, true)).toBeGreaterThan(push(5, false) * 0.9);
+  });
+
+  it('bantu menekan: rekan yang bebas ikut mengepung pembawa bola yang sudah ditempel, yang sedang menjaga lawan tetap di tempat', () => {
+    const run = (guard: boolean, man: boolean) => {
+      const v = open('help31', 2);
+      const me = field(v, 0);
+      const o = field(v, 1)[5];
+      o.x = v.fx(0, 45);
+      o.y = 34;
+      v.owner = o;
+      v.ball.x = o.x;
+      v.ball.y = o.y;
+      const p0 = me.find((b) => isCentralMid(b.p.slot as never))!;
+      const h = me.find((b) => b !== p0 && (isCentralMid(b.p.slot as never) || isWideMid(b.p.slot as never) || isWing(b.p.slot as never)))!;
+      p0.x = o.x - 1.5;
+      p0.y = 34;
+      v.pressers = [p0];
+      Object.assign(h.p.a, { tea: 14, dec: 14, ant: 14, wor: 14 });
+      h.x = h.tx = o.x - 3;
+      h.y = h.ty = 42;
+      h.sprint = false;
+      v.tk[0] = { ...(v.tk[0] as object), marking: man ? 'man' : 'zonal', press: 0 } as never;
+      const q = field(v, 1)[2];
+      if (guard) {
+        q.x = h.x - 1;
+        q.y = 44;
+        if (man) v.marks.set(h, q);
+      }
+      v.aiRoles(0);
+      return Math.hypot(h.tx - o.x, h.ty - o.y);
+    };
+    expect(run(false, false)).toBeLessThan(2.5);
+    expect(run(true, false)).toBeGreaterThan(5);
+    expect(run(true, true)).toBeGreaterThan(5);
+    expect(run(false, true)).toBeLessThan(2.5);
+  });
+
+  it('bola datar yang cepat lewat dekat lawan butuh waktu reaksi: tidak selalu terpotong', () => {
+    const touched = (ground: number) => {
+      const old = TUNE.ground;
+      TUNE.ground = ground;
+      try {
+        const v = open('react31', 3);
+        const c = field(v, 0)[3];
+        const m = field(v, 0)[4];
+        const d = field(v, 1)[3];
+        Object.assign(d.p.a, { ant: 8, agi: 10 });
+        c.x = 40;
+        c.y = 34;
+        m.x = 60;
+        m.y = 34;
+        d.x = 50;
+        d.y = 35;
+        v.owner = null;
+        v.pass = { from: c, to: m, air: false, cross: false, tx: m.x, ty: m.y, setPiece: false };
+        v.ball.x = 50.7;
+        v.ball.y = 34;
+        v.ball.z = 0;
+        v.ball.vx = 15;
+        v.ball.vy = 0;
+        const before = d.st.interceptions;
+        v.receive(49.2, 34);
+        // dijangkau = mencoba memotong (berhasil, memantulkan, atau lolos dari jangkauannya: cool)
+        return d.st.interceptions > before || v.owner === d || v.pass === null || d.cool > 0;
+      } finally {
+        TUNE.ground = old;
+      }
+    };
+    expect(touched(0)).toBe(true);
+    expect(touched(1)).toBe(false);
+  });
+
+  it('foul lebih jarang (sekitar 4 per laga) dan taktik menyebut zonal atau man marking', () => {
+    let fouls = 0;
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const v = new Match({ seed: `f31-${i}`, ...teams(i % 4) }) as unknown as R;
+      while (!v.done) v.step();
+      fouls += v.fouls[0] + v.fouls[1];
+    }
+    expect(fouls / n).toBeLessThan(6.5);
+    const t = clubTactic(eng[0]);
+    const lines = tacticInstructions({ ...t, marking: 'zonal' }).defence.join(' ');
+    expect(lines).toContain('Zonal marking');
+    expect(tacticInstructions({ ...t, marking: 'man' }).defence.join(' ')).toContain('Man marking');
   });
 });

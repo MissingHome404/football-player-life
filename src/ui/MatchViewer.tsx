@@ -26,8 +26,8 @@ import {
 
 type Phase = 'lineup' | 'play' | 'end';
 const SPEEDS = [1, 2, 4, 8] as const;
-/** Kecepatan 1x = dua kali waktu permainan per detik nyata (1x lama terasa seperti gerak lambat) */
-const BASE_RATE = 2;
+/** Kecepatan 1x = 1,5 detik permainan per detik nyata (v0.48: 25% lebih pelan dari 2, permintaan Wilson) */
+const BASE_RATE = 1.5;
 /** Ruang di luar garis (meter) supaya gawang, jaring & bola yang keluar tetap terlihat */
 const EDGE = 3;
 
@@ -332,7 +332,7 @@ function Lineup({
           Lewati, lihat hasil
         </button>
       </div>
-      <p className="muted small">Satu babak sekitar 2,5 menit di kecepatan normal. Bisa dipercepat atau dilewati.</p>
+      <p className="muted small">Satu babak sekitar 3,3 menit di kecepatan normal. Bisa dipercepat atau dilewati.</p>
     </div>
   );
 }
