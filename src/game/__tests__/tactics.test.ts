@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
 import { Match, TUNE, duelP, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
-import { FORMATIONS } from '../sim/formation';
+import { FORMATIONS, isCB } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
 import { PLAY_TRAITS, playTraits } from '../sim/traits';
@@ -970,7 +970,8 @@ describe('match engine versi 20: perpanjangan waktu & adu penalti', () => {
   it('laga gugur imbang: perpanjangan waktu 2 x 15 menit, lalu adu penalti sampai ada pemenang', () => {
     let found = 0;
     let et = 0;
-    for (let i = 0; i < 60 && found < 2; i++) {
+    // (v27: lebih sedikit laga imbang karena pertahanan yang rapi lebih menentukan, jadi cari lebih jauh)
+    for (let i = 0; i < 160 && found < 2; i++) {
       const m = ko(i);
       const r = m.run();
       if (!r.et) {
@@ -1012,7 +1013,7 @@ describe('match engine versi 20: perpanjangan waktu & adu penalti', () => {
     }
     expect(et).toBeGreaterThanOrEqual(found);
     expect(found).toBe(2);
-  }, 60_000);
+  }, 120_000);
 
   it('laga biasa tetap boleh imbang; agregat leg pertama ikut dihitung', () => {
     for (let i = 0; i < 6; i++) {
@@ -2075,5 +2076,118 @@ describe('match engine versi 26: weighted RNG yang masuk akal & AI yang lebih pi
     const backGood = spread(true, 20);
     expect(back).toBeGreaterThan(front * 1.3);
     expect(backGood).toBeLessThan(back);
+  });
+});
+
+describe('match engine versi 27: lini belakang sebagai unit, menahan serangan balik, badan menutup sudut tembak', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    tx: number;
+    ty: number;
+  };
+  type R = {
+    t: number;
+    restart: unknown;
+    dead: unknown;
+    owner: B | null;
+    ball: { x: number; y: number };
+    bodies: B[];
+    wonAt: [number, number];
+    mates(s: 0 | 1): B[];
+    fx(s: 0 | 1, x: number): number;
+    defLine(s: 0 | 1, inPoss: boolean): number;
+    aiCone(s: 0 | 1, x: number, y: number): number;
+    aiDelay(s: 0 | 1, o: B): number;
+    aiBackUnit(s: 0 | 1): void;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 7].id, clubTactic(eng[i + 7])) });
+  const clear = (v: R) => {
+    for (const b of v.bodies) {
+      b.x = b.side ? 102 : 3;
+      b.y = 66;
+      b.vx = b.vy = 0;
+    }
+  };
+
+  it('badan pembela di antara penembak dan gawang menutup sebagian sudut; di luar sudut tidak berpengaruh', () => {
+    const m = new Match({ seed: 'cone27', ...teams(0) });
+    const v = m as unknown as R;
+    clear(v);
+    const d = v.mates(0).find((b) => b.p.slot !== 'GK')!;
+    const sx = v.fx(0, 16);
+    const k = (y: number, skill: number) => {
+      d.x = v.fx(0, 10);
+      d.y = y;
+      d.p.a.pos = d.p.a.bra = skill;
+      return v.aiCone(0, sx, 34);
+    };
+    const mid = k(34, 10);
+    expect(mid).toBeLessThan(0.85);
+    // satu badan tidak pernah menutup seluruh gawang
+    expect(mid).toBeGreaterThan(0.4);
+    expect(k(34, 20)).toBeLessThan(mid);
+    expect(k(44, 10)).toBe(1);
+    const old = TUNE.cone;
+    TUNE.cone = 0;
+    expect(k(34, 10)).toBe(1);
+    TUNE.cone = old;
+  });
+
+  it('lini belakang: bek tengah yang disiplin tidak ikut keluar bersamaan, yang tidak disiplin tetap ikut keluar', () => {
+    const out = (disc: number) => {
+      const m = new Match({ seed: 'unit27', ...teams(1) });
+      const v = m as unknown as R;
+      v.restart = null;
+      v.dead = null;
+      const o = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+      o.x = v.fx(0, 60);
+      o.y = 34;
+      v.ball.x = o.x;
+      v.ball.y = o.y;
+      v.owner = o;
+      const cbs = v.mates(0).filter((b) => isCB(b.p.slot as never));
+      expect(cbs.length).toBeGreaterThanOrEqual(2);
+      const line = v.defLine(0, false);
+      cbs.forEach((b, i) => {
+        Object.assign(b.p.a, { pos: disc, dec: disc, tea: disc, con: disc });
+        b.tx = v.fx(0, line + 10);
+        b.ty = 30 + i * 8;
+      });
+      v.aiBackUnit(0);
+      return { n: cbs.filter((b) => v.fx(0, b.tx) > line + 7).length, all: cbs.length };
+    };
+    expect(out(15).n).toBe(1);
+    const sloppy = out(4);
+    expect(sloppy.n).toBe(sloppy.all);
+  });
+
+  it('menahan serangan balik: lawan baru merebut bola & pembela kalah jumlah -> penekan menahan jarak', () => {
+    const hold = (goalSide: number, since: number) => {
+      const m = new Match({ seed: 'delay27', ...teams(2) });
+      const v = m as unknown as R;
+      clear(v);
+      const os = v.mates(1).filter((b) => b.p.slot !== 'GK');
+      const ds = v.mates(0).filter((b) => b.p.slot !== 'GK');
+      for (const d of ds) d.x = v.fx(0, 80);
+      ds.slice(0, goalSide).forEach((d, i) => {
+        d.x = v.fx(0, 30);
+        d.y = 20 + i * 6;
+      });
+      [os[0].x, os[0].y] = [v.fx(0, 50), 34];
+      [os[1].x, os[1].y] = [v.fx(0, 45), 25];
+      [os[2].x, os[2].y] = [v.fx(0, 45), 43];
+      v.wonAt[1] = v.t - since;
+      return v.aiDelay(0, os[0]);
+    };
+    expect(hold(2, 1)).toBeGreaterThan(2);
+    // cukup banyak pembela sudah di belakang bola: boleh langsung menekan
+    expect(hold(6, 1)).toBe(0);
+    // serangan sudah lama berjalan (bukan transisi)
+    expect(hold(2, 10)).toBe(0);
   });
 });

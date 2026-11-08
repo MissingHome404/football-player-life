@@ -62,6 +62,13 @@ Sudah ada:
   Pemain ber-Composure rendah salah memilih saat ditempel lawan. Bek dan gelandang ber-Concentration rendah kadang lengah sesaat (ball-watching). Positioning dan Off the Ball rendah membuat pemain tertarik ke arah bola. Mengoper ke belakang badan tanpa berbalik atau menembak sambil menyamping lebih meleset. Pantulan bola mengikuti arah benturan.
 
   AI mesin dilatih lewat ribuan laga uji: AI baru melawan AI lama dengan skuad identik. Bobot yang paling sering menang adalah lebih berani memajukan bola, tidak sekadar oper aman, dan lebih sering membawa bola. Bobot itu dipakai sebesar kecerdasan pemain (Decisions, Vision, Anticipation, plus kecerdasan tim). Pemicu pressing juga ditambahkan: lawan yang membelakangi, kontrol yang buruk, atau terjepit di garis samping memicu tekanan, dan penekan datang dari sisi dalam supaya pembawa bola terdorong ke sayap. Teamwork tinggi kini memberi bola ke rekan yang posisinya lebih baik, bukan asal mengoper. Teamwork rendah memaksakan tembakan dari posisi jelek.
+- **Match engine v27:** pertahanan lebih rapi dan lebih sulit dibobol. Saat lawan menguasai bola, lini belakang bergerak sebagai satu unit:
+  - hanya satu bek tengah yang boleh keluar dari garis (menekan, mengejar pelari, atau maju memotong); bek lain yang disiplin (Positioning, Decisions, Teamwork) tetap di garis, bek yang tidak disiplin masih bisa ikut keluar dan meninggalkan celah;
+  - bek tengah hanya keluar menekan pembawa bola yang dekat garisnya, di depan itu gelandang yang menekan;
+  - jarak antar bek dijaga dari sisi bola, jadi saat bola di kanan bek kiri merapat ke tengah;
+  - bek yang tertinggal di depan garis berlari kembali.
+
+  Lini yang terorganisasi (Positioning, Teamwork, Concentration, aba-aba kiper) lebih rapat. Saat diserang balik dengan jumlah pemain kalah, penekan pertama menahan jarak dan tidak menerjang, supaya rekannya sempat kembali. Badan pembela di antara penembak dan gawang menutup sebagian sudut tembakan (Positioning dan Bravery), dan penembak yang pintar mencari sudut yang lebih terbuka.
 - **Ekspor ke Football Manager:** unduh statistik karier sebagai CSV (Excel): riwayat per musim, total, klub, trofi, penghargaan, rekor, atribut akhir dengan skala 1-20 dan urutan seperti layar FM, personality, dan hidden attributes.
 
 Belum ada: karier setelah pensiun sebagai pundit atau pelatih.

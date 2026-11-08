@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 26;
+export const ENGINE_VERSION = 27;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -109,6 +109,20 @@ export const TUNE = {
    * Teamwork rendah memaksakan aksi sendiri yang jelek (tembakan dari posisi buruk, menerobos tekanan) (0 = aturan v23)
    */
   teamSmart: 1,
+  /**
+   * v27 lini belakang sebagai satu unit (cover & balance): hanya satu bek tengah boleh keluar dari garis, rekannya menutup
+   * celah, ikut turun kalau ia mengejar pelari, jarak antar bek rapat (bek sisi jauh merapat ke tengah) (0 = mati).
+   * unitGap = jarak maksimal antar bek tengah (m) untuk lini yang terorganisasi; unitTol = toleransi keluar garis (m)
+   */
+  unit: 1,
+  unitGap: 13,
+  unitTol: 2,
+  /** v27 bek tengah hanya keluar menekan dekat garisnya, gelandang didahulukan (0 = aturan lama) */
+  unitPress: 1,
+  /** v27 menahan (delay) saat diserang balik dengan jumlah pemain kalah: penekan pertama tidak menerjang, menunggu rekan kembali */
+  delay: 1,
+  /** v27 pembela di antara penembak dan gawang menutup sudut tembakan (Positioning, Bravery) (0 = mati) */
+  cone: 1,
   /** v23 kekuatan Creativity (peran bebas): killer ball dan tembakan tidak biasa */
   creK: 1,
   /** pergantian taktis pelatih AI per tim, dan batas tenaga pemain yang dianggap kelelahan */
@@ -1370,7 +1384,37 @@ export class Match {
     const x =
       this.xgAt(fx, fy) * skillK(skill) * (0.9 + a.cmp * 0.008) * (1 - pressure * 0.25) * (1.3 - gkSkill * 0.03) *
       (dist > 18 ? TUNE.longK : 1) * TUNE.shotK;
-    return this.sat(x, skill) * (1 - this.gkCoverAt(c.side, fx, fy, a));
+    return this.sat(x, skill) * (1 - this.gkCoverAt(c.side, fx, fy, a)) * this.aiCone((1 - c.side) as 0 | 1, this.wx(c.side, fx), this.wy(c.side, fy));
+  }
+
+  /**
+   * v27 sudut tembakan yang tertutup badan pembela (pengali peluang 0..1): tiap pembela di dalam segitiga penembak-tiang
+   * menutup sebagian mulut gawang sebesar sudut badannya dilihat dari penembak (makin dekat makin besar). Positioning &
+   * Bravery membuatnya berani menghadang. side = tim yang bertahan, (sx, sy) = titik tembak (dunia)
+   */
+  private aiCone(side: 0 | 1, sx: number, sy: number): number {
+    if (TUNE.cone <= 0) return 1;
+    const gx = this.wx(side, 0);
+    const a1 = Math.atan2(34 - GOAL_HALF - sy, gx - sx);
+    const a2 = Math.atan2(34 + GOAL_HALF - sy, gx - sx);
+    // garis bagi sudut (aman saat sudut melewati ±180°, yaitu gawang di kiri penembak)
+    const mid = a1 + angDiff(a2, a1) / 2;
+    const half = Math.abs(angDiff(a2, a1)) / 2;
+    const dGoal = Math.hypot(gx - sx, 34 - sy);
+    let k = 1;
+    for (const d of this.onPitch[side]) {
+      if (d.p.slot === 'GK' || d.leaving || d.hurt >= 0) continue;
+      const r = Math.hypot(d.x - sx, d.y - sy);
+      if (r < 0.6 || r > dGoal - 1 || r > 14) continue;
+      const cover = Math.atan2(0.45, r);
+      const off = Math.abs(angDiff(Math.atan2(d.y - sy, d.x - sx), mid));
+      // bagian badan yang berada di dalam sudut mulut gawang
+      const inside = clamp(half + cover - off, 0, 2 * cover);
+      if (inside <= 0) continue;
+      const skill = 0.55 + (d.p.a.pos + d.p.a.bra) / 80;
+      k *= 1 - clamp((inside / (2 * half)) * skill, 0, 0.8) * TUNE.cone;
+    }
+    return k;
   }
 
   /** Jarak titik (px,py) ke garis a-b (hanya kalau proyeksi di dalam segmen) */
@@ -2207,6 +2251,7 @@ export class Match {
             }
           }
           if (def || b.p.role === 'hb') [x, y] = this.shapeBlend(b, shape, support, x, y, false);
+          // v27 rest defence: bek tengah tetap di sisi gawang dari penyerang lawan yang menunggu di depan
           // kebebasan bergerak: pemain dengan peran bebas & flair tinggi berpindah ke ruang kosong
           if (!def && b.run <= 0) {
             const roam = clamp(b.rk.roam * (0.5 + a.fla / 20) * (1 + 0.4 * (tk?.creative ?? 0)), 0, 1.2);
@@ -2388,7 +2433,99 @@ export class Match {
       }
     }
     if (live) this.activeRoles();
+    if (live && !this.restart) for (const side of [0, 1] as const) this.aiBackUnit(side);
     this.setPieceShape();
+  }
+
+  /**
+   * v27 menahan serangan balik: kalau lawan baru merebut bola (< 6 detik) dan pembela di sisi gawang tidak lebih banyak
+   * dari penyerang lawan di sekitar bola, penekan pertama menahan 3,5 m di depan pembawa bola (tidak menerjang) supaya
+   * rekannya sempat kembali. Hasil: jarak tahan (m), atau 0 kalau tidak perlu menahan. side = tim yang bertahan
+   */
+  private aiDelay(side: 0 | 1, owner: Body): number {
+    if (TUNE.delay <= 0 || this.t - this.wonAt[owner.side] > 6) return 0;
+    const ofx = this.fx(side, owner.x);
+    if (ofx > 60) return 0;
+    let defs = 0;
+    for (const d of this.onPitch[side]) if (d.p.slot !== 'GK' && this.fx(side, d.x) < ofx) defs++;
+    let atts = 0;
+    for (const o of this.onPitch[owner.side]) if (o.p.slot !== 'GK' && this.fx(side, o.x) < ofx + 6 && Math.hypot(o.x - owner.x, o.y - owner.y) < 30) atts++;
+    return defs <= atts + 1 ? 3.5 * TUNE.delay : 0;
+  }
+
+  /**
+   * v27 lini belakang sebagai satu unit saat lawan menguasai bola (cover & balance):
+   * - hanya satu bek tengah yang keluar dari garis (menekan > mengejar pelari > stopper maju); bek lain yang disiplin
+   *   (Positioning, Decisions, Teamwork) tetap di garis, yang tidak disiplin tetap ikut keluar
+   * - kalau satu bek mengejar pelari ke belakang, rekannya ikut turun (tidak ada gunanya garis tetap tinggi)
+   * - celah yang ditinggalkan ditutup: jarak antar bek dijaga rapat dari sisi bola, bek sisi jauh merapat ke tengah
+   * Lini yang terorganisasi (Positioning, Teamwork, Concentration, aba-aba kiper) lebih rapat dan lebih cepat kembali.
+   */
+  private aiBackUnit(side: 0 | 1) {
+    const owner = this.owner;
+    if (TUNE.unit <= 0 || !owner || owner.side === side) return;
+    const back = this.onPitch[side].filter((b) => isDef(b.p.slot) && !b.leaving && !b.entering && b.hurt < 0);
+    const cbs = back.filter((b) => isCB(b.p.slot));
+    if (cbs.length < 2) return;
+    let org = 0;
+    for (const b of back) org += (b.p.a.pos + b.p.a.tea + b.p.a.con) / 3;
+    org = org / back.length + this.gkCall(side) * 1.5;
+    // 0..1: lini yang kacau (rata-rata ~5) longgar, lini yang rapi (~15) rapat
+    const wU = clamp((org - 4) / 11, 0.15, 1) * TUNE.unit;
+    const tol = TUNE.unitTol + (1 - wU) * 5;
+    const gapCB = TUNE.unitGap + (1 - wU) * 8;
+    const line = this.defLine(side, false);
+    const tfx = (b: Body) => this.fx(side, b.tx);
+    const tfy = (b: Body) => this.fy(side, b.ty);
+    const moved = new Set<Body>();
+    const set = (b: Body, x: number, y: number) => {
+      b.tx = this.wx(side, clamp(x, 1, PITCH_W - 1));
+      b.ty = this.wy(side, clamp(y, 1, PITCH_H - 1));
+      moved.add(b);
+    };
+    // siapa yang keluar dari garis, dan untuk apa
+    const out: [Body, number][] = [];
+    for (const b of cbs) {
+      const x = tfx(b);
+      if (Math.hypot(b.tx - owner.x, b.ty - owner.y) < 3) out.push([b, 3]);
+      else if (x < line - tol - Math.max(0, -b.rk.step)) out.push([b, 2]);
+      else if (x > line + tol) out.push([b, 1]);
+    }
+    out.sort((p, q) => q[1] - p[1]);
+    const go = out.length ? out[0][0] : null;
+    for (let i = 1; i < out.length; i++) {
+      const b = out[i][0];
+      // mengawal pelari ke belakang garis tetap wajib; yang ditahan hanya bek kedua yang ikut maju.
+      // bek yang tidak disiplin tetap ikut maju (dua bek meninggalkan garis)
+      if (out[i][1] === 2 || (b.p.a.pos + b.p.a.dec + b.p.a.tea) / 3 < 8) continue;
+      set(b, clamp(tfx(b), line - tol - Math.max(0, -b.rk.step), line + tol), tfy(b));
+    }
+    // satu bek mengejar pelari ke belakang: garis ikut turun mendekatinya
+    if (go && out[0][1] === 2) {
+      const gx = tfx(go) + 4 + (1 - wU) * 4;
+      for (const b of back) if (b !== go && tfx(b) > gx) set(b, gx, tfy(b));
+    }
+    // jarak antar bek dari sisi bola: bek yang keluar menekan / maju tidak dihitung, rekannya menutup celahnya
+    const ballY = this.fy(side, this.refBall().y);
+    const row = back.filter((b) => b !== go || out[0][1] === 2).sort((p, q) => tfy(p) - tfy(q));
+    if (row.length >= 2) {
+      let k = 0;
+      for (let i = 1; i < row.length; i++) if (Math.abs(tfy(row[i]) - ballY) < Math.abs(tfy(row[k]) - ballY)) k = i;
+      const gap = (p: Body, q: Body) => (isCB(p.p.slot) && isCB(q.p.slot) ? gapCB : gapCB + 3);
+      for (let i = k + 1; i < row.length; i++) {
+        const lim = tfy(row[i - 1]) + gap(row[i - 1], row[i]);
+        if (tfy(row[i]) > lim) set(row[i], tfx(row[i]), lim);
+      }
+      for (let i = k - 1; i >= 0; i--) {
+        const lim = tfy(row[i + 1]) - gap(row[i + 1], row[i]);
+        if (tfy(row[i]) < lim) set(row[i], tfx(row[i]), lim);
+      }
+    }
+    // bek yang ditarik kembali ke garis: yang tertinggal di depan garis (habis menekan) atau jauh dari tempatnya berlari
+    for (const b of moved) {
+      if (b === go) continue;
+      if (this.fx(side, b.x) > line + tol + 1 || Math.hypot(b.x - b.tx, b.y - b.ty) > 5 + (1 - wU) * 3) b.sprint = true;
+    }
   }
 
   /** Bek: geser ke lawan terdekat di sisinya, kejar lari lawan ke belakang garis (bingkai tim) */
@@ -2509,7 +2646,7 @@ export class Match {
     const a = b.p.a;
     const step = isCB(b.p.slot) ? b.rk.step : 0;
     // stopper juga menjaga penyerang yang turun ke depan garis (sampai ~13 m)
-    const ahead = step > 0 ? 4 + step * 3 : 4;
+    const ahead = step > 0 ? 4 + step * (TUNE.unit > 0 && TUNE.unitPress > 0 ? 2 : 3) : 4;
     let bestD = 13;
     let att: Body | null = null;
     for (const o of this.opponents(side)) {
@@ -2594,9 +2731,14 @@ export class Match {
           const [, by] = this.baseOf(b);
           // stopper keluar menekan lebih jauh dari garis; cover & libero jarang meninggalkan garis
           const step = isCB(b.p.slot) ? b.rk.step : 0;
-          const zone = ofx < dline + 11 + step * 3 && Math.abs(ofy - (34 + (by - 34) * 0.8)) < (isFB(b.p.slot) ? 17 : 13);
+          // (v27 lini sebagai unit: bek tengah hanya keluar menekan dekat garisnya, dan gelandang yang hampir sama cepat
+          // sampai didahulukan supaya garis tidak bolong)
+          const unit = TUNE.unit > 0 && TUNE.unitPress > 0 && isCB(b.p.slot);
+          const zone =
+            ofx < dline + (unit ? 7 + step * 2 : 11 + step * 3) && Math.abs(ofy - (34 + (by - 34) * 0.8)) < (isFB(b.p.slot) ? 17 : 13);
           if (!zone && ofx > 22) tt += 2.5;
           tt -= step * 0.08;
+          if (unit) tt += 0.4;
         }
         if (tt < bt) {
           second = best;
@@ -2623,11 +2765,13 @@ export class Match {
         const gx = this.wx(def, 0);
         const d = Math.hypot(gx - owner.x, 34 - owner.y) || 1;
         // tekan dari sisi gawang sendiri, berhenti sedikit di depan pembawa bola
-        const gap = deep ? 7 : 0.8;
+        // v27 diserang balik dengan jumlah pemain kalah: tahan (jockey) 3,5 m di depan, tunggu rekan kembali
+        const hold = this.aiDelay(def, owner);
+        const gap = hold > 0 ? hold : deep ? 7 : 0.8;
         best.tx = owner.x + owner.vx * 0.3 + ((gx - owner.x) / d) * gap;
         // (v26 dari sisi dalam: menggiring pembawa bola di sayap ke garis samping)
         best.ty = owner.y + owner.vy * 0.3 + ((34 - owner.y) / d) * gap + this.aiShowWide(best, owner);
-        best.sprint = !deep;
+        best.sprint = !deep || hold > 0;
         best.think = Math.max(best.think, 0.1);
       }
       // penekan kedua: pekerja keras, atau selalu kalau timnya gegenpress
@@ -3496,6 +3640,8 @@ export class Match {
     }
     p *= header ? TUNE.headK : 1;
     if (!header && !setPiece && dist > 18) p *= TUNE.longK;
+    // v27 badan pembela di antara penembak dan gawang menutup sudut tembakan
+    if (!setPiece && !forced) p *= this.aiCone((1 - side) as 0 | 1, c.x, c.y);
     // v23 Creativity (peran bebas): cara mencetak gol yang tidak biasa (chip, tembakan melengkung): high risk high
     // reward, Consistency menentukan apakah berhasil (20 = jauh lebih sering masuk, rendah = lebih sering gagal)
     if (!header && !setPiece) p *= 1 + this.creative(c) * (a.cons - 9) * 0.04;
