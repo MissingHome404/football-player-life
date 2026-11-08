@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
 import { Match, TUNE, duelP, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
-import { FORMATIONS, isCB } from '../sim/formation';
+import { FORMATIONS, isCB, isCentralMid, isST, isWideMid, isWing } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
 import { PLAY_TRAITS, playTraits } from '../sim/traits';
@@ -1752,6 +1752,8 @@ describe('match engine versi 25: bola di kaki saat berbelok, gaya per kecerdasan
       const sp = Math.hypot(o.vx, o.vy);
       if (sp < 2) continue;
       frames++;
+      // (v30: bola yang sudah lepas dari jangkauan kaki memang tidak ditarik lagi; pemain berbalik mengejarnya)
+      if (Math.hypot(v.ball.x - o.x, v.ball.y - o.y) > 1.0 + o.p.a.agi * 0.01) continue;
       if (((v.ball.x - o.x) * o.vx + (v.ball.y - o.y) * o.vy) / sp < 0) behind++;
     }
     expect(frames).toBeGreaterThan(100);
@@ -1767,11 +1769,11 @@ describe('match engine versi 25: bola di kaki saat berbelok, gaya per kecerdasan
       o.p.a.agi = o.p.a.dri = o.p.a.tec = skill;
       o.x = 50;
       o.y = 34;
-      // berlari ke kanan, bola tertinggal 1,2 m di kiri belakang (baru berbalik arah)
+      // berlari ke kanan, bola tertinggal 0,9 m di kiri belakang (baru berbalik arah, masih dalam jangkauan kaki)
       o.vx = 7;
       o.vy = 0;
-      v.ball.x = 49;
-      v.ball.y = 33.4;
+      v.ball.x = 49.2;
+      v.ball.y = 33.6;
       v.carry(o, 7, 1, 0);
       return { speed: Math.hypot(o.vx, o.vy), ahead: v.ball.x - o.x };
     };
@@ -2531,5 +2533,233 @@ describe('match engine versi 29: foul & kartu, menahan garis, fokus saat dribel'
     const m = new Match({ seed: 'ko29', ...teams(4) });
     const v = m as unknown as R;
     for (const b of v.mates(0)) if (isCB(b.p.slot as never)) expect(v.fx(0, b.x)).toBeGreaterThan(28);
+  });
+});
+
+describe('match engine versi 30: bola lepas, foul & cedera, tugas tiap posisi', () => {
+  type B = {
+    p: { slot: string; duty: string; a: Record<string, number> };
+    rk: { outlet: number; press: number };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    tx: number;
+    ty: number;
+    face: number;
+    on: boolean;
+    cool: number;
+    run: number;
+    sprint: boolean;
+    st: { lost: number };
+  };
+  type R = {
+    t: number;
+    done: boolean;
+    restart: unknown;
+    dead: unknown;
+    owner: B | null;
+    pass: unknown;
+    touchV: number;
+    ball: { x: number; y: number; vx: number; vy: number };
+    bodies: B[];
+    events: { kind: string }[];
+    fouls: [number, number];
+    wonAt: [number, number];
+    pressers: B[];
+    looseBy: { b: B; t: number } | null;
+    step(): void;
+    mates(s: 0 | 1): B[];
+    fx(s: 0 | 1, x: number): number;
+    carry(o: B, sp: number, fdx: number, fdy: number): void;
+    decide(c: B): void;
+    gain(b: B): void;
+    aiRoles(s: 0 | 1): void;
+    laneOpen(ax: number, ay: number, bx: number, by: number, opps: B[]): boolean;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 6].id, clubTactic(eng[i + 6])) });
+  const open = (seed: string, i: number) => {
+    const v = new Match({ seed, ...teams(i) }) as unknown as R;
+    v.restart = null;
+    v.dead = null;
+    v.t = 30;
+    // semua pemain jauh dari bola kecuali yang diatur tes
+    for (const b of v.bodies) {
+      b.x = b.side ? 100 : 5;
+      b.y = b.side ? 66 : 2;
+      b.vx = b.vy = 0;
+      b.run = 0;
+      b.cool = 0;
+    }
+    return v;
+  };
+  const field = (v: R, s: 0 | 1) => v.mates(s).filter((b) => b.p.slot !== 'GK' && b.on);
+
+  it('bola di luar jangkauan kaki tidak ditarik kembali; pembawa bola harus menjangkaunya dulu sebelum mengoper', () => {
+    const v = open('loose30', 0);
+    const c = field(v, 0)[3];
+    Object.assign(c.p.a, { agi: 10 });
+    c.x = 50;
+    c.y = 34;
+    c.face = 0;
+    v.owner = c;
+    v.touchV = 0;
+    v.ball.x = 51.8;
+    v.ball.y = 34;
+    v.carry(c, 0, 1, 0);
+    expect(v.owner).toBe(c);
+    expect(v.ball.x).toBeCloseTo(51.8, 5);
+    v.decide(c);
+    expect(v.owner).toBe(c);
+    expect(v.pass).toBeNull();
+    expect(c.cool).toBeCloseTo(0.1, 5);
+    // aturan lama: bola ditarik ke kaki
+    TUNE.loose = 0;
+    try {
+      v.carry(c, 0, 1, 0);
+      expect(v.ball.x).toBeLessThan(51.5);
+    } finally {
+      TUNE.loose = 1;
+    }
+    // sentuhan terlalu jauh: bola jadi bola liar
+    v.ball.x = 53.6;
+    v.carry(c, 0, 1, 0);
+    expect(v.owner).toBeNull();
+  });
+
+  it('lawan yang lebih dulu sampai di bola yang lepas dari kaki merebutnya', () => {
+    const v = open('steal30', 1);
+    const c = field(v, 0)[3];
+    const d = field(v, 1)[3];
+    c.x = 50;
+    c.y = 34;
+    v.owner = c;
+    v.touchV = 2;
+    v.ball.x = 51.5;
+    v.ball.y = 34;
+    d.x = 52;
+    d.y = 34.3;
+    const lost = c.st.lost;
+    v.carry(c, 6, 1, 0);
+    expect(v.owner).toBeNull();
+    expect(c.st.lost).toBe(lost + 1);
+    // bola tetap bergulir (tidak berhenti mati)
+    expect(Math.hypot(v.ball.vx, v.ball.vy)).toBeGreaterThan(1);
+  });
+
+  it('merebut kembali bola yang baru lepas dari kontrol sendiri: butuh waktu menguasai bola, tidak langsung mengoper', () => {
+    const v = open('regather30', 2);
+    const c = field(v, 0)[3];
+    Object.assign(c.p.a, { ft: 8, cmp: 8 });
+    c.x = 50;
+    c.y = 34;
+    v.ball.x = 50.4;
+    v.ball.y = 34;
+    v.ball.vx = v.ball.vy = 0;
+    v.looseBy = { b: c, t: v.t - 1 };
+    v.gain(c);
+    v.decide(c);
+    expect(v.owner).toBe(c);
+    expect(v.pass).toBeNull();
+    expect(c.cool).toBeGreaterThan(0.4);
+  });
+
+  it('foul sekitar 5-7 per laga dan cedera kira-kira sejarang kartu merah', () => {
+    let fouls = 0;
+    let inj = 0;
+    let reds = 0;
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const v = new Match({ seed: `fi30-${i}`, ...teams(i % 5) }) as unknown as R;
+      while (!v.done) v.step();
+      fouls += v.fouls[0] + v.fouls[1];
+      inj += v.events.filter((e) => e.kind === 'injury').length;
+      reds += v.events.filter((e) => e.kind === 'red').length;
+    }
+    expect(fouls / n).toBeGreaterThan(2);
+    expect(fouls / n).toBeLessThan(9.5);
+    expect(inj).toBeLessThanOrEqual(Math.max(2, reds + 2));
+  });
+
+  it('winger turun membantu bertahan saat bola di separuh lapangan sendiri; pekerja keras turun lebih jauh dan sprint', () => {
+    const shift = (wor: number) => {
+      const v = open('wing30', 3);
+      const me = field(v, 0);
+      const w0 = me.find((b) => isWing(b.p.slot as never) || isWideMid(b.p.slot as never))!;
+      for (const b of me) if (isCentralMid(b.p.slot as never)) [b.tx, b.ty] = [v.fx(0, 38), 34];
+      const o = field(v, 1)[5];
+      o.x = v.fx(0, 35);
+      o.y = 40;
+      v.owner = o;
+      v.ball.x = o.x;
+      v.ball.y = o.y;
+      v.pressers = [];
+      Object.assign(w0.p.a, { wor, tea: wor });
+      w0.rk.outlet = 0;
+      w0.x = w0.tx = v.fx(0, 60);
+      w0.y = w0.ty = 10;
+      w0.sprint = false;
+      v.aiRoles(0);
+      return { d: 60 - v.fx(0, w0.tx), sprint: w0.sprint };
+    };
+    const hard = shift(16);
+    const lazy = shift(4);
+    expect(hard.d).toBeGreaterThan(12);
+    expect(hard.sprint).toBe(true);
+    expect(lazy.d).toBeLessThan(hard.d * 0.5);
+    expect(lazy.sprint).toBe(false);
+  });
+
+  it('gelandang jadi jembatan: menyusul ke belakang pembawa bola di separuh lawan dengan jalur umpan terbuka', () => {
+    const v = open('bridge30', 0);
+    const me = field(v, 0);
+    const o = me.find((b) => !isCentralMid(b.p.slot as never) && !isST(b.p.slot as never))!;
+    o.x = v.fx(0, 75);
+    o.y = 20;
+    v.owner = o;
+    v.ball.x = o.x;
+    v.ball.y = o.y;
+    v.wonAt[0] = v.t - 5;
+    const cms = me.filter((b) => isCentralMid(b.p.slot as never) && b.p.slot !== 'AM');
+    expect(cms.length).toBeGreaterThan(0);
+    for (const b of cms) {
+      Object.assign(b.p.a, { tea: 15, dec: 15, ant: 15, wor: 15 });
+      b.x = b.tx = v.fx(0, 40);
+      b.y = b.ty = 34;
+      b.sprint = false;
+    }
+    v.aiRoles(0);
+    const br = cms.reduce((p, q) => (v.fx(0, q.tx) > v.fx(0, p.tx) ? q : p));
+    expect(v.fx(0, br.tx)).toBeGreaterThan(57);
+    expect(v.fx(0, br.tx)).toBeLessThan(70);
+    expect(Math.abs(br.ty - o.y)).toBeLessThan(25);
+    expect(br.sprint).toBe(true);
+    expect(v.laneOpen(o.x, o.y, br.tx, br.ty, field(v, 1))).toBe(true);
+  });
+
+  it('striker menekan dari belakang pembawa bola yang baru melewatinya (Work Rate)', () => {
+    const run = (wor: number) => {
+      const v = open('st30', 1);
+      const st = field(v, 0).find((b) => isST(b.p.slot as never))!;
+      const o = field(v, 1)[5];
+      o.x = v.fx(0, 45);
+      o.y = 34;
+      v.owner = o;
+      v.ball.x = o.x;
+      v.ball.y = o.y;
+      v.pressers = [];
+      Object.assign(st.p.a, { wor });
+      st.rk.press = 1;
+      st.x = st.tx = v.fx(0, 53);
+      st.y = st.ty = 37;
+      st.sprint = false;
+      v.aiRoles(0);
+      return { gap: Math.hypot(st.tx - o.x, st.ty - o.y), sprint: st.sprint };
+    };
+    const hard = run(16);
+    expect(hard.gap).toBeLessThan(2.5);
+    expect(hard.sprint).toBe(true);
+    expect(run(4).gap).toBeGreaterThan(5);
   });
 });

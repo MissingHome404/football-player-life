@@ -327,8 +327,9 @@ export function advanceWeek(world: World, prev: Career): WeekResult {
         if (rng.chance(lrep / 250)) player.reputation.world = clamp(player.reputation.world + 1, 1, 100);
       }
       // laga match engine: cedera terjadi di dalam laga (lihat discipline.ts); laga simulasi cepat diundi di sini
+      // (v30: sejarang di match engine, kira-kira sama dengan peluang kartu merah)
       const proneness = Math.max(0.15, 1 + (player.hidden['Injury Proneness'] - 10) / 10);
-      if (!played?.sim && !career.injury && rng.chance(0.012 * (match.minutes / 90) * proneness * injuryFactor(career))) {
+      if (!played?.sim && !career.injury && rng.chance(0.005 * (match.minutes / 90) * proneness * injuryFactor(career))) {
         injure(career, rng, 'pertandingan', notes, player);
       }
     }
