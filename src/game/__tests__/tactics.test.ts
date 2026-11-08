@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { Match, TUNE, duelP, engineAttrs, minutesPlayed, pickXI, topSpeed, type ETeam } from '../sim/engine';
+import { Match, TUNE, airDrag, duelP, engineAttrs, minutesPlayed, pickXI, stepBall, topSpeed, type ETeam } from '../sim/engine';
 import { FORMATIONS, isCB, isCentralMid, isST, isWideMid, isWing } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticInstructions, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
@@ -1648,9 +1648,11 @@ describe('match engine versi 24: struktur bertahan, struktur serangan, positiona
       if (!o || o.p.slot === 'GK' || v.restart || v.dead || v.t - v.wonAt[o.side] < 2 || m.fx(o.side, o.x) > 80) continue;
       const sp = v.supportSpots(o.side, v.mates(o.side), null);
       if (!sp || sp.size < 2) continue;
+      const oy = m.fy(o.side, o.y);
+      // (v32: dekat garis samping kedua titik dukungan harus di dalam lapangan, jadi satu sisi saja)
+      if (oy < 13 || oy > 55) continue;
       checked++;
       const [a, b] = [...sp.values()];
-      const oy = m.fy(o.side, o.y);
       // satu di kiri, satu di kanan pembawa bola, satu di belakang (opsi aman), satu di depan
       expect(Math.sign(a[1] - oy)).not.toBe(Math.sign(b[1] - oy));
       expect(Math.min(a[0], b[0])).toBeLessThan(m.fx(o.side, o.x));
@@ -2959,5 +2961,190 @@ describe('match engine versi 31: dribel rapat, bantuan menekan, marking, umpan d
     const lines = tacticInstructions({ ...t, marking: 'zonal' }).defence.join(' ');
     expect(lines).toContain('Zonal marking');
     expect(tacticInstructions({ ...t, marking: 'man' }).defence.join(' ')).toContain('Man marking');
+  });
+});
+
+describe('match engine versi 32: fisik bola tidak licin, dribel menempel, tidak scanning saat dribel', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    tx: number;
+    ty: number;
+    on: boolean;
+    cool: number;
+    run: number;
+    sprint: boolean;
+    face: number;
+    scan: number;
+    aim: number;
+    aimAt: number;
+  };
+  type R = {
+    t: number;
+    restart: unknown;
+    dead: unknown;
+    owner: B | null;
+    pass: unknown;
+    gotAt: number;
+    touchV: number;
+    looseBy: { b: B; t: number } | null;
+    ball: { x: number; y: number; z: number; vx: number; vy: number; vz: number };
+    bodies: B[];
+    mates(s: 0 | 1): B[];
+    kick(c: B, tx: number, ty: number, air: boolean, err: number, lob?: number, soft?: boolean, flat?: boolean): void;
+    turnAndScan(): void;
+    gain(b: B, touch?: boolean): void;
+    move(b: B): void;
+  };
+  const open = (seed: string) => {
+    const v = new Match({ seed, home: side(eng[2].id, clubTactic(eng[2])), away: side(eng[7].id, clubTactic(eng[7])) }) as unknown as R;
+    v.restart = null;
+    v.dead = null;
+    v.t = 30;
+    for (const b of v.bodies) {
+      b.x = b.side ? 100 : 5;
+      b.y = b.side ? 66 : 2;
+      b.vx = b.vy = 0;
+      b.run = 0;
+      b.cool = 0;
+    }
+    return v;
+  };
+  const field = (v: R, s: 0 | 1) => v.mates(s).filter((b) => b.p.slot !== 'GK' && b.on);
+  const withTune = <T,>(k: 'drag' | 'stick', val: number, f: () => T): T => {
+    const old = TUNE[k];
+    TUNE[k] = val;
+    try {
+      return f();
+    } finally {
+      TUNE[k] = old;
+    }
+  };
+
+  /** umpan lambung 45 m: kecepatan saat jatuh, titik jatuh, dan berapa jauh bola terus bergulir setelah titik tujuan */
+  const longBall = (flat = false) => {
+    const v = open('long32');
+    const c = field(v, 0)[2];
+    c.x = 20;
+    c.y = 34;
+    v.owner = c;
+    v.ball.x = 20.4;
+    v.ball.y = 34;
+    v.kick(c, 65, 34, true, 0, 0, false, flat);
+    let { x, y, z, vx, vy, vz } = v.ball;
+    let land = -1;
+    let vLand = 0;
+    let tLand = 0;
+    for (let i = 0; i < 200; i++) {
+      const vz0 = vz;
+      const sp0 = Math.hypot(vx, vy);
+      [x, y, z, vx, vy, vz] = stepBall(x, y, z, vx, vy, vz, airDrag());
+      if (land < 0 && z === 0 && vz0 < 0) {
+        land = x;
+        vLand = sp0;
+        tLand = (i + 1) * 0.1;
+      }
+    }
+    return { land, vLand, tLand, rest: x };
+  };
+
+  it('umpan jauh melambat di udara dan tidak meluncur jauh setelah jatuh (hambatan udara, pantulan, gesekan rumput)', () => {
+    const before = withTune('drag', 0, () => longBall());
+    const now = longBall();
+    // tetap jatuh di titik yang sama seperti dulu (kecepatan awal mengimbangi hambatan udara)
+    expect(Math.abs(now.land - before.land)).toBeLessThan(1.5);
+    expect(now.vLand).toBeLessThan(before.vLand * 0.8);
+    expect(now.rest - 65).toBeLessThan((before.rest - 65) * 0.7);
+    // umpan silang tetap dikirim cepat (waktu terbang seperti dulu)
+    expect(longBall(true).tLand).toBeLessThan(now.tLand - 0.2);
+  });
+
+  it('tidak scanning saat menggiring bola (juga pelan) atau saat mengejar sentuhannya sendiri yang lepas', () => {
+    const scans = (stick: number, mode: 'jog' | 'loose') =>
+      withTune('stick', stick, () => {
+        const v = open('scan32');
+        const c = field(v, 0)[3];
+        c.p.a.tea = 20;
+        c.x = 50;
+        c.y = 34;
+        c.scan = -99;
+        if (mode === 'jog') {
+          v.owner = c;
+          v.ball.x = 50.5;
+          v.ball.y = 34;
+        } else {
+          v.owner = null;
+          v.looseBy = { b: c, t: v.t };
+          v.ball.x = 52;
+          v.ball.y = 34;
+        }
+        let n = 0;
+        for (let i = 0; i < 100; i++) {
+          c.vx = 1;
+          c.vy = 0;
+          v.turnAndScan();
+          if (c.scan === v.t) n++;
+          v.t += 0.01;
+          if (v.looseBy) v.looseBy.t = v.t;
+        }
+        return n;
+      });
+    expect(scans(0, 'jog')).toBeGreaterThan(3);
+    expect(scans(1, 'jog')).toBe(0);
+    expect(scans(0, 'loose')).toBeGreaterThan(3);
+    expect(scans(1, 'loose')).toBe(0);
+  });
+
+  it('sentuhan pertama mengontrol bola ke kaki searah lari, bola tidak berhenti mati di belakang pemain yang berlari kencang', () => {
+    const after = (stick: number) =>
+      withTune('stick', stick, () => {
+        const v = open('ctl32');
+        const m = field(v, 0)[4];
+        m.x = 50;
+        m.y = 34;
+        m.vx = 6.5;
+        m.vy = 0;
+        v.ball.x = 49.6;
+        v.ball.y = 35.05;
+        v.ball.vx = -8;
+        v.gain(m, true);
+        return { d: Math.hypot(v.ball.x - m.x, v.ball.y - m.y), ahead: v.ball.x - m.x };
+      });
+    const old = after(0);
+    const now = after(1);
+    expect(old.d).toBeGreaterThan(1);
+    expect(now.d).toBeLessThan(0.6);
+    expect(now.ahead).toBeGreaterThan(0.4);
+  });
+
+  it('pembawa bola tidak melambat untuk berbalik selagi bolanya masih bergulir di luar jangkauan', () => {
+    const speed = (stick: number) =>
+      withTune('stick', stick, () => {
+        const v = open('turn32');
+        const c = field(v, 0)[3];
+        c.x = 50;
+        c.y = 34;
+        c.vx = 3;
+        c.vy = 0;
+        v.owner = c;
+        v.gotAt = 0;
+        c.aim = Math.PI;
+        c.aimAt = v.t;
+        v.ball.x = 52.5;
+        v.ball.y = 34;
+        for (let i = 0; i < 5; i++) {
+          c.tx = v.ball.x + 4;
+          c.ty = 34;
+          c.sprint = true;
+          v.move(c);
+        }
+        return Math.hypot(c.vx, c.vy);
+      });
+    expect(speed(0)).toBeLessThan(1.6);
+    expect(speed(1)).toBeGreaterThan(3);
   });
 });

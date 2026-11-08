@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 31;
+export const ENGINE_VERSION = 32;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -60,6 +60,22 @@ export const BAR = 2.44;
 export const NET_DEPTH = 1.8;
 const G = 9.8;
 const ROLL = 2.6; // perlambatan bola menggelinding di rumput (m/s²)
+/** v31b gesekan rumput lebih besar (bola tidak terlalu licin) */
+const rollDec = () => (TUNE.drag > 0 ? 3.2 : ROLL);
+/** v31b hambatan udara bola di udara (per meter): umpan jauh melambat di udara, tidak melesat terus */
+const DRAG = 0.006;
+export const airDrag = () => DRAG * TUNE.drag;
+/**
+ * v31b lama bola lambung di udara untuk jarak len: umpan jauh (lebih dari 20 m) lebih lama di udara = lebih melengkung,
+ * tidak terlalu deras. Umpan silang ke kotak (`flat`) tetap dikirim cepat dan rendah seperti sebelumnya
+ */
+const flyTime = (len: number, lob = 0, flat = false) =>
+  TUNE.drag > 0 && !flat ? clamp(0.8 + len * 0.032 + Math.max(0, len - 20) * 0.012 + lob, 0.7, 3.0) : clamp(0.8 + len * 0.032 + lob, 0.7, 2.6);
+/** kecepatan datar awal supaya bola lambung sampai di jarak len dalam waktu T (dengan hambatan udara) */
+const airSpeed = (len: number, T: number) => {
+  const c = airDrag();
+  return c > 0 ? (Math.exp(c * len) - 1) / (c * T) : len / T;
+};
 const BOX_X = 16.5;
 const BOX_Y = 20.16;
 /** v17 arah mencari kantong ruang (meter, bingkai tim) */
@@ -155,6 +171,13 @@ export const TUNE = {
    *  sering dicari, bola cepat lebih sulit dipotong (waktu reaksi), bola yang lewat tidak selalu memantul (0 = mati) */
   ground: 1,
   midPass: 0.08,
+  /** v31b fisik bola: hambatan udara, gesekan rumput lebih besar, umpan lambung lebih melengkung (0 = mati) */
+  drag: 1,
+  /**
+   * v31b bola menempel saat dribel: sentuhan pertama mengontrol bola ke kaki, bola dihentikan dulu sebelum berbalik,
+   * pembawa bola tidak melambat saat bolanya masih bergulir, dan tidak scanning saat menggiring / mengejar bola (0 = mati)
+   */
+  stick: 1,
   /** v23 kekuatan Creativity (peran bebas): killer ball dan tembakan tidak biasa */
   creK: 1,
   /** pergantian taktis pelatih AI per tim, dan batas tenaga pemain yang dianggap kelelahan */
@@ -1661,14 +1684,14 @@ export class Match {
    * (Anticipation = reaksi, Acceleration & Pace = lari). Bola atas hanya bisa direbut di dekat titik jatuhnya,
    * dan di sana lawan harus lebih dulu dari penerima.
    */
-  private laneRisk(c: Body, tx: number, ty: number, air: boolean, vEnd: number, skipGk: boolean, to?: Body): number {
+  private laneRisk(c: Body, tx: number, ty: number, air: boolean, vEnd: number, skipGk: boolean, to?: Body, flat = false): number {
     const dx = tx - c.x;
     const dy = ty - c.y;
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
-    const v0 = Math.min(24, Math.sqrt(vEnd * vEnd + 2 * ROLL * len));
-    const fly = clamp(0.8 + len * 0.032, 0.7, 2.6);
+    const v0 = Math.min(24, Math.sqrt(vEnd * vEnd + 2 * rollDec() * len));
+    const fly = flyTime(len, 0, flat);
     const tr = air && to ? Math.max(fly, this.arrive(to, tx, ty, 0)) : fly;
     let risk = 0;
     for (const o of this.opponents(c.side)) {
@@ -1681,7 +1704,7 @@ export class Match {
         risk += 1;
         continue;
       }
-      const tb = air ? tr : (v0 - Math.sqrt(Math.max(0, v0 * v0 - 2 * ROLL * s))) / ROLL;
+      const tb = air ? tr : (v0 - Math.sqrt(Math.max(0, v0 * v0 - 2 * rollDec() * s))) / rollDec();
       const vmax = vmaxOf(o);
       const to2 = this.react(o, 0.25) + runTime(d, 0, vmax, accOf(o) * 0.7);
       risk += clamp(0.5 + (tb - to2) / TUNE.laneT, 0, 1);
@@ -1710,8 +1733,8 @@ export class Match {
         const y = this.wy(side, fy);
         const len = Math.hypot(x - c.x, y - c.y);
         if (len > 45) continue;
-        const v0 = Math.min(24, Math.sqrt(vEnd * vEnd + 2 * ROLL * len));
-        const tb = (v0 - vEnd) / ROLL;
+        const v0 = Math.min(24, Math.sqrt(vEnd * vEnd + 2 * rollDec() * len));
+        const tb = (v0 - vEnd) / rollDec();
         const ta = this.arrive(m, x, y, 0);
         let td = Infinity;
         for (const o of opps) {
@@ -1791,7 +1814,7 @@ export class Match {
     out.length = 0;
     for (let i = 0; i < 26; i++) {
       out.push({ x, y, z });
-      const r = stepBall(x, y, z, vx, vy, vz);
+      const r = stepBall(x, y, z, vx, vy, vz, this.ballDrag());
       [x, y, z, vx, vy, vz] = r;
     }
   }
@@ -3292,7 +3315,14 @@ export class Match {
     let cap: number;
     if (b.dive > 0) cap = vmax * 1.2;
     // (v28: pembawa bola yang sedang memutar badan untuk menendang ke belakang melambat)
-    else if (isOwner) cap = TUNE.turnFirst > 0 && this.t - b.aimAt < 0.8 && b.aimAt >= this.gotAt ? Math.min(vmax * 0.45, 1.2) : vmax * (b.sprint ? 0.68 + a.dri * 0.012 : 0.45);
+    else if (isOwner) {
+      // v31b bola masih bergulir di luar jangkauan: kejar dulu, berbalik nanti
+      const chase = TUNE.stick > 0 && b.p.slot !== 'GK' && Math.hypot(this.ball.x - b.x, this.ball.y - b.y) > footReach(b);
+      cap =
+        TUNE.turnFirst > 0 && !chase && this.t - b.aimAt < 0.8 && b.aimAt >= this.gotAt
+          ? Math.min(vmax * 0.45, 1.2)
+          : vmax * (b.sprint ? 0.68 + a.dri * 0.012 : 0.45);
+    }
     else if (b.sprint) cap = vmax;
     // kiper bergeser cepat menyesuaikan posisi; positioning & antisipasi membuatnya selalu tepat waktu
     else if (b.p.slot === 'GK') cap = vmax * (0.45 + (a.pos + a.ant) * 0.015);
@@ -3353,7 +3383,7 @@ export class Match {
 
   // --- aksi pemain yang menguasai bola -------------------------------------------
 
-  private gain(b: Body) {
+  private gain(b: Body, touch = false) {
     // v23 menerima bola sambil menghadap arah datangnya bola; yang baru saja scanning sudah membuka badan
     // setengah ke arah gawang lawan (menerima dengan kaki belakang)
     // (v28: badan sudah berputar menghadap bola selama bola datang, tidak lagi melompat saat menerima)
@@ -3390,6 +3420,15 @@ export class Match {
     const ball = this.ball;
     ball.vx = ball.vy = ball.vz = 0;
     ball.z = 0;
+    if (touch && TUNE.stick > 0 && b.p.slot !== 'GK') {
+      // v31b sentuhan pertama mengontrol bola ke kakinya (searah larinya): bola yang diterima di ujung jangkauan tidak
+      // berhenti mati di samping / belakang badan lalu ditinggal pemain yang sedang berlari kencang
+      const sp = Math.hypot(b.vx, b.vy);
+      const ux = sp > 1.5 ? b.vx / sp : Math.cos(b.face);
+      const uy = sp > 1.5 ? b.vy / sp : Math.sin(b.face);
+      ball.x = clamp(b.x + ux * 0.5, 0.2, PITCH_W - 0.2);
+      ball.y = clamp(b.y + uy * 0.5, 0.2, PITCH_H - 0.2);
+    }
   }
 
   /**
@@ -3510,7 +3549,7 @@ export class Match {
       const cross = wide && (inBox || runner);
       const air =
         cross || (TUNE.ground > 0 ? d > 38 || (ground > 0.85 && d > 18 && (a.pas + a.tec) / 2 > 13) : d > 30 || (ground > 0.8 && d > 18 && (a.pas + a.tec) / 2 > 11));
-      const risk = air ? this.laneRisk(c, m.x, m.y, true, vEnd, false, m) : ground;
+      const risk = air ? this.laneRisk(c, m.x, m.y, true, vEnd, false, m, cross || mfx > 84) : ground;
       // di sepertiga akhir, umpan ke belakang tidak terlalu dihukum: yang penting peluang si penerima
       // umpan ke belakang tidak terlalu dihukum (menjaga bola, mencari jalan lain), umpan maju ada batasnya
       const prog = progress < 0 ? progress * (fx > 70 ? 0.6 : TUNE.back) : Math.min(progress, 28);
@@ -3633,6 +3672,8 @@ export class Match {
       if (off > 1.6) {
         c.aim = dir;
         c.aimAt = this.t;
+        // v31b bola dihentikan dulu (diinjak) sebelum berbalik, tidak terus bergulir menjauh saat ia melambat
+        if (TUNE.stick > 0) this.touchV = 0;
         c.cool = clamp((off - 1) / (2.5 + (a.agi + a.tec) * 0.1), 0.15, 0.6);
         return;
       }
@@ -3643,7 +3684,7 @@ export class Match {
   }
 
   /** Tendang bola: arah, kecepatan, dan tinggi dihitung supaya sampai di titik tujuan */
-  private kick(c: Body, tx: number, ty: number, air: boolean, err: number, lob = 0, soft = false) {
+  private kick(c: Body, tx: number, ty: number, air: boolean, err: number, lob = 0, soft = false, flat = false) {
     const from = this.kickFrom(c);
     const sx = from ? from[0] : c.x;
     const sy = from ? from[1] : c.y;
@@ -3660,8 +3701,9 @@ export class Match {
     b.y = from ? sy : c.y + dy * 0.5;
     b.z = 0.1;
     if (air) {
-      const T = clamp(0.8 + len * 0.032 + lob, 0.7, 2.6);
-      const h = len / T;
+      const T = flyTime(len, lob, flat);
+      // (umpan silang tidak kena hambatan udara: lintasannya tetap seperti dulu)
+      const h = flat ? len / T : airSpeed(len, T);
       b.vx = dx * h;
       b.vy = dy * h;
       b.vz = (G * T) / 2;
@@ -3669,7 +3711,7 @@ export class Match {
       // bola sampai di kaki penerima dengan kecepatan yang masih bisa dikontrol
       // umpan terobosan: bola melambat di ruang kosong supaya bisa dikejar pelari
       const vEnd = soft ? 4 + c.p.a.pas * 0.15 : 8 + c.p.a.pas * 0.2;
-      const v0 = Math.min(24, Math.sqrt(vEnd * vEnd + 2 * ROLL * len));
+      const v0 = Math.min(24, Math.sqrt(vEnd * vEnd + 2 * rollDec() * len));
       b.vx = dx * v0;
       b.vy = dy * v0;
       b.vz = 0;
@@ -3716,7 +3758,7 @@ export class Match {
     } else {
       const d = Math.hypot(m.x - c.x, m.y - c.y);
       // perkiraan waktu bola sampai, lalu umpan diarahkan ke depan larinya penerima
-      const T = air ? clamp(0.8 + d * 0.032 + lob, 0.7, 2.6) : (2 * d) / (Math.min(24, Math.sqrt(vEnd * vEnd + 2 * ROLL * d)) + vEnd);
+      const T = air ? flyTime(d, lob, air && this.fx(side, m.x) > 84) : (2 * d) / (Math.min(24, Math.sqrt(vEnd * vEnd + 2 * rollDec() * d)) + vEnd);
       const lead = setPiece && air ? 0.2 : m.run > 0 ? 1.1 : 0.7;
       // jangan mengarahkan bola ke garis: umpan panjang jatuh agak ke dalam lapangan
       const margin = air ? (d > 25 ? 6 : 4) : 2.5;
@@ -3740,8 +3782,8 @@ export class Match {
     const err = thrown
       ? (21 - a.thr) * 0.006
       : ((21 - (a.pas + a.tec) / 2) * 0.006 + (pd < 2 ? 0.05 - a.cmp * 0.0015 : 0)) * (air ? 1.25 : 1) * weak * creErr * bodyK;
-    this.kick(c, tx, ty, air, err, lob, !!spot);
     const cross = intoBox || (air && this.fx(c.side, m.x) > 84);
+    this.kick(c, tx, ty, air, err, lob, !!spot, cross);
     this.pass = { from: c, to: m, air, cross, tx, ty, setPiece };
     m.tx = tx;
     m.ty = ty;
@@ -3764,7 +3806,7 @@ export class Match {
       const tx = this.wx(side, PITCH_W + 2);
       const ty = this.wy(side, clamp(fy + out * this.rng.float(-3, 8), 1, 67));
       const d = Math.hypot(tx - c.x, ty - c.y) || 1;
-      const v = Math.sqrt(30 + 2 * ROLL * d * 1.3);
+      const v = Math.sqrt(30 + 2 * rollDec() * d * 1.3);
       ball.vx = ((tx - c.x) / d) * v;
       ball.vy = ((ty - c.y) / d) * v;
     } else {
@@ -4042,12 +4084,17 @@ export class Match {
 
   // --- bola lepas, umpan, tembakan -------------------------------------------------
 
+  /** v31b hambatan udara untuk bola saat ini: tembakan dan umpan silang tidak (lintasannya tetap seperti dulu) */
+  private ballDrag() {
+    return this.shot || this.pass?.cross ? 0 : airDrag();
+  }
+
   private ballPhysics(live: boolean) {
     const ball = this.ball;
     const px = ball.x;
     const py = ball.y;
     const pz = ball.z;
-    [ball.x, ball.y, ball.z, ball.vx, ball.vy, ball.vz] = stepBall(ball.x, ball.y, ball.z, ball.vx, ball.vy, ball.vz);
+    [ball.x, ball.y, ball.z, ball.vx, ball.vy, ball.vz] = stepBall(ball.x, ball.y, ball.z, ball.vx, ball.vy, ball.vz, this.ballDrag());
     const rx = ball.x;
     const ry = ball.y;
     const rz = ball.z;
@@ -4399,7 +4446,7 @@ export class Match {
         const intoBox = pass.cross || this.fx(pass.from.side, pass.tx) > 86;
         if (!hands && intoBox && bfx < (high ? 18 : 12) && this.rng.chance(Math.min(0.9, (high ? 0.55 : 0.5) * TUNE.cornerK))) this.behind(best, high);
         else if (high && !hands && bfx < 35) this.header(best, true);
-        else this.gain(best);
+        else this.gain(best, !hands);
       } else if (this.rng.chance(TUNE.ground > 0 ? (bd < 0.45 ? 0.6 : 0.15) : 0.4)) {
         this.deflect(best, 5);
       } else {
@@ -4446,7 +4493,7 @@ export class Match {
     }
     if (this.rng.chance(clamp(control, TUNE.duel > 0 ? 0.3 : 0.35, 0.98))) {
       if (pass && pass.from.side === side) pass.from.st.passesOk++;
-      this.gain(best);
+      this.gain(best, true);
     } else if (TUNE.loose > 0) {
       // v30 sentuhan pertama yang buruk: bola memantul makin jauh kalau bolanya kencang dan First Touch-nya buruk, dan
       // pemainnya butuh waktu untuk mengejar (Agility). Bola jadi bola liar: siapa yang lebih dulu sampai yang dapat
@@ -4541,7 +4588,7 @@ export class Match {
     const twy = this.wy(side, ty);
     const d = Math.hypot(tx - ball.x, twy - ball.y) || 1;
     // cukup keras supaya bola masih bergulir saat melewati garis
-    const v = Math.max(this.rng.float(9, 14), Math.sqrt(40 + 2 * ROLL * d * 1.3));
+    const v = Math.max(this.rng.float(9, 14), Math.sqrt(40 + 2 * rollDec() * d * 1.3));
     ball.vx = ((tx - ball.x) / d) * v;
     ball.vy = ((twy - ball.y) / d) * v;
     ball.z = high ? Math.max(ball.z, 1.5) : 0.1;
@@ -4965,7 +5012,7 @@ export class Match {
         c.st.lost++;
         c.cool = 0.8;
         this.frustrate(c, 0.07);
-        if (this.rng.chance(0.45 + da.tec * 0.01)) this.gain(d);
+        if (this.rng.chance(0.45 + da.tec * 0.01)) this.gain(d, true);
         else this.deflect(d, 6);
         this.knock(c, 1);
         return;
@@ -6217,8 +6264,16 @@ export class Match {
         b.face += clamp(angDiff(want, b.face) * 0.55, -rate * DT, rate * DT);
       }
       // v29 fokus: pembawa bola yang sedang menggiring dan penerima umpan yang bolanya sudah dekat tidak menoleh
-      const busy =
+      let busy =
         TUNE.focus > 0 && ((own && sp >= 1.5) || (this.pass?.to === b && Math.hypot(ball.x - b.x, ball.y - b.y) < 10));
+      if (TUNE.stick > 0 && !busy) {
+        // v31b juga tidak menoleh saat menggiring pelan, mengejar sentuhannya sendiri yang lepas, atau di dekat bola liar
+        const lb = this.looseBy;
+        busy =
+          (own && sp >= 0.5) ||
+          (!this.owner && lb !== null && lb.b === b && this.t - lb.t < 2) ||
+          (!this.owner && !this.pass && Math.hypot(ball.x - b.x, ball.y - b.y) < 4);
+      }
       if (TUNE.scan > 0 && !busy && b.p.slot !== 'GK' && this.rng.chance((0.15 + a.tea * 0.045) * TUNE.scan * DT)) b.scan = this.t;
     }
   }
@@ -6476,25 +6531,32 @@ function segDist(ax: number, ay: number, bx: number, by: number, px: number, py:
 }
 
 /** Satu langkah fisika bola: gravitasi, pantulan, gesekan rumput */
-function stepBall(x: number, y: number, z: number, vx: number, vy: number, vz: number): [number, number, number, number, number, number] {
+export function stepBall(x: number, y: number, z: number, vx: number, vy: number, vz: number, drag = 0): [number, number, number, number, number, number] {
   x += vx * DT;
   y += vy * DT;
+  if (drag > 0 && z > 0.15) {
+    // v31b hambatan udara (kuadrat kecepatan)
+    const k = 1 / (1 + drag * Math.hypot(vx, vy) * DT);
+    vx *= k;
+    vy *= k;
+  }
   if (z > 0 || vz > 0) {
     z += vz * DT;
     vz -= G * DT;
     if (z <= 0) {
       z = 0;
       if (vz < -2) {
-        // memantul: kehilangan banyak kecepatan di rumput
-        vz = -vz * 0.4;
-        vx *= 0.62;
-        vy *= 0.62;
+        // memantul: kehilangan banyak kecepatan di rumput (v31b: lebih banyak, bola tidak meluncur jauh setelah jatuh)
+        const keep = drag > 0 ? 0.52 : 0.62;
+        vz = -vz * (drag > 0 ? 0.35 : 0.4);
+        vx *= keep;
+        vy *= keep;
       } else vz = 0;
     }
   } else {
     const sp = Math.hypot(vx, vy);
     if (sp > 0) {
-      const ns = Math.max(0, sp - ROLL * DT);
+      const ns = Math.max(0, sp - rollDec() * DT);
       vx *= ns / sp;
       vy *= ns / sp;
     }

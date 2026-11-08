@@ -594,7 +594,9 @@ function Live({
         // (v28: menoleh dan kembali dengan halus, bukan melompat; pembawa bola tidak menoleh, fokus ke bola)
         const face = p0.face + turnOf(b.face, p0.face) * alpha;
         const ts = match.t - DT * (1 - alpha) - b.scan;
-        const scanning = b.on && b !== match.owner && b.p.slot !== 'GK' && ts >= 0 && ts < 0.6;
+        // (v32: juga tidak menoleh saat bola liar ada di dekatnya, misalnya mengejar sentuhannya sendiri)
+        const nearLoose = !match.owner && Math.hypot(match.ball.x - b.x, match.ball.y - b.y) < 4;
+        const scanning = b.on && b !== match.owner && !nearLoose && b.p.slot !== 'GK' && ts >= 0 && ts < 0.6;
         const look = scanning ? face + (b.p.num % 2 ? 1.8 : -1.8) * Math.sin((Math.PI * ts) / 0.6) : face;
         // arah di layar (lapangan bisa diputar tegak di layar sempit)
         const dirOf = (ang: number): [number, number] => {
