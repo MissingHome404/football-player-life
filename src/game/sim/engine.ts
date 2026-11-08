@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 27;
+export const ENGINE_VERSION = 28;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -123,6 +123,17 @@ export const TUNE = {
   delay: 1,
   /** v27 pembela di antara penembak dan gawang menutup sudut tembakan (Positioning, Bravery) (0 = mati) */
   cone: 1,
+  /**
+   * v28 arah badan yang halus: memutar badan dengan kecepatan terbatas (Agility) dan melambat saat mendekati arah tujuan,
+   * pembawa bola fokus ke bola, mata mengikuti arah tendangan, menerima bola tanpa badan melompat (0 = aturan lama)
+   */
+  look: 1,
+  /** v28 berbalik dulu sebelum mengoper / menembak ke belakang badan kalau tidak ditempel lawan (0 = mati) */
+  turnFirst: 1,
+  /** v28 hitbox badan (tinggi & Strength): pemain tidak saling tembus (0 = mati) */
+  hitbox: 1,
+  /** v28 jarak pribadi antar rekan setim saat bola hidup (m): tidak berdiri menempel */
+  mateSpace: 1.4,
   /** v23 kekuatan Creativity (peran bebas): killer ball dan tembakan tidak biasa */
   creK: 1,
   /** pergantian taktis pelatih AI per tim, dan batas tenaga pemain yang dianggap kelelahan */
@@ -730,6 +741,9 @@ export interface Body {
   scan: number;
   /** v26 lengah (ball-watching) sampai detik permainan ini */
   lapse: number;
+  /** v28 arah yang sedang dituju badan (memutar badan sebelum menendang / mengikuti arah tendangan) dan sejak kapan */
+  aim: number;
+  aimAt: number;
 }
 
 export interface Ball {
@@ -1157,7 +1171,7 @@ export class Match {
       think: 0, ox: 0, oy: 0, lean: 0, sprint: false, energy: 1, tire: 0, qual, dive: 0, hurt: -1, frus: 0, base: mindOf(a),
       // semua properti diisi sejak awal: bentuk objek sama untuk semua pemain (lebih cepat di V8)
       autoDuty: ep.duty === 'Au' ? 'Su' : undefined, leaving: false, waiting: false, entering: false, runY: -1, check: 0, tdrop: traitK(ep.traits).reduce((d, k) => d + (k.drop ?? 0), 0), home: ep.slot,
-      settled: false, pkx: 0, pky: 0, face: 0, scan: -9, lapse: -1,
+      settled: false, pkx: 0, pky: 0, face: 0, scan: -9, lapse: -1, aim: 0, aimAt: -99,
     };
   }
 
@@ -3026,7 +3040,8 @@ export class Match {
     const vmax = vmaxOf(b);
     let cap: number;
     if (b.dive > 0) cap = vmax * 1.2;
-    else if (isOwner) cap = vmax * (b.sprint ? 0.68 + a.dri * 0.012 : 0.45);
+    // (v28: pembawa bola yang sedang memutar badan untuk menendang ke belakang melambat)
+    else if (isOwner) cap = TUNE.turnFirst > 0 && this.t - b.aimAt < 0.8 && b.aimAt >= this.gotAt ? Math.min(vmax * 0.45, 1.2) : vmax * (b.sprint ? 0.68 + a.dri * 0.012 : 0.45);
     else if (b.sprint) cap = vmax;
     // kiper bergeser cepat menyesuaikan posisi; positioning & antisipasi membuatnya selalu tepat waktu
     else if (b.p.slot === 'GK') cap = vmax * (0.45 + (a.pos + a.ant) * 0.015);
@@ -3090,8 +3105,9 @@ export class Match {
   private gain(b: Body) {
     // v23 menerima bola sambil menghadap arah datangnya bola; yang baru saja scanning sudah membuka badan
     // setengah ke arah gawang lawan (menerima dengan kaki belakang)
+    // (v28: badan sudah berputar menghadap bola selama bola datang, tidak lagi melompat saat menerima)
     const ib = this.ball;
-    if (Math.hypot(ib.vx, ib.vy) > 2) {
+    if (TUNE.look <= 0 && Math.hypot(ib.vx, ib.vy) > 2) {
       const inc = Math.atan2(-ib.vy, -ib.vx);
       b.face = inc + (this.t - b.scan < TUNE.scanMem ? angDiff(this.goalDir(b), inc) * 0.5 : 0);
     }
@@ -3150,7 +3166,7 @@ export class Match {
     const oppLine = this.offsideLine(side);
     const k = this.k[side];
     const rk = c.rk;
-    const options: [number, () => void][] = [];
+    const options: [number, () => void, number?][] = [];
     // v23 Creativity aktif (peran bebas) & Teamwork (mengoper vs egois)
     const cr = this.creative(c);
     // v25 gaya per kecerdasan tim: skill individu (liga lemah) vs permainan kolektif (liga kuat)
@@ -3198,7 +3214,7 @@ export class Match {
         (pd > 3 && xg > TUNE.openXg ? TUNE.openShot : 0) +
         // v23 Teamwork rendah = egois; Creativity (peran bebas) mencoba mencetak gol dari mana saja
         (TUNE.teamSmart > 0 ? selfish * (xg < 0.1 ? 1.5 : 0) : selfish) + cr * (distGoal > 16 ? 0.12 : 0.05);
-      options.push([v + noise(), () => this.shoot(c, xg, pressure)]);
+      options.push([v + noise(), () => this.shoot(c, xg, pressure), this.goalDir(c)]);
     }
 
     // umpan
@@ -3272,7 +3288,7 @@ export class Match {
       }
       // rekan berdiri offside: pengumpan dengan visi & keputusan bagus tidak memberi bola
       if (this.isOffside(m, oppLine, fx) && m.run <= 0 && this.rng.chance(0.45 + (a.vis + a.dec) * 0.0125)) v -= 1;
-      options.push([v + noise(), () => this.passTo(c, m, air, false, 0, cross)]);
+      options.push([v + noise(), () => this.passTo(c, m, air, false, 0, cross), Math.atan2(m.y - c.y, m.x - c.x)]);
 
       // umpan terobosan (killer ball) ke ruang di belakang garis pertahanan untuk rekan yang berlari
       const runs = m.run > 0 || mfx > oppLine - 5;
@@ -3294,7 +3310,7 @@ export class Match {
         this.xgAt(tfx, tfy) * TUNE.xgPassW * 0.9 * (0.4 + 0.8 * win) + (m.run > 0 ? 0.1 : 0) + (k.prog - 1) * 0.2 + rk.create -
         // v23 pemain kreatif berani mencoba umpan yang lebih berisiko
         ((chip ? 0.25 : trisk * 0.45) + (1 - win) * TUNE.spaceLose) * (1 - 0.4 * cr) + cr * 0.15 + team;
-      options.push([tv + noise(), () => this.passTo(c, m, chip, false, chip ? 0.3 : 0, false, [tfx, tfy])]);
+      options.push([tv + noise(), () => this.passTo(c, m, chip, false, chip ? 0.3 : 0, false, [tfx, tfy]), Math.atan2(ty - c.y, tx - c.x)]);
     }
 
     // buang bola dari kotak sendiri saat ditekan
@@ -3327,6 +3343,19 @@ export class Match {
     if (!options.length) options.push([0, () => this.clear(c)]);
     let best = options[0];
     for (const o of options) if (o[0] > best[0]) best = o;
+    // v28 berbalik dulu: umpan / tembakan ke belakang badan butuh memutar badan. Tanpa lawan yang menempel, pemain
+    // memutar badan dulu (Agility & Technique: makin lincah makin cepat) lalu membaca situasi lagi; yang ditempel lawan
+    // terpaksa menendang tanpa berbalik (lebih meleset, v26)
+    const dir = best[2];
+    if (dir !== undefined && TUNE.turnFirst > 0 && !mustKick && !keeper && pressure < 1 && this.t - c.aimAt > 1.2) {
+      const off = Math.abs(angDiff(dir, c.face));
+      if (off > 1.6) {
+        c.aim = dir;
+        c.aimAt = this.t;
+        c.cool = clamp((off - 1) / (2.5 + (a.agi + a.tec) * 0.1), 0.15, 0.6);
+        return;
+      }
+    }
     best[1]();
     // (Math.max: aksi seperti umpan silang yang terblok sudah memberi jeda lebih lama)
     c.cool = Math.max(c.cool, keeper ? 0.6 : this.owner === c ? (0.35 + this.rng.float(0, 0.4)) * k.hold : 0.5 - a.dec * 0.012);
@@ -3367,6 +3396,9 @@ export class Match {
     }
     this.owner = null;
     this.lastTouch = c;
+    // v28 mata mengikuti arah tendangan
+    c.aim = Math.atan2(dy, dx);
+    c.aimAt = this.t;
   }
 
   /** Titik jatuh umpan silang ke ruang di depan penyerang (bingkai tim penyerang) */
@@ -3610,6 +3642,8 @@ export class Match {
     const opps = this.opponents(side);
     const gk = this.keeper((1 - side) as 0 | 1);
     c.st.shots++;
+    c.aim = this.goalDir(c);
+    c.aimAt = this.t;
     this.shots[side]++;
     this.xgFor[side] += xg;
     const fx = this.fx(side, c.x);
@@ -5632,14 +5666,17 @@ export class Match {
       if (b.entering) b.sprint = true;
       this.move(b);
     }
+    this.bump();
     this.turnAndScan();
     this.walkSubs();
 
     if (this.owner) {
       const o = this.owner;
       const sp = Math.hypot(o.vx, o.vy);
-      const fdx = sp > 0.3 ? o.vx / sp : this.dir(o.side);
-      const fdy = sp > 0.3 ? o.vy / sp : 0;
+      // (v28: pelan / berdiri: bola di kaki di depan badan, ikut berputar bersama badan)
+      const slowFace = TUNE.look > 0 && sp < 1.5;
+      const fdx = slowFace ? Math.cos(o.face) : sp > 0.3 ? o.vx / sp : this.dir(o.side);
+      const fdy = slowFace ? Math.sin(o.face) : sp > 0.3 ? o.vy / sp : 0;
       if (TUNE.touch > 0) this.carry(o, sp, fdx, fdy);
       else {
         this.ball.x = o.x + fdx * 0.6;
@@ -5742,22 +5779,110 @@ export class Match {
    */
   private turnAndScan() {
     const ball = this.ball;
+    const smooth = TUNE.look > 0;
     for (const b of this.active()) {
       const sp = Math.hypot(b.vx, b.vy);
       const a = b.p.a;
       const own = b === this.owner;
       let want: number;
       let rate: number;
-      if (own) {
-        want = sp > 1 ? Math.atan2(b.vy, b.vx) : this.goalDir(b);
-        const [, pd] = this.nearest(this.opponents(b.side), b.x, b.y);
-        rate = (2.5 + (a.agi + a.tec) * 0.1) * (pd < 2 ? 0.5 : 1);
+      if (!smooth) {
+        if (own) {
+          want = sp > 1 ? Math.atan2(b.vy, b.vx) : this.goalDir(b);
+          const [, pd] = this.nearest(this.opponents(b.side), b.x, b.y);
+          rate = (2.5 + (a.agi + a.tec) * 0.1) * (pd < 2 ? 0.5 : 1);
+        } else {
+          want = sp > 4 ? Math.atan2(b.vy, b.vx) : Math.atan2(ball.y - b.y, ball.x - b.x);
+          rate = 7;
+        }
+        b.face += clamp(angDiff(want, b.face), -rate * DT, rate * DT);
       } else {
-        want = sp > 4 ? Math.atan2(b.vy, b.vx) : Math.atan2(ball.y - b.y, ball.x - b.x);
-        rate = 7;
+        const bdx = ball.x - b.x;
+        const bdy = ball.y - b.y;
+        const toBall = Math.atan2(bdy, bdx);
+        if (own) {
+          // v28 pembawa bola: berlari = fokus ke bola di depan kakinya; pelan = membuka badan ke arah gawang lawan;
+          // sedang berbalik untuk menendang ke belakang = ke arah itu
+          if (this.t - b.aimAt < 0.8 && b.aimAt >= this.gotAt) want = b.aim;
+          else if (sp >= 1.5) want = Math.hypot(bdx, bdy) > 0.25 ? toBall : Math.atan2(b.vy, b.vx);
+          else want = sp > 0.8 ? Math.atan2(b.vy, b.vx) : this.goalDir(b);
+          const [, pd] = this.nearest(this.opponents(b.side), b.x, b.y);
+          rate = (2.5 + (a.agi + a.tec) * 0.1) * (pd < 2 ? 0.5 : 1);
+        } else if (this.t - b.aimAt < 0.5) {
+          // baru saja menendang: mata mengikuti arah tendangan
+          want = b.aim;
+          rate = 3.2 + a.agi * 0.12;
+        } else {
+          // berlari kencang = menghadap arah lari, pelan = menghadap bola, di antaranya dicampur (tidak berpindah
+          // tiba-tiba); kalau keduanya berlawanan, badan berputar lewat sisi yang sudah dekat
+          const wv = clamp((sp - 2.5) / 3, 0, 1);
+          let d = sp > 0.1 ? angDiff(Math.atan2(b.vy, b.vx), toBall) : 0;
+          if (Math.abs(d) > 2.6 && Math.sign(angDiff(b.face, toBall)) !== Math.sign(d)) d -= Math.sign(d) * 2 * Math.PI;
+          want = toBall + d * wv;
+          // v23 penerima umpan yang baru scanning membuka badan setengah ke arah gawang lawan (menerima dengan kaki belakang)
+          if (this.pass?.to === b && this.t - b.scan < TUNE.scanMem) want += angDiff(this.goalDir(b), want) * 0.5;
+          rate = 3.2 + a.agi * 0.12;
+        }
+        // kecepatan putar terbatas, dan melambat saat mendekati arah tujuan (tidak menyentak)
+        b.face += clamp(angDiff(want, b.face) * 0.55, -rate * DT, rate * DT);
       }
-      b.face += clamp(angDiff(want, b.face), -rate * DT, rate * DT);
       if (TUNE.scan > 0 && b.p.slot !== 'GK' && this.rng.chance((0.15 + a.tea * 0.045) * TUNE.scan * DT)) b.scan = this.t;
+    }
+  }
+
+  /**
+   * v28 hitbox: tiap pemain punya badan (radius dari tinggi badan & Strength) dan tidak bisa menembus badan lain.
+   * Badan yang bertumpuk didorong terpisah, yang lebih kuat & tinggi bergeser lebih sedikit, dan kecepatan saling
+   * mendekat dihentikan. Saat bola hidup rekan setim juga menjaga jarak pribadi (didorong pelan, bukan ditabrak).
+   * Pemain yang terkapar cedera tidak dihitung (dilangkahi).
+   */
+  private bump() {
+    if (TUNE.hitbox <= 0) return;
+    const all = this.onPitch[2];
+    const live = !this.restart && !this.dead;
+    const rad = (b: Body) => clamp(0.3 + (b.p.a.hgt - 180) * 0.002 + (b.p.a.str - 10) * 0.003, 0.26, 0.4);
+    const mass = (b: Body) => 1 + (b.p.a.str - 10) * 0.05 + (b.p.a.hgt - 180) * 0.01;
+    for (let i = 0; i < all.length; i++) {
+      const p = all[i];
+      if (p.dive > 0 || p.leaving || p.entering) continue;
+      for (let j = i + 1; j < all.length; j++) {
+        const q = all[j];
+        if (q.dive > 0 || q.leaving || q.entering) continue;
+        let dx = q.x - p.x;
+        let dy = q.y - p.y;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) continue;
+        let d = Math.hypot(dx, dy);
+        const hard = rad(p) + rad(q);
+        const need = live && p.side === q.side ? Math.max(hard, TUNE.mateSpace) : hard;
+        if (d >= need) continue;
+        if (d < 1e-6) {
+          // tepat bertumpuk: dipisah ke arah yang tetap (deterministik)
+          dx = p.side === 0 ? -1 : 1;
+          dy = 0;
+          d = 1e-6;
+        }
+        const ux = dx / d;
+        const uy = dy / d;
+        // menembus badan: dipisah penuh; jarak pribadi rekan: didorong pelan
+        const push = Math.max(0, hard - d) + (need - Math.max(d, hard)) * 0.25;
+        const mp = mass(p);
+        const mq = mass(q);
+        const wp = mq / (mp + mq);
+        const wq = mp / (mp + mq);
+        p.x -= ux * push * wp;
+        p.y -= uy * push * wp;
+        q.x += ux * push * wq;
+        q.y += uy * push * wq;
+        if (d < hard) {
+          const rv = (q.vx - p.vx) * ux + (q.vy - p.vy) * uy;
+          if (rv < 0) {
+            p.vx += ux * rv * wp;
+            p.vy += uy * rv * wp;
+            q.vx -= ux * rv * wq;
+            q.vy -= uy * rv * wq;
+          }
+        }
+      }
     }
   }
 

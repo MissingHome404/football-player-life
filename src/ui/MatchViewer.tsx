@@ -590,10 +590,12 @@ function Live({
         const wy = p0.y + (b.y - p0.y) * alpha;
         const [x, y] = P(wx, wy);
         const fill = b.p.slot === 'GK' ? keepers[b.side] : colors[b.side];
-        // v25 arah hadap (dihaluskan antar langkah); saat scanning pemain menoleh sebentar ke belakang bahunya
+        // v25 arah hadap (dihaluskan antar langkah); saat scanning pemain menoleh ke belakang bahunya
+        // (v28: menoleh dan kembali dengan halus, bukan melompat; pembawa bola tidak menoleh, fokus ke bola)
         const face = p0.face + turnOf(b.face, p0.face) * alpha;
-        const scanning = b.on && match.t - b.scan < 0.35 && b.p.slot !== 'GK';
-        const look = scanning ? face + (b.p.num % 2 ? 2.2 : -2.2) : face;
+        const ts = match.t - DT * (1 - alpha) - b.scan;
+        const scanning = b.on && b !== match.owner && b.p.slot !== 'GK' && ts >= 0 && ts < 0.6;
+        const look = scanning ? face + (b.p.num % 2 ? 1.8 : -1.8) * Math.sin((Math.PI * ts) / 0.6) : face;
         // arah di layar (lapangan bisa diputar tegak di layar sempit)
         const dirOf = (ang: number): [number, number] => {
           const [ex, ey] = P(wx + Math.cos(ang), wy + Math.sin(ang));

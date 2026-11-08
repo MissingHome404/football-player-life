@@ -438,11 +438,16 @@ describe('match engine versi 15: tugas per peran', () => {
   it('segundo volante menyusul ke depan saat serangan sampai di sepertiga akhir, gelandang bertahan biasa tidak', () => {
     const t = makeTactic('sv-test', 'Counter', '4-2-3-1');
     const home = withRoles(side(eng[4].id, t), (s) => (s === 'RDM' ? { role: 'sv', duty: 'At' } : s === 'LDM' ? { role: 'dm', duty: 'De' } : null));
-    const m = new Match({ seed: 'sv', home, away: side(eng[5].id) });
-    const at = depth(m, true, () => m.fx(0, m.ball.x) > 70);
     const sv = home.xi.find((p) => p.slot === 'RDM')!;
     const dm = home.xi.find((p) => p.slot === 'LDM')!;
-    expect(at(sv.id) - at(dm.id)).toBeGreaterThan(6);
+    // (v28: rata-rata 3 laga, satu laga terlalu acak)
+    let gap = 0;
+    for (const seed of ['sv', 'sv2', 'sv3']) {
+      const m = new Match({ seed, home, away: side(eng[5].id) });
+      const at = depth(m, true, () => m.fx(0, m.ball.x) > 70);
+      gap += (at(sv.id) - at(dm.id)) / 3;
+    }
+    expect(gap).toBeGreaterThan(6);
   });
 
   it('tugas Otomatis: menyerang saat tertinggal di akhir laga, bertahan saat unggul', () => {
@@ -2189,5 +2194,155 @@ describe('match engine versi 27: lini belakang sebagai unit, menahan serangan ba
     expect(hold(6, 1)).toBe(0);
     // serangan sudah lama berjalan (bukan transisi)
     expect(hold(2, 10)).toBe(0);
+  });
+});
+
+describe('match engine versi 28: arah badan halus, berbalik sebelum menendang, hitbox', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    face: number;
+    scan: number;
+    aimAt: number;
+  };
+  type R = {
+    t: number;
+    done: boolean;
+    restart: unknown;
+    dead: unknown;
+    owner: B | null;
+    pass: unknown;
+    ball: { x: number; y: number; vx: number; vy: number; z: number };
+    bodies: B[];
+    mates(s: 0 | 1): B[];
+    opponents(s: 0 | 1): B[];
+    turnAndScan(): void;
+    bump(): void;
+    gain(b: B): void;
+    step(): void;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 7].id, clubTactic(eng[i + 7])) });
+  const clear = (v: R) => {
+    for (const b of v.bodies) {
+      b.x = b.side ? 102 : 3;
+      b.y = b.side ? 66 : 2;
+      b.vx = b.vy = 0;
+    }
+  };
+  const ang = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+
+  it('badan berputar halus ke arah bola (tidak melompat), pemain lincah lebih cepat', () => {
+    const turn = (agi: number) => {
+      const m = new Match({ seed: 'look28', ...teams(0) });
+      const v = m as unknown as R;
+      clear(v);
+      v.restart = null;
+      v.dead = null;
+      v.owner = null;
+      v.pass = null;
+      const b = v.mates(0).find((q) => q.p.slot !== 'GK')!;
+      b.p.a.agi = agi;
+      b.x = 50;
+      b.y = 34;
+      b.face = 0;
+      b.scan = -99;
+      v.ball.x = 40;
+      v.ball.y = 34;
+      let steps = 0;
+      let maxStep = 0;
+      while (ang(b.face, Math.PI) > 0.1 && steps < 50) {
+        const f = b.face;
+        v.turnAndScan();
+        maxStep = Math.max(maxStep, ang(b.face, f));
+        steps++;
+      }
+      return { steps, maxStep };
+    };
+    const slow = turn(5);
+    const quick = turn(19);
+    // 180° tidak pernah dalam satu langkah, maksimal ~32°/langkah (0,1 detik)
+    expect(slow.maxStep).toBeLessThan(0.6);
+    expect(quick.maxStep).toBeLessThan(0.6);
+    expect(slow.steps).toBeLessThan(50);
+    expect(quick.steps).toBeLessThan(slow.steps);
+  });
+
+  it('menerima bola tidak membuat badan melompat', () => {
+    const m = new Match({ seed: 'gain28', ...teams(1) });
+    const v = m as unknown as R;
+    clear(v);
+    const b = v.mates(0).find((q) => q.p.slot !== 'GK')!;
+    b.x = 50;
+    b.y = 34;
+    b.face = 0.3;
+    v.ball.x = 50.5;
+    v.ball.y = 34;
+    v.ball.vx = -12;
+    v.ball.vy = 3;
+    v.gain(b);
+    expect(b.face).toBe(0.3);
+  });
+
+  it('tanpa lawan yang menempel, pemain berbalik dulu sebelum mengoper ke belakang badan', () => {
+    const behind = (turnFirst: number) => {
+      const old = TUNE.turnFirst;
+      TUNE.turnFirst = turnFirst;
+      let n = 0;
+      let all = 0;
+      for (const seed of ['tf28-a', 'tf28-b']) {
+        const m = new Match({ seed, ...teams(2) });
+        const v = m as unknown as R;
+        while (!v.done) {
+          const o = v.owner;
+          const f = o?.face ?? 0;
+          let free = false;
+          if (o) {
+            free = true;
+            for (const d of v.opponents(o.side)) if (Math.hypot(d.x - o.x, d.y - o.y) < 2.5) free = false;
+          }
+          v.step();
+          if (o && free && !v.owner && !v.restart && o.p.slot !== 'GK' && Math.hypot(v.ball.vx, v.ball.vy) > 3) {
+            all++;
+            if (ang(Math.atan2(v.ball.vy, v.ball.vx), f) > 1.7) n++;
+          }
+        }
+      }
+      TUNE.turnFirst = old;
+      return n / all;
+    };
+    expect(behind(1)).toBeLessThan(behind(0) * 0.6);
+  }, 60_000);
+
+  it('hitbox: badan yang bertumpuk dipisah, yang lebih kuat bergeser lebih sedikit; rekan setim menjaga jarak', () => {
+    const m = new Match({ seed: 'hit28', ...teams(3) });
+    const v = m as unknown as R;
+    clear(v);
+    v.restart = null;
+    v.dead = null;
+    const p = v.mates(0).find((q) => q.p.slot !== 'GK')!;
+    const q = v.mates(1).find((q) => q.p.slot !== 'GK')!;
+    Object.assign(p.p.a, { str: 18, hgt: 190 });
+    Object.assign(q.p.a, { str: 6, hgt: 172 });
+    p.x = 50;
+    p.y = 34;
+    q.x = 50.2;
+    q.y = 34;
+    v.bump();
+    expect(Math.hypot(p.x - q.x, p.y - q.y)).toBeGreaterThan(0.6);
+    expect(Math.abs(p.x - 50)).toBeLessThan(Math.abs(q.x - 50.2));
+    // rekan setim 0,8 m: didorong pelan menjauh (jarak pribadi), tidak langsung dipisah penuh
+    const [a, b] = v.mates(1).filter((x) => x.p.slot !== 'GK' && x !== q);
+    a.x = 30;
+    a.y = 20;
+    b.x = 30.8;
+    b.y = 20;
+    v.bump();
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    expect(d).toBeGreaterThan(0.8);
+    expect(d).toBeLessThan(1.4);
   });
 });
