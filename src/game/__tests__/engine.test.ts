@@ -120,7 +120,8 @@ describe('match engine', () => {
       }
       for (const b of m.bodies) if (b.p.slot.endsWith('CB')) cbShots += b.st.shots;
     }
-    expect(yellow).toBeGreaterThan(12);
+    // (v29: kuning ~0,073 per pelanggaran dan ~10 pelanggaran per laga, jadi < 1 kuning per laga)
+    expect(yellow).toBeGreaterThan(4);
     expect(red).toBeLessThan(yellow);
     expect(corners / 24).toBeGreaterThan(0.8);
     expect(cbShots).toBeGreaterThan(0); // bek tengah naik saat sepak pojok

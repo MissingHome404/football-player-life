@@ -1166,7 +1166,8 @@ describe('match engine versi 21: penyerang menahan garis & tendangan gawang', ()
     const good = gapFor(20);
     const poor = gapFor(5);
     // dulu striker menunggu rata-rata 11 m di belakang garis bek lawan saat timnya membangun serangan
-    expect(Math.abs(good.gap)).toBeLessThan(3);
+    // (v29: garis bek lawan tidak lagi ikut mundur bersama penyerang yang offside, jadi garisnya lebih sering bergerak naik)
+    expect(Math.abs(good.gap)).toBeLessThan(3.5);
     expect(good.tgt).toBeLessThan(2.5);
     expect(poor.tgt).toBeGreaterThan(good.tgt + 1);
   });
@@ -2344,5 +2345,191 @@ describe('match engine versi 28: arah badan halus, berbalik sebelum menendang, h
     const d = Math.hypot(a.x - b.x, a.y - b.y);
     expect(d).toBeGreaterThan(0.8);
     expect(d).toBeLessThan(1.4);
+  });
+});
+
+describe('match engine versi 29: foul & kartu, menahan garis, fokus saat dribel', () => {
+  type B = {
+    p: { slot: string; a: Record<string, number> };
+    side: 0 | 1;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    tx: number;
+    ty: number;
+    face: number;
+    scan: number;
+    on: boolean;
+    cool: number;
+    frus: number;
+    ox: number;
+    run: number;
+    st: { yellow: number; red: number; fouls: number; tackles: number };
+  };
+  type R = {
+    t: number;
+    restart: unknown;
+    dead: unknown;
+    owner: B | null;
+    pass: { to: B } | null;
+    ball: { x: number; y: number; vx: number; vy: number };
+    bodies: B[];
+    events: { kind: string }[];
+    mates(s: 0 | 1): B[];
+    fx(s: 0 | 1, x: number): number;
+    defLine(s: 0 | 1, inPoss: boolean): number;
+    foul(d: B, c: B, tactical?: boolean): void;
+    tackles(): void;
+    markAdjust(b: B, side: 0 | 1, line: number, x: number, y: number): [number, number, boolean];
+    turnAndScan(): void;
+  };
+  const teams = (i: number) => ({ home: side(eng[i].id, clubTactic(eng[i])), away: side(eng[i + 7].id, clubTactic(eng[i + 7])) });
+
+  it('kartu per pelanggaran: kuning ~0,073 dan merah ~0,014 untuk pemain rata-rata; pemain kasar lebih sering', () => {
+    const cards = (agg: number, n: number) => {
+      let y = 0;
+      let r = 0;
+      let m = new Match({ seed: 'card29', ...teams(0) });
+      for (let i = 0; i < n; i++) {
+        let v = m as unknown as R;
+        if (r && v.events[v.events.length - 1]?.kind === 'red') {
+          m = new Match({ seed: `card29-${i}`, ...teams(0) });
+          v = m as unknown as R;
+        }
+        const d = v.mates(0).find((b) => b.p.slot !== 'GK' && b.on)!;
+        const c = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+        Object.assign(d.p.a, { agg, dirt: agg, tem: 20 - agg, cmp: 10 });
+        d.st.yellow = 0;
+        d.frus = 0;
+        // pelanggaran biasa di tengah lapangan (bukan peluang emas)
+        c.x = 52;
+        c.y = 34;
+        c.run = 0;
+        d.x = 52.5;
+        d.y = 34.5;
+        v.dead = null;
+        v.restart = null;
+        const before = v.events.length;
+        v.foul(d, c);
+        for (const e of v.events.slice(before)) {
+          if (e.kind === 'yellow') y++;
+          if (e.kind === 'red') r++;
+        }
+      }
+      return { y: y / n, r: r / n };
+    };
+    const avg = cards(10, 6000);
+    expect(avg.y).toBeGreaterThan(0.045);
+    expect(avg.y).toBeLessThan(0.1);
+    expect(avg.r).toBeGreaterThan(0.004);
+    expect(avg.r).toBeLessThan(0.025);
+    const rough = cards(17, 3000);
+    expect(rough.y).toBeGreaterThan(avg.y * 1.3);
+  });
+
+  it('penjegal bagus jauh lebih jarang melanggar daripada penjegal buruk', () => {
+    const fouls = (tck: number) => {
+      let n = 0;
+      for (let i = 0; i < 400; i++) {
+        const m = new Match({ seed: `tk29-${i}`, ...teams(1) });
+        const v = m as unknown as R;
+        for (const b of v.bodies) {
+          b.x = b.side ? 102 : 3;
+          b.y = 66;
+        }
+        v.restart = null;
+        v.dead = null;
+        const c = v.mates(0).find((b) => b.p.slot !== 'GK')!;
+        const d = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+        Object.assign(c.p.a, { dri: 12, agi: 12, tec: 12, str: 10, cmp: 10 });
+        Object.assign(d.p.a, { tck, ant: 10, agi: 10, str: 10, agg: 10, dirt: 10 });
+        c.x = 50;
+        c.y = 34;
+        c.face = 0;
+        d.x = 51;
+        d.y = 34;
+        d.cool = 0;
+        v.owner = c;
+        v.ball.x = 50.4;
+        v.ball.y = 34;
+        const f = d.st.fouls;
+        v.tackles();
+        if (d.st.fouls > f) n++;
+      }
+      return n;
+    };
+    expect(fouls(18)).toBeLessThan(fouls(5) * 0.6);
+  });
+
+  it('menahan garis: bek tidak ikut mundur bersama penyerang yang berdiri offside, tapi mengejar kalau bola dioper ke sana', () => {
+    const m = new Match({ seed: 'hold29', ...teams(2) });
+    const v = m as unknown as R;
+    v.restart = null;
+    v.dead = null;
+    // semua pemain kita di depan (tidak ada yang membuat penyerang onside)
+    for (const b of v.mates(0)) if (b.p.slot !== 'GK') b.x = v.fx(0, 45);
+    const carrier = v.mates(1).find((b) => b.p.slot !== 'GK')!;
+    carrier.x = v.fx(0, 55);
+    carrier.y = 34;
+    v.owner = carrier;
+    v.ball.x = carrier.x;
+    v.ball.y = carrier.y;
+    const line = v.defLine(0, false);
+    const b = v.mates(0).find((q) => isCB(q.p.slot as never))!;
+    Object.assign(b.p.a, { pos: 15, ant: 15, dec: 15 });
+    const att = v.mates(1).filter((q) => q.p.slot !== 'GK' && q !== carrier)[0];
+    att.x = v.fx(0, line - 8);
+    att.y = 30;
+    att.run = 0;
+    att.vx = att.vy = 0;
+    for (const o of v.mates(1)) if (o !== att && o !== carrier && o.p.slot !== 'GK') o.y = 66;
+    b.x = v.fx(0, line);
+    b.y = 30;
+    const [hx, , chase] = v.markAdjust(b, 0, line, line, 30);
+    expect(chase).toBe(false);
+    expect(hx).toBe(line);
+    v.pass = { to: att };
+    const [cx, , chase2] = v.markAdjust(b, 0, line, line, 30);
+    expect(chase2).toBe(true);
+    expect(cx).toBeLessThan(line - 5);
+  });
+
+  it('fokus: pembawa bola yang menggiring tidak menoleh, penerima umpan menatap bola saat bola sudah dekat', () => {
+    const m = new Match({ seed: 'focus29', ...teams(3) });
+    const v = m as unknown as R;
+    v.restart = null;
+    v.dead = null;
+    const c = v.mates(0).find((b) => b.p.slot !== 'GK')!;
+    c.p.a.tea = 20;
+    c.scan = -99;
+    v.owner = c;
+    for (let i = 0; i < 300; i++) {
+      c.vx = 5;
+      c.vy = 0;
+      v.turnAndScan();
+    }
+    expect(c.scan).toBe(-99);
+    // penerima: bola 5 m dari arah kiri, baru saja scanning -> tetap menatap bola (tidak membuka badan ke gawang)
+    v.owner = null;
+    const r = v.mates(0).filter((b) => b.p.slot !== 'GK')[1];
+    r.x = 50;
+    r.y = 34;
+    r.vx = r.vy = 0;
+    r.face = Math.PI;
+    v.ball.x = 45;
+    v.ball.y = 34;
+    v.pass = { to: r };
+    for (let i = 0; i < 30; i++) {
+      r.scan = v.t;
+      v.turnAndScan();
+    }
+    expect(Math.abs(Math.atan2(Math.sin(r.face - Math.PI), Math.cos(r.face - Math.PI)))).toBeLessThan(0.1);
+  });
+
+  it('sepak mula: bek tengah berdiri dekat garis tengah, bukan di kotak penalti', () => {
+    const m = new Match({ seed: 'ko29', ...teams(4) });
+    const v = m as unknown as R;
+    for (const b of v.mates(0)) if (isCB(b.p.slot as never)) expect(v.fx(0, b.x)).toBeGreaterThan(28);
   });
 });

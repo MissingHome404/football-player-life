@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 28;
+export const ENGINE_VERSION = 29;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -75,7 +75,7 @@ const PC_R = 30;
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
-  shotK: 6.2, progW: 45, xgPassW: 4, foul: 0.55, lineGap: 15, runRate: 0.0025, runPass: 0.18,
+  shotK: 6.2, progW: 45, xgPassW: 4, foul: 0.3, lineGap: 15, runRate: 0.0025, runPass: 0.18,
   hold: 0.5, risk: 1.0, openShot: 0.35, cross: 0.3, tackle: 0.05, speed: 1.15, onT: 0.38,
   /** tembakan dari luar kotak lebih sulit masuk */
   longK: 1.05,
@@ -134,6 +134,12 @@ export const TUNE = {
   hitbox: 1,
   /** v28 jarak pribadi antar rekan setim saat bola hidup (m): tidak berdiri menempel */
   mateSpace: 1.4,
+  /** v29 bek tidak ikut mundur bersama penyerang yang berdiri offside: garis tetap, penyerang tertinggal offside (0 = mati) */
+  holdLine: 1,
+  /** v29 pembawa bola yang sedang menggiring tidak scanning; penerima umpan melihat bola saat bola sudah dekat (0 = mati) */
+  focus: 1,
+  /** v29 peluang kartu merah langsung per pelanggaran (rata-rata; agresi, Dirtiness, temperamen menggeser) */
+  red: 0.014,
   /** v23 kekuatan Creativity (peran bebas): killer ball dan tembakan tidak biasa */
   creK: 1,
   /** pergantian taktis pelatih AI per tim, dan batas tenaga pemain yang dianggap kelelahan */
@@ -226,8 +232,8 @@ export const TUNE = {
   home: 1.1,
   /** performa harian: simpangan tim & pemain (poin atribut; simpangan pemain dikali faktor Consistency) */
   formTeam: 0.3, formPlayer: 0.5,
-  /** peluang kartu kuning per pelanggaran */
-  card: 0.36,
+  /** peluang kartu kuning per pelanggaran (v29: rata-rata 0,073; dulu 0,36 sebelum pengali situasi) */
+  card: 0.073,
   /** mentalitas: selisih kualitas tim (poin atribut) -> -1..1, dan kekuatan efeknya */
   rel: 0.4,
   mental: 1,
@@ -1232,7 +1238,9 @@ export class Match {
   /** Posisi awal babak / setelah gol (pemain berdiri di separuh lapangan sendiri) */
   private kickoffSpot(b: Body): [number, number] {
     const [bx, by] = this.baseOf(b);
-    let x = Math.min(bx * 0.72, 49);
+    // (v29: tim berdiri rapat dekat garis tengah seperti blok tengah, bukan bek tengah di kotak penalti sendiri
+    // yang lalu harus berlari 25 m setelah sepak mula; kiper tetap di gawangnya)
+    let x = b.p.slot === 'GK' ? bx : Math.min(52.5 - (52.5 - bx) * 0.55, 49);
     if (isST(b.p.slot) && this.restart?.kind === 'kickoff' && this.restart.side === b.side) x = b.p.slot === 'LS' ? 50 : 51.5;
     return [this.wx(b.side, x), this.wy(b.side, by)];
   }
@@ -2684,6 +2692,22 @@ export class Match {
       const bfx = this.fx(side, this.refBall().x);
       const still = att.run <= 0 && this.dir(side) * att.vx > -2.5;
       if (TUNE.stepUp > 0 && still && bfx > 45 && bfx - line > 18 && this.carrierPressed(side)) return [x, ny, false];
+      // v29 penyerang yang berdiri offside (tidak ada rekan kita yang lebih dalam darinya, bola masih di depan) tidak
+      // diikuti mundur: garis tetap dan dia tertinggal offside, umpan ke sana = offside. Baru dikejar kalau dia onside
+      // (garis sudah pecah), bola sudah dioper ke arahnya, atau dia membawa bola. Bek yang membaca permainan
+      // (Positioning, Anticipation, Decisions) lebih yakin menahan garis.
+      if (TUNE.holdLine > 0 && this.pass?.to !== att && this.owner !== att && ox < bfx - 1) {
+        let onside = false;
+        for (const m of this.mates(side)) {
+          if (m === b || m.p.slot === 'GK' || m.hurt >= 0) continue;
+          if (this.fx(side, m.x) < ox + 0.3) {
+            onside = true;
+            break;
+          }
+        }
+        const sure = clamp(0.35 + (a.pos + a.ant + a.dec) / 45, 0, 1) * TUNE.holdLine;
+        if (!onside && (b.ox + 2) / 4 < sure) return [x, ny, false];
+      }
       return [Math.max(1, ox - 1.5), ny, true];
     }
     // stopper: keluar dari garis menempel penyerang yang turun menjemput bola (tetap di sisi gawang)
@@ -4674,10 +4698,11 @@ export class Match {
         return;
       }
       // pemain yang sudah kena kartu kuning lebih berhati-hati; pemain "kotor" (Dirtiness) lebih sering melanggar
+      // (v29: Tackling jauh lebih menentukan: penjegal bagus jarang melanggar, yang buruk sering)
       // v18: di kotak penalti sendiri bek menahan diri (tetap berdiri, tidak menjegal); Tackling & Decisions
       const care = this.inBox(d.side, c.x, c.y) ? clamp(TUNE.boxFoul * (1.5 - (da.tck + da.dec) / 40), 0.08, 1) : 1;
       const foul =
-        TUNE.foul * (0.6 + da.agg / 25) * (1.3 - da.tck / 40) * (d.st.yellow ? 0.6 : 1) * (1 + 0.35 * d.rk.tackle + 0.2 * (this.tk[d.side]?.tackling ?? 0)) *
+        TUNE.foul * (0.6 + da.agg / 25) * (1.6 - da.tck / 20) * (d.st.yellow ? 0.6 : 1) * (1 + 0.35 * d.rk.tackle + 0.2 * (this.tk[d.side]?.tackling ?? 0)) *
         (0.7 + da.dirt * 0.0375) * care * (fromBehind ? 1.5 : facing > 0.35 ? 0.85 : 1);
       if (this.rng.chance(foul)) {
         this.foul(d, c);
@@ -4746,22 +4771,24 @@ export class Match {
     const clear = !covered && fx > 75 && Math.abs(fy - 34) < 20;
     const a = d.p.a;
     let card: 'yellow' | 'red' | null = null;
+    // v29 kartu per pelanggaran rata-rata: merah TUNE.red (0,014), kuning TUNE.card (0,073). Agresi, Dirtiness, temperamen,
+    // dan Composure menggeser peluangnya; menggagalkan peluang emas di luar kotak (DOGSO) dan pelanggaran taktis
+    // (menghentikan serangan yang menjanjikan) jauh lebih sering dihukum, sesuai Laws of the Game
+    const rough = (0.6 + a.agg / 25) * (0.85 + a.dirt * 0.019) * (1.3 - a.tem * 0.03);
+    // frustrasi memuncak pada pemain bertemperamen buruk: tindakan kasar
+    const rage = d.frus > 0.75 && a.tem < 9 ? 1 + (d.frus - 0.75) * (9 - a.tem) * 0.8 : 1;
     if (clear && !box && this.rng.chance(0.2)) card = 'red';
-    else if (this.rng.chance(0.0015 + Math.max(0, d.base.agg - 12) * 0.001)) card = 'red';
-    // frustrasi memuncak pada pemain bertemperamen buruk: tindakan kasar, kartu merah langsung
-    else if (d.frus > 0.75 && a.tem < 9 && this.rng.chance((d.frus - 0.75) * (9 - a.tem) * 0.03)) card = 'red';
+    else if (this.rng.chance(TUNE.red * 0.55 * rough * rage)) card = 'red';
     else if (
       this.rng.chance(
-        (TUNE.card * (0.6 + a.agg / 25) * (1.25 - a.cmp / 40) * (0.85 + a.dirt * 0.019) * (1.3 - a.tem * 0.03) +
-          (clear ? 0.45 : tactical ? 0.35 : fx > 60 && c.run > 0 ? 0.2 : 0)) *
-          (d.st.yellow ? 0.6 : 1),
+        TUNE.card * 0.9 * rough * (1.25 - a.cmp / 40) * (clear ? 5 : tactical ? 6 : fx > 60 && c.run > 0 ? 2.5 : 1) * (d.st.yellow ? 0.6 : 1),
       )
     ) {
       card = 'yellow';
     }
     // protes: pemain yang sedang frustrasi memprotes keputusan wasit dan bisa kena kartu kuning
     let dissent = false;
-    if (!card && d.frus > 0.45 && a.tem < 12 && this.rng.chance((d.frus - 0.45) * (12 - a.tem) * 0.04)) {
+    if (!card && d.frus > 0.45 && a.tem < 12 && this.rng.chance((d.frus - 0.45) * (12 - a.tem) * 0.008)) {
       card = 'yellow';
       dissent = true;
     }
@@ -5819,14 +5846,21 @@ export class Match {
           let d = sp > 0.1 ? angDiff(Math.atan2(b.vy, b.vx), toBall) : 0;
           if (Math.abs(d) > 2.6 && Math.sign(angDiff(b.face, toBall)) !== Math.sign(d)) d -= Math.sign(d) * 2 * Math.PI;
           want = toBall + d * wv;
-          // v23 penerima umpan yang baru scanning membuka badan setengah ke arah gawang lawan (menerima dengan kaki belakang)
-          if (this.pass?.to === b && this.t - b.scan < TUNE.scanMem) want += angDiff(this.goalDir(b), want) * 0.5;
+          if (this.pass?.to === b) {
+            // v29 bola sudah dekat (< 8 m): mata ke bola saja
+            if (TUNE.focus > 0 && Math.hypot(bdx, bdy) < 8) want = toBall;
+            // v23 penerima umpan yang baru scanning membuka badan setengah ke arah gawang lawan (menerima dengan kaki belakang)
+            else if (this.t - b.scan < TUNE.scanMem) want += angDiff(this.goalDir(b), want) * 0.5;
+          }
           rate = 3.2 + a.agi * 0.12;
         }
         // kecepatan putar terbatas, dan melambat saat mendekati arah tujuan (tidak menyentak)
         b.face += clamp(angDiff(want, b.face) * 0.55, -rate * DT, rate * DT);
       }
-      if (TUNE.scan > 0 && b.p.slot !== 'GK' && this.rng.chance((0.15 + a.tea * 0.045) * TUNE.scan * DT)) b.scan = this.t;
+      // v29 fokus: pembawa bola yang sedang menggiring dan penerima umpan yang bolanya sudah dekat tidak menoleh
+      const busy =
+        TUNE.focus > 0 && ((own && sp >= 1.5) || (this.pass?.to === b && Math.hypot(ball.x - b.x, ball.y - b.y) < 10));
+      if (TUNE.scan > 0 && !busy && b.p.slot !== 'GK' && this.rng.chance((0.15 + a.tea * 0.045) * TUNE.scan * DT)) b.scan = this.t;
     }
   }
 
