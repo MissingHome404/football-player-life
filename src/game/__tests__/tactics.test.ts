@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateWorld } from '../gen/world';
 import { squadOf } from '../sim/season';
-import { Match, TUNE, airDrag, duelP, engineAttrs, minutesPlayed, pickXI, stepBall, topSpeed, type ETeam } from '../sim/engine';
+import { Match, POLICY_GROUPS, POLICY_KEYS, POLICY_SCALE, RL_POLICY, TUNE, airDrag, duelP, engineAttrs, minutesPlayed, pickXI, policySet, stepBall, topSpeed, zeroPolicy, type ETeam, type Policy } from '../sim/engine';
 import { FORMATIONS, isCB, isCentralMid, isST, isWideMid, isWing } from '../sim/formation';
 import { POSITION_ROLES } from '../data/roles';
 import { ROLE_DUTIES, clubTactic, makeTactic, tacticInstructions, tacticIntensity, tacticK, type Tactic } from '../sim/tactics';
@@ -1986,6 +1986,9 @@ describe('match engine versi 26: weighted RNG yang masuk akal & AI yang lebih pi
     const forward = (brain: number, train: number) => {
       const keep = TUNE.train;
       TUNE.train = train;
+      // (v33: kebijakan RL dimatikan di sini, tes ini hanya untuk bobot hasil latihan v26)
+      const keepRl = TUNE.rl;
+      TUNE.rl = 0;
       const m = new Match({ seed: 'train26', ...teams(6) });
       const v = m as unknown as R;
       clear(v);
@@ -2018,6 +2021,7 @@ describe('match engine versi 26: weighted RNG yang masuk akal & AI yang lebih pi
         if (v.pass?.to === fwd) n++;
       }
       TUNE.train = keep;
+      TUNE.rl = keepRl;
       return n;
     };
     expect(forward(18, 1)).toBeGreaterThan(forward(18, 0) + 10);
@@ -2297,6 +2301,9 @@ describe('match engine versi 28: arah badan halus, berbalik sebelum menendang, h
     const behind = (turnFirst: number) => {
       const old = TUNE.turnFirst;
       TUNE.turnFirst = turnFirst;
+      // (v33: kebijakan RL dimatikan, tes ini hanya untuk mekanisme berbalik v28)
+      const oldRl = TUNE.rl;
+      TUNE.rl = 0;
       let n = 0;
       let all = 0;
       for (const seed of ['tf28-a', 'tf28-b']) {
@@ -2318,6 +2325,7 @@ describe('match engine versi 28: arah badan halus, berbalik sebelum menendang, h
         }
       }
       TUNE.turnFirst = old;
+      TUNE.rl = oldRl;
       return n / all;
     };
     expect(behind(1)).toBeLessThan(behind(0) * 0.6);
@@ -3146,5 +3154,61 @@ describe('match engine versi 32: fisik bola tidak licin, dribel menempel, tidak 
       });
     expect(speed(0)).toBeLessThan(1.6);
     expect(speed(1)).toBeGreaterThan(3);
+  });
+});
+
+describe('match engine versi 33: kebijakan keputusan hasil reinforcement learning', () => {
+  const play = (seed: string, pols?: [Policy, Policy], dumb = false) => {
+    const pol = pols && ([policySet(pols[0]), policySet(pols[1])] as const);
+    const h = side(eng[3].id, clubTactic(eng[3]));
+    const a = side(eng[9].id, clubTactic(eng[9]));
+    if (dumb) for (const p of [...h.xi, ...(h.bench ?? []), ...a.xi, ...(a.bench ?? [])]) p.a = { ...p.a, dec: 1, vis: 1, ant: 1 };
+    const m = new Match({ seed, home: h, away: a });
+    if (pol) m.pol = [pol[0], pol[1]];
+    const r = m.run();
+    return { r, m };
+  };
+
+  it('bobot kebijakan RL lengkap, berupa angka hingga, dan dalam batas latihan', () => {
+    for (const g of POLICY_GROUPS)
+      for (const k of POLICY_KEYS) {
+        expect(Number.isFinite(RL_POLICY[g][k])).toBe(true);
+        expect(Math.abs(RL_POLICY[g][k])).toBeLessThanOrEqual(POLICY_SCALE[k] * 8 + 1e-9);
+      }
+  });
+
+  it('rl 0 sama persis dengan kebijakan nol (perilaku v32), dan kebijakan RL memang mengubah keputusan', () => {
+    const z = zeroPolicy();
+    const old = TUNE.rl;
+    TUNE.rl = 0;
+    let off: ReturnType<typeof play>;
+    try {
+      off = play('rl33a');
+    } finally {
+      TUNE.rl = old;
+    }
+    const zero = play('rl33a', [z, z]);
+    expect(zero.r.score).toEqual(off.r.score);
+    expect(zero.r.events.length).toBe(off.r.events.length);
+    const shoot = { ...z, sh: 0.4 };
+    const eager = play('rl33a', [shoot, z]);
+    expect(eager.r.shots[0]).toBeGreaterThan(zero.r.shots[0]);
+  });
+
+  it('pemain dengan Decisions, Vision & Anticipation rendah tidak memakai kebijakan RL (atribut tetap menentukan)', () => {
+    const z = zeroPolicy();
+    const shoot = { ...z, sh: 0.4 };
+    const a = play('rl33b', [z, z], true);
+    const b = play('rl33b', [shoot, z], true);
+    expect(b.r.score).toEqual(a.r.score);
+    expect(b.r.shots).toEqual(a.r.shots);
+  });
+
+  it('peluang gol nyata (pGoal) dicatat per tim untuk hadiah pelatihan', () => {
+    const { r, m } = play('rl33c');
+    expect(m.pGoal[0]).toBeGreaterThan(0);
+    expect(m.pGoal[1]).toBeGreaterThan(0);
+    // peluang nyata per tembakan rata-rata di bawah 0,85 (batas atas satu tembakan)
+    expect(m.pGoal[0] + m.pGoal[1]).toBeLessThan((r.shots[0] + r.shots[1]) * 0.85);
   });
 });
