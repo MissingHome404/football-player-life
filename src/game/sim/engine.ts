@@ -46,7 +46,7 @@ import { playTraits, traitK } from './traits';
 import { ROLE_DUTIES, aiFamiliarity, mentalityLabel, type Tactic, type TacticK } from './tactics';
 
 /** Naik setiap kali hasil mesin berubah untuk input yang sama (tayangan ulang lama tidak cocok lagi) */
-export const ENGINE_VERSION = 32;
+export const ENGINE_VERSION = 33;
 
 export const PITCH_W = 105;
 export const PITCH_H = 68;
@@ -88,6 +88,46 @@ const PC_CW = PITCH_W / PC_NX;
 const PC_CH = PITCH_H / PC_NY;
 /** jangkauan pemain di peta kontrol ruang (m) */
 const PC_R = 30;
+
+/**
+ * v33 kebijakan keputusan hasil reinforcement learning (Evolution Strategies, scripts/rl.ts): bobot tambahan di atas
+ * nilai-nilai pilihan pemain yang memegang bola (tembak / oper / terobosan / umpan silang / bawa bola / take-on / buang).
+ * Dilatih lewat ribuan laga AI vs AI (skuad identik, kebijakan +/- gangguan acak saling berhadapan, hadiah = selisih gol
+ * & peluang gol nyata). Semua 0 = perilaku v32. Pemain memakainya sebesar kecerdasannya (Decisions, Vision,
+ * Anticipation, kecerdasan tim), jadi atribut tetap menentukan: pemain bodoh tetap memakai naluri lama.
+ */
+export const POLICY_KEYS = [
+  'sh', 'shV', 'shFar', 'pa', 'paProg', 'paOpen', 'paRisk', 'paXg', 'paAir', 'paBack', 'paKeep', 'paRun', 'paFin',
+  'cr', 'th', 'thRisk', 'ca', 'caSpace', 'caPress', 'caFin', 'to', 'cl', 'hold',
+] as const;
+export type PolicyKey = (typeof POLICY_KEYS)[number];
+export type Policy = Record<PolicyKey, number>;
+/** skala wajar tiap bobot (dipakai pelatih RL sebagai besar gangguan) */
+export const POLICY_SCALE: Policy = {
+  sh: 0.05, shV: 0.1, shFar: 0.05, pa: 0.05, paProg: 0.1, paOpen: 0.006, paRisk: 0.1, paXg: 0.1, paAir: 0.05, paBack: 0.05,
+  paKeep: 0.05, paRun: 0.05, paFin: 0.05, cr: 0.05, th: 0.05, thRisk: 0.1, ca: 0.05, caSpace: 0.005, caPress: 0.05,
+  caFin: 0.05, to: 0.05, cl: 0.05, hold: 0.1,
+};
+export const zeroPolicy = (): Policy => Object.fromEntries(POLICY_KEYS.map((k) => [k, 0])) as Policy;
+/** v34 kebijakan per kelompok posisi: belakang (kiper & bek), tengah, depan (winger & striker) */
+export const POLICY_GROUPS = ['back', 'mid', 'front'] as const;
+export type PolicyGroup = (typeof POLICY_GROUPS)[number];
+export type PolicySet = Record<PolicyGroup, Policy>;
+export const policyGroup = (slot: Slot): PolicyGroup => (slot === 'GK' || isDef(slot) ? 'back' : isWing(slot) || isST(slot) ? 'front' : 'mid');
+/** satu kebijakan yang sama untuk semua kelompok posisi */
+export const policySet = (p: Policy): PolicySet => ({ back: p, mid: p, front: p });
+/** v33 bobot hasil latihan RL (scripts/rl.ts): salin isi file hasil latihan ke sini */
+/**
+ * v33 hasil latihan (satu kebijakan untuk semua posisi): putaran 1 180 iterasi x 80 laga cermin, diperkecil separuh,
+ * lalu 80 iterasi lagi dengan penalti gaya main (STYLE=2: jumlah umpan dijaga dekat gaya asli). Vs AI v32: +0,14 gol/laga.
+ */
+export const RL_V33: Policy = {
+  sh: -0.09675, shV: -0.1505, shFar: -0.03876, pa: -0.12332, paProg: -0.16268, paOpen: -0.00733, paRisk: 0.13012,
+  paXg: 0.06853, paAir: -0.17487, paBack: -0.01767, paKeep: 0.0441, paRun: -0.07288, paFin: -0.01204, cr: -0.00336,
+  th: -0.00185, thRisk: -0.05944, ca: 0.13605, caSpace: 0.00301, caPress: 0.04135, caFin: 0.10747, to: 0.12126,
+  cl: 0.01998, hold: -0.00437,
+};
+export const RL_POLICY: PolicySet = policySet(RL_V33);
 
 /** Angka penyetel hasil laga (dikalibrasi lewat scripts/engine.ts) */
 export const TUNE = {
@@ -264,6 +304,8 @@ export const TUNE = {
   progWS: 27,
   keepS: 0.2,
   carryS: 0.4,
+  /** v33 kekuatan kebijakan hasil reinforcement learning (RL_POLICY) (0 = mati, perilaku v32) */
+  rl: 1,
   /** v26 AI: pemicu pressing (lawan membelakangi, kontrol buruk, terjepit di garis samping) & menggiring ke sayap (0 = mati) */
   trig: 1,
   /** keunggulan kandang (poin atribut mental & teknik) */
@@ -1027,6 +1069,10 @@ export class Match {
   shape: [string, string] = ['4-3-3', '4-3-3'];
   /** v19 jumlah xG peluang tiap tim (pelatih membaca jalannya laga) */
   xgFor: [number, number] = [0, 0];
+  /** v33 jumlah peluang gol nyata (setelah blok, kiper, tekanan) tiap tim: hadiah pelatihan RL */
+  pGoal: [number, number] = [0, 0];
+  /** v33 kebijakan keputusan tiap tim (pelatih RL mengganti salah satunya) */
+  pol: [PolicySet, PolicySet] = [RL_POLICY, RL_POLICY];
   /** v19 keadaan pelatih tiap tim */
   private coach: [Coach, Coach];
   private coachNext: [number, number] = [0, 0];
@@ -3495,6 +3541,10 @@ export class Match {
     const progW = TUNE.progW + (TUNE.progWS - TUNE.progW) * sm;
     const keepW = TUNE.keep + (TUNE.keepS - TUNE.keep) * sm;
     const carryB = TUNE.carryBase + (TUNE.carryS - TUNE.carryBase) * sm;
+    // v33 kebijakan hasil reinforcement learning, juga sebesar kecerdasan pemain
+    const P = this.pol[side][policyGroup(c.p.slot)];
+    const L = TUNE.rl > 0 ? this.smart(c, a.dec, a.vis, a.ant) * TUNE.rl : 0;
+    const fin = fx > 70 ? 1 : 0;
 
     // ruang di depan: lawan terdekat di koridor selebar 14 m ke arah gawang lawan
     let space = 20;
@@ -3516,7 +3566,8 @@ export class Match {
     if (distGoal < 35 && !keeper && !noShot) {
       const xg = this.xgAt(fx, fy);
       const v =
-        this.shotProb(c, fx, fy, pressure) * TUNE.shootV * k.shoot * (1 + rk.shoot) -
+        this.shotProb(c, fx, fy, pressure) * TUNE.shootV * k.shoot * (1 + rk.shoot) * Math.max(0.2, 1 + L * P.shV) +
+        L * (P.sh + (distGoal > 22 ? P.shFar : 0)) -
         // pemain yang frustrasi lebih nekat menembak dari jauh
         (distGoal > 22 ? 0.14 - a.lon * 0.009 - rk.long - c.frus * 0.1 : 0) +
         (distGoal < 20 ? 0.12 : 0) +
@@ -3556,14 +3607,16 @@ export class Match {
       // pengumpan kreatif (vision, flair) lebih berani dan lebih mencari rekan di posisi berbahaya
       const daring = Math.max(0.3, 1.25 - a.vis * 0.0125 - a.fla * 0.0075 - rk.create);
       const danger = (0.6 + a.vis * 0.03) * eye;
+      const safe = risk < 0.25 && open > 5 && !air;
       let v =
         0.22 +
-        (prog / progW) * k.prog * cp +
-        Math.min(open, 8) * 0.03 -
-        risk * (cross ? 0.2 : air ? 0.3 : TUNE.risk) * (fx > 70 ? 0.6 : 1) * k.risk * daring -
+        (prog / progW) * k.prog * cp * Math.max(0, 1 + L * P.paProg) +
+        Math.min(open, 8) * (0.03 + L * P.paOpen) -
+        risk * (cross ? 0.2 : air ? 0.3 : TUNE.risk) * (fx > 70 ? 0.6 : 1) * k.risk * daring * Math.max(0.2, 1 + L * P.paRisk) +
+        L * (P.pa + (air && !cross ? P.paAir : 0) + (progress < 0 ? P.paBack : 0) + (safe ? P.paKeep : 0) + (m.run > 0 ? P.paRun : 0) + fin * P.paFin) -
         (d > 30 ? 0.12 : 0) +
         (air ? k.long + rk.direct * (d > 28 ? 1 : 0.3) : 0) +
-        this.xgAt(mfx, mfy) * TUNE.xgPassW * clamp(open / 4, 0.3, 1.2) * danger +
+        this.xgAt(mfx, mfy) * TUNE.xgPassW * clamp(open / 4, 0.3, 1.2) * danger * Math.max(0, 1 + L * P.paXg) +
         (m.run > 0 ? TUNE.runPass : 0) +
         // umpan aman ke rekan yang bebas menjaga penguasaan bola (membangun serangan)
         // (ruang luas di depan pembawa bola: lebih baik dibawa maju daripada dioper ke samping)
@@ -3581,7 +3634,7 @@ export class Match {
       if (TUNE.ground > 0 && isCentralMid(m.p.slot) && !air && risk < 0.35 && open > 3) v += TUNE.midPass * (0.6 + 0.4 * this.iq[side]);
       if (cross) {
         const [lx, ly] = this.crossSpot(mfx, mfy);
-        v += TUNE.cross + k.cross + rk.cross + (a.cro - 10) * 0.02 + (m.p.a.hea - 10) * 0.015 + this.xgAt(lx, ly) * 0.8;
+        v += TUNE.cross + L * P.cr + k.cross + rk.cross + (a.cro - 10) * 0.02 + (m.p.a.hea - 10) * 0.015 + this.xgAt(lx, ly) * 0.8;
       }
       // target man: dicari dengan bola atas, apalagi kalau kuat & jago duel udara
       if (air && m.rk.target > 0) v += m.rk.target * (0.06 + (m.p.a.hea + m.p.a.str - 20) * 0.006);
@@ -3627,13 +3680,13 @@ export class Match {
         0.15 + (a.vis - 10) * 0.035 + (a.pas - 10) * 0.02 + (a.dec - 10) * 0.01 + (a.fla - 10) * 0.01 +
         this.xgAt(tfx, tfy) * TUNE.xgPassW * 0.9 * (0.4 + 0.8 * win) + (m.run > 0 ? 0.1 : 0) + (k.prog - 1) * 0.2 + rk.create -
         // v23 pemain kreatif berani mencoba umpan yang lebih berisiko
-        ((chip ? 0.25 : trisk * 0.45) + (1 - win) * TUNE.spaceLose) * (1 - 0.4 * cr) + cr * 0.15 + team;
+        ((chip ? 0.25 : trisk * 0.45 * Math.max(0.2, 1 + L * P.thRisk)) + (1 - win) * TUNE.spaceLose) * (1 - 0.4 * cr) + cr * 0.15 + team + L * P.th;
       options.push([tv + noise(), () => this.passTo(c, m, chip, false, chip ? 0.3 : 0, false, [tfx, tfy]), Math.atan2(ty - c.y, tx - c.x)]);
     }
 
     // buang bola dari kotak sendiri saat ditekan
     if (fx < 20 && pressure > 0 && !keeper) {
-      const v = 0.2 + pressure * 0.45 - (a.tec + a.cmp) / 80 + rk.clear;
+      const v = 0.2 + pressure * 0.45 - (a.tec + a.cmp) / 80 + rk.clear + L * P.cl;
       options.push([v + noise(), () => this.clear(c)]);
     }
 
@@ -3646,7 +3699,8 @@ export class Match {
       const flank = (isWing(c.p.slot) || isWideMid(c.p.slot)) && Math.abs(fy - 34) > 14 ? TUNE.flankDrib : 0;
       const [cv, ctx, cty] = this.bestCarry(c, fx, fy, progW);
       const v =
-        carryB + k.drib + rk.carry + flair + cv + Math.min(space, 15) * TUNE.carrySpace - pressure * 0.25 - corner + indiv + flank * 0.5 +
+        carryB + k.drib + rk.carry + flair + cv + Math.min(space, 15) * (TUNE.carrySpace + L * P.caSpace) - pressure * 0.25 - corner + indiv + flank * 0.5 +
+        L * (P.ca + pressure * P.caPress + fin * P.caFin) +
         (TUNE.teamSmart > 0 ? selfish * (pressure > 0 ? 1.5 : 0) : selfish);
       options.push([v + noise(), () => this.dribble(c, ctx, cty, space)]);
       // melewati lawan yang menghadang (take-on): winger dengan dribbling, flair, bravery, technique
@@ -3655,7 +3709,7 @@ export class Match {
         const tv =
           TUNE.takeOn + k.drib + rk.takeOn + (a.dri - 10) * 0.035 + (a.fla - 10) * 0.03 + (a.bra - 10) * 0.012 + (a.tec - 10) * 0.01 +
           (a.agi - 10) * 0.01 - (o.p.a.tck - 10) * 0.01 + (fx > 60 ? 0.12 : 0) + (fx > 80 ? 0.06 : 0) - (fx < 45 ? 0.15 : 0) +
-          (TUNE.teamSmart > 0 ? selfish * (pressure > 0 || space < 3 ? 1.5 : 0) : selfish) + indiv * 1.2 + flank;
+          (TUNE.teamSmart > 0 ? selfish * (pressure > 0 || space < 3 ? 1.5 : 0) : selfish) + indiv * 1.2 + flank + L * P.to;
         options.push([tv + noise(), () => this.takeOn(c, o)]);
       }
     }
@@ -3680,7 +3734,7 @@ export class Match {
     }
     best[1]();
     // (Math.max: aksi seperti umpan silang yang terblok sudah memberi jeda lebih lama)
-    c.cool = Math.max(c.cool, keeper ? 0.6 : this.owner === c ? (0.35 + this.rng.float(0, 0.4)) * k.hold : 0.5 - a.dec * 0.012);
+    c.cool = Math.max(c.cool, keeper ? 0.6 : this.owner === c ? (0.35 + this.rng.float(0, 0.4)) * k.hold * clamp(1 + L * P.hold, 0.5, 1.6) : 0.5 - a.dec * 0.012);
   }
 
   /** Tendang bola: arah, kecepatan, dan tinggi dihitung supaya sampai di titik tujuan */
@@ -4014,6 +4068,7 @@ export class Match {
     // penalti & tendangan bebas langsung: peluangnya sudah berupa persentase nyata (tanpa pengali tembakan)
     // peluang jenuh (dari dekat pun tidak pasti gol); kiper yang menutup sudut mengurangi peluang
     p = setPiece ? clamp(p, 0.004, 0.85) : clamp(this.sat(p * TUNE.shotK, skill) * (header ? 1 : 1 - this.gkCoverAt(side, fx, fy, a)), 0.004, 0.85);
+    if (!forced && !blocker) this.pGoal[side] += p;
     const onTarget = clamp(Math.max(p + 0.12, TUNE.onT + skill * foot * 0.017 - dist * 0.004 - pressure * 0.08), 0, 0.95);
     const r = this.rng.next();
     const outcome: Shot['outcome'] = forced ? forced.outcome : blocker ? 'miss' : r < p ? 'goal' : r < onTarget ? 'save' : 'miss';
